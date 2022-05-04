@@ -127,7 +127,8 @@ let format_struct_name (fmt : Format.formatter) (v : Dcalc.Ast.StructName.t) :
           (to_ascii (Format.asprintf "%a" Dcalc.Ast.StructName.format_t v))))
 
 let format_struct_field_name
-    (fmt : Format.formatter) (v : Dcalc.Ast.StructFieldName.t) : unit =
+    (fmt : Format.formatter)
+    (v : Dcalc.Ast.StructFieldName.t) : unit =
   Format.fprintf fmt "%s"
     (avoid_keywords
        (to_ascii (Format.asprintf "%a" Dcalc.Ast.StructFieldName.format_t v)))
@@ -140,7 +141,8 @@ let format_enum_name (fmt : Format.formatter) (v : Dcalc.Ast.EnumName.t) : unit
           (to_ascii (Format.asprintf "%a" Dcalc.Ast.EnumName.format_t v))))
 
 let format_enum_cons_name
-    (fmt : Format.formatter) (v : Dcalc.Ast.EnumConstructor.t) : unit =
+    (fmt : Format.formatter)
+    (v : Dcalc.Ast.EnumConstructor.t) : unit =
   Format.fprintf fmt "%s"
     (avoid_keywords
        (to_ascii (Format.asprintf "%a" Dcalc.Ast.EnumConstructor.format_t v)))
@@ -152,7 +154,8 @@ let rec format_typ (fmt : Format.formatter) (typ : Dcalc.Ast.typ Pos.marked) :
     unit =
   let format_typ = format_typ in
   let format_typ_with_parens
-      (fmt : Format.formatter) (t : Dcalc.Ast.typ Pos.marked) =
+      (fmt : Format.formatter)
+      (t : Dcalc.Ast.typ Pos.marked) =
     if typ_needs_parens t then Format.fprintf fmt "(%a)" format_typ t
     else Format.fprintf fmt "%a" format_typ t
   in
@@ -258,8 +261,9 @@ let format_exception (fmt : Format.formatter) (exc : L.except Pos.marked) : unit
         (Pos.get_law_info pos)
 
 let rec format_expression
-    (ctx : Dcalc.Ast.decl_ctx) (fmt : Format.formatter) (e : expr Pos.marked) :
-    unit =
+    (ctx : Dcalc.Ast.decl_ctx)
+    (fmt : Format.formatter)
+    (e : expr Pos.marked) : unit =
   match Pos.unmark e with
   | EVar v -> format_var fmt v
   | EFunc f -> format_toplevel_name fmt f
@@ -344,8 +348,9 @@ let rec format_expression
   | EOp (Unop op) -> Format.fprintf fmt "%a" format_unop (op, Pos.no_pos)
 
 let rec format_statement
-    (ctx : Dcalc.Ast.decl_ctx) (fmt : Format.formatter) (s : stmt Pos.marked) :
-    unit =
+    (ctx : Dcalc.Ast.decl_ctx)
+    (fmt : Format.formatter)
+    (s : stmt Pos.marked) : unit =
   match Pos.unmark s with
   | SInnerFuncDef (name, { func_params; func_body }) ->
       Format.fprintf fmt "@[<hov 4>def %a(%a):@\n%a@]" format_var
