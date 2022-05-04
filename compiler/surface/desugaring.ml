@@ -66,7 +66,7 @@ let disambiguate_constructor
     (pos : Pos.t) : Scopelang.Ast.EnumName.t * Scopelang.Ast.EnumConstructor.t =
   let enum, constructor =
     match constructor with
-    | [ c ] -> c
+    | [c] -> c
     | _ ->
       Errors.raise_spanned_error pos
         "The deep pattern matching syntactic sugar is not yet supported"
@@ -102,7 +102,7 @@ let disambiguate_constructor
       in
       try
         let c_uid = Scopelang.Ast.EnumMap.find e_uid possible_c_uids in
-        (e_uid, c_uid)
+        e_uid, c_uid
       with Not_found ->
         Errors.raise_spanned_error pos "Enum %s does not contain case %s"
           (Pos.unmark enum) (Pos.unmark constructor)
@@ -141,23 +141,23 @@ let rec translate_expr
             Bindlib.unbox
               (Desugared.Ast.make_abs [| nop_var |]
                  (Bindlib.box (Desugared.Ast.ELit (Dcalc.Ast.LBool false), pos))
-                 pos [ tau ] pos)
+                 pos [tau] pos)
           else
             let ctxt, binding_var =
               Name_resolution.add_def_local_var ctxt binding
             in
             let e2 = translate_expr scope inside_definition_of ctxt e2 in
             Bindlib.unbox
-              (Desugared.Ast.make_abs [| binding_var |] e2 pos [ tau ] pos))
+              (Desugared.Ast.make_abs [| binding_var |] e2 pos [tau] pos))
         (Scopelang.Ast.EnumMap.find enum_uid ctxt.enums)
     in
     Bindlib.box_apply
-      (fun e1_sub -> (Desugared.Ast.EMatch (e1_sub, enum_uid, cases), pos))
+      (fun e1_sub -> Desugared.Ast.EMatch (e1_sub, enum_uid, cases), pos)
       (translate_expr scope inside_definition_of ctxt e1_sub)
   | IfThenElse (e_if, e_then, e_else) ->
     Bindlib.box_apply3
       (fun e_if e_then e_else ->
-        (Desugared.Ast.EIfThenElse (e_if, e_then, e_else), pos))
+        Desugared.Ast.EIfThenElse (e_if, e_then, e_else), pos)
       (rec_helper e_if) (rec_helper e_then) (rec_helper e_else)
   | Binop (op, e1, e2) ->
     let op_term =
@@ -166,7 +166,7 @@ let rec translate_expr
         op
     in
     Bindlib.box_apply2
-      (fun e1 e2 -> (Desugared.Ast.EApp (op_term, [ e1; e2 ]), pos))
+      (fun e1 e2 -> Desugared.Ast.EApp (op_term, [e1; e2]), pos)
       (rec_helper e1) (rec_helper e2)
   | Unop (op, e) ->
     let op_term =
@@ -175,7 +175,7 @@ let rec translate_expr
         op
     in
     Bindlib.box_apply
-      (fun e -> (Desugared.Ast.EApp (op_term, [ e ]), pos))
+      (fun e -> Desugared.Ast.EApp (op_term, [e]), pos)
       (rec_helper e)
   | Literal l ->
     let untyped_term =
@@ -366,7 +366,7 @@ let rec translate_expr
             Scopelang.Ast.StructMap.choose x_possible_structs
           in
           Bindlib.box_apply
-            (fun e -> (Desugared.Ast.EStructAccess (e, f_uid, s_uid), pos))
+            (fun e -> Desugared.Ast.EStructAccess (e, f_uid, s_uid), pos)
             e
       | Some c_name -> (
         try
@@ -376,7 +376,7 @@ let rec translate_expr
           try
             let f_uid = Scopelang.Ast.StructMap.find c_uid x_possible_structs in
             Bindlib.box_apply
-              (fun e -> (Desugared.Ast.EStructAccess (e, f_uid, c_uid), pos))
+              (fun e -> Desugared.Ast.EStructAccess (e, f_uid, c_uid), pos)
               e
           with Not_found ->
             Errors.raise_spanned_error pos "Struct %s does not contain field %s"
@@ -386,7 +386,7 @@ let rec translate_expr
             "Struct %s has not been defined before" (Pos.unmark c_name))))
   | FunCall (f, arg) ->
     Bindlib.box_apply2
-      (fun f arg -> (Desugared.Ast.EApp (f, [ arg ]), pos))
+      (fun f arg -> Desugared.Ast.EApp (f, [arg]), pos)
       (rec_helper f) (rec_helper arg)
   | StructLit (s_name, fields) ->
     let s_uid =
@@ -414,8 +414,8 @@ let rec translate_expr
           | Some e_field ->
             Errors.raise_multispanned_error
               [
-                (None, Pos.get_position f_e);
-                (None, Pos.get_position (Bindlib.unbox e_field));
+                None, Pos.get_position f_e;
+                None, Pos.get_position (Bindlib.unbox e_field);
               ]
               "The field %a has been defined twice:"
               Scopelang.Ast.StructFieldName.format_t f_uid);
@@ -434,7 +434,7 @@ let rec translate_expr
       expected_s_fields;
 
     Bindlib.box_apply
-      (fun s_fields -> (Desugared.Ast.EStruct (s_uid, s_fields), pos))
+      (fun s_fields -> Desugared.Ast.EStruct (s_uid, s_fields), pos)
       (LiftStructFieldMap.lift_box s_fields)
   | EnumInject (enum, constructor, payload) -> (
     let possible_c_uids =
@@ -516,7 +516,7 @@ let rec translate_expr
         cases
     in
     Bindlib.box_apply2
-      (fun e1 cases_d -> (Desugared.Ast.EMatch (e1, e_uid, cases_d), pos))
+      (fun e1 cases_d -> Desugared.Ast.EMatch (e1, e_uid, cases_d), pos)
       e1
       (LiftEnumConstructorMap.lift_box cases_d)
   | TestMatchCase (e1, pattern) ->
@@ -541,15 +541,15 @@ let rec translate_expr
                       (Dcalc.Ast.LBool
                          (Scopelang.Ast.EnumConstructor.compare c_uid c_uid' = 0)),
                     pos ))
-               pos [ tau ] pos))
+               pos [tau] pos))
         (Scopelang.Ast.EnumMap.find enum_uid ctxt.enums)
     in
     Bindlib.box_apply
-      (fun e -> (Desugared.Ast.EMatch (e, enum_uid, cases), pos))
+      (fun e -> Desugared.Ast.EMatch (e, enum_uid, cases), pos)
       (translate_expr scope inside_definition_of ctxt e1)
   | ArrayLit es ->
     Bindlib.box_apply
-      (fun es -> (Desugared.Ast.EArray es, pos))
+      (fun es -> Desugared.Ast.EArray es, pos)
       (Bindlib.box_list (List.map rec_helper es))
   | CollectionOp
       ( (((Ast.Filter | Ast.Map) as op'), _pos_op'),
@@ -562,7 +562,7 @@ let rec translate_expr
       Desugared.Ast.make_abs [| param |]
         (translate_expr scope inside_definition_of ctxt predicate)
         pos
-        [ (Scopelang.Ast.TAny, pos) ]
+        [Scopelang.Ast.TAny, pos]
         pos
     in
     Bindlib.box_apply2
@@ -574,7 +574,7 @@ let rec translate_expr
                   | Ast.Filter -> Dcalc.Ast.Binop Dcalc.Ast.Filter
                   | _ -> assert false (* should not happen *)),
                 pos ),
-              [ f_pred; collection ] ),
+              [f_pred; collection] ),
           pos ))
       f_pred collection
   | CollectionOp
@@ -606,7 +606,7 @@ let rec translate_expr
       Desugared.Ast.make_abs [| param |]
         (translate_expr scope inside_definition_of ctxt predicate)
         pos
-        [ (Scopelang.Ast.TAny, pos) ]
+        [Scopelang.Ast.TAny, pos]
         pos
     in
     let f_pred_var =
@@ -632,8 +632,8 @@ let rec translate_expr
               ( ( Desugared.Ast.EApp
                     ( (Desugared.Ast.EOp (Dcalc.Ast.Binop cmp_op), pos_op'),
                       [
-                        (Desugared.Ast.EApp (f_pred_var_e, [ acc_var_e ]), pos);
-                        (Desugared.Ast.EApp (f_pred_var_e, [ item_var_e ]), pos);
+                        Desugared.Ast.EApp (f_pred_var_e, [acc_var_e]), pos;
+                        Desugared.Ast.EApp (f_pred_var_e, [item_var_e]), pos;
                       ] ),
                   pos ),
                 acc_var_e,
@@ -643,7 +643,7 @@ let rec translate_expr
     in
     let fold_f =
       Desugared.Ast.make_abs [| acc_var; item_var |] fold_body pos
-        [ (Scopelang.Ast.TAny, pos); (Scopelang.Ast.TAny, pos) ]
+        [Scopelang.Ast.TAny, pos; Scopelang.Ast.TAny, pos]
         pos
     in
     let fold =
@@ -651,7 +651,7 @@ let rec translate_expr
         (fun fold_f collection init ->
           ( Desugared.Ast.EApp
               ( (Desugared.Ast.EOp (Dcalc.Ast.Ternop Dcalc.Ast.Fold), pos),
-                [ fold_f; init; collection ] ),
+                [fold_f; init; collection] ),
             pos ))
         fold_f collection init
     in
@@ -706,7 +706,7 @@ let rec translate_expr
           (fun predicate acc ->
             ( Desugared.Ast.EApp
                 ( (Desugared.Ast.EOp (Dcalc.Ast.Binop op), Pos.get_position op'),
-                  [ acc; predicate ] ),
+                  [acc; predicate] ),
               pos ))
           (translate_expr scope inside_definition_of ctxt predicate)
           acc
@@ -724,7 +724,7 @@ let rec translate_expr
                    ( ( Desugared.Ast.EApp
                          ( ( Desugared.Ast.EOp (Dcalc.Ast.Binop cmp_op),
                              Pos.get_position op' ),
-                           [ acc; tmp ] ),
+                           [acc; tmp] ),
                        pos ),
                      acc,
                      tmp ),
@@ -749,12 +749,12 @@ let rec translate_expr
       | Ast.Aggregate (Ast.AggregateExtremum (max_or_min, t, _)) ->
         let op_kind, typ =
           match t with
-          | Ast.Integer -> (Dcalc.Ast.KInt, (Scopelang.Ast.TLit TInt, pos))
-          | Ast.Decimal -> (Dcalc.Ast.KRat, (Scopelang.Ast.TLit TRat, pos))
-          | Ast.Money -> (Dcalc.Ast.KMoney, (Scopelang.Ast.TLit TMoney, pos))
+          | Ast.Integer -> Dcalc.Ast.KInt, (Scopelang.Ast.TLit TInt, pos)
+          | Ast.Decimal -> Dcalc.Ast.KRat, (Scopelang.Ast.TLit TRat, pos)
+          | Ast.Money -> Dcalc.Ast.KMoney, (Scopelang.Ast.TLit TMoney, pos)
           | Ast.Duration ->
-            (Dcalc.Ast.KDuration, (Scopelang.Ast.TLit TDuration, pos))
-          | Ast.Date -> (Dcalc.Ast.KDate, (Scopelang.Ast.TLit TDate, pos))
+            Dcalc.Ast.KDuration, (Scopelang.Ast.TLit TDuration, pos)
+          | Ast.Date -> Dcalc.Ast.KDate, (Scopelang.Ast.TLit TDate, pos)
           | _ ->
             Errors.raise_spanned_error pos
               "It is impossible to compute the %s of two values of type %a"
@@ -793,8 +793,8 @@ let rec translate_expr
             ( Desugared.Ast.EAbs
                 ( (binder, pos),
                   [
-                    (Scopelang.Ast.TLit t, Pos.get_position op');
-                    (Scopelang.Ast.TAny, pos)
+                    Scopelang.Ast.TLit t, Pos.get_position op';
+                    Scopelang.Ast.TAny, pos
                     (* we put any here because the type of the elements of the
                        arrays is not always the type of the accumulator; for
                        instance in AggregateCount. *);
@@ -828,7 +828,7 @@ let rec translate_expr
       (fun f collection init ->
         ( Desugared.Ast.EApp
             ( (Desugared.Ast.EOp (Dcalc.Ast.Ternop Dcalc.Ast.Fold), pos),
-              [ f; init; collection ] ),
+              [f; init; collection] ),
           pos ))
       f collection init
   | MemCollection (member, collection) ->
@@ -846,7 +846,7 @@ let rec translate_expr
                 [
                   ( Desugared.Ast.EApp
                       ( (Desugared.Ast.EOp (Dcalc.Ast.Binop Dcalc.Ast.Eq), pos),
-                        [ member; param ] ),
+                        [member; param] ),
                     pos );
                   acc;
                 ] ),
@@ -860,8 +860,8 @@ let rec translate_expr
           ( Desugared.Ast.EAbs
               ( (binder, pos),
                 [
-                  (Scopelang.Ast.TLit Dcalc.Ast.TBool, pos);
-                  (Scopelang.Ast.TAny, pos);
+                  Scopelang.Ast.TLit Dcalc.Ast.TBool, pos;
+                  Scopelang.Ast.TAny, pos;
                 ] ),
             pos ))
         (Bindlib.bind_mvar [| acc_var; param_var |] f_body)
@@ -870,7 +870,7 @@ let rec translate_expr
       (fun f collection init ->
         ( Desugared.Ast.EApp
             ( (Desugared.Ast.EOp (Dcalc.Ast.Ternop Dcalc.Ast.Fold), pos),
-              [ f; init; collection ] ),
+              [f; init; collection] ),
           pos ))
       f collection init
   | Builtin IntToDec ->
@@ -894,10 +894,10 @@ and disambiguate_match_and_build_expression
     Desugared.Ast.expr Pos.marked Bindlib.box Scopelang.Ast.EnumConstructorMap.t
     * Scopelang.Ast.EnumName.t =
   let create_var = function
-    | None -> (ctxt, (Desugared.Ast.Var.make ("_", Pos.no_pos), Pos.no_pos))
+    | None -> ctxt, (Desugared.Ast.Var.make ("_", Pos.no_pos), Pos.no_pos)
     | Some param ->
       let ctxt, param_var = Name_resolution.add_def_local_var ctxt param in
-      (ctxt, (param_var, Pos.get_position param))
+      ctxt, (param_var, Pos.get_position param)
   in
   let bind_case_body
       (c_uid : Dcalc.Ast.EnumConstructor.t)
@@ -946,8 +946,8 @@ and disambiguate_match_and_build_expression
       | Some e_case ->
         Errors.raise_multispanned_error
           [
-            (None, Pos.get_position case.match_case_expr);
-            (None, Pos.get_position (Bindlib.unbox e_case));
+            None, Pos.get_position case.match_case_expr;
+            None, Pos.get_position (Bindlib.unbox e_case);
           ]
           "The constructor %a has been matched twice:"
           Scopelang.Ast.EnumConstructor.format_t c_uid);
@@ -955,9 +955,7 @@ and disambiguate_match_and_build_expression
       let case_body =
         translate_expr scope inside_definition_of ctxt case.Ast.match_case_expr
       in
-      let e_binder =
-        Bindlib.bind_mvar (Array.of_list [ param_var ]) case_body
-      in
+      let e_binder = Bindlib.bind_mvar (Array.of_list [param_var]) case_body in
       let case_expr =
         bind_case_body c_uid e_uid ctxt param_pos case_body e_binder
       in
@@ -969,7 +967,7 @@ and disambiguate_match_and_build_expression
       let raise_wildcard_not_last_case_err () =
         Errors.raise_multispanned_error
           [
-            (Some "Not ending wildcard:", case_pos);
+            Some "Not ending wildcard:", case_pos;
             ( Some "Next reachable case:",
               curr_index + 1 |> List.nth cases |> Pos.get_position );
           ]
@@ -1015,7 +1013,7 @@ and disambiguate_match_and_build_expression
           translate_expr scope inside_definition_of ctxt match_case_expr
         in
         let e_binder =
-          Bindlib.bind_mvar (Array.of_list [ payload_var ]) case_body
+          Bindlib.bind_mvar (Array.of_list [payload_var]) case_body
         in
 
         (* For each missing cases, binds the wildcard payload. *)
@@ -1035,7 +1033,7 @@ and disambiguate_match_and_build_expression
       (Scopelang.Ast.EnumConstructorMap.empty, None, 0)
       cases
   in
-  (expr, Option.get e_name)
+  expr, Option.get e_name
   [@@ocamlformat "wrap-comments=false"]
 
 (** {1 Translating scope definitions} *)
@@ -1047,7 +1045,7 @@ let merge_conditions
     (precond : Desugared.Ast.expr Pos.marked Bindlib.box option)
     (cond : Desugared.Ast.expr Pos.marked Bindlib.box option)
     (default_pos : Pos.t) : Desugared.Ast.expr Pos.marked Bindlib.box =
-  match (precond, cond) with
+  match precond, cond with
   | Some precond, Some cond ->
     let op_term =
       ( Desugared.Ast.EOp (Dcalc.Ast.Binop Dcalc.Ast.And),
@@ -1055,8 +1053,7 @@ let merge_conditions
     in
     Bindlib.box_apply2
       (fun precond cond ->
-        ( Desugared.Ast.EApp (op_term, [ precond; cond ]),
-          Pos.get_position precond ))
+        Desugared.Ast.EApp (op_term, [precond; cond]), Pos.get_position precond)
       precond cond
   | Some cond, None | None, Some cond -> cond
   | None, None ->
@@ -1088,7 +1085,7 @@ let process_default
       (let def_key_typ =
          Name_resolution.get_def_typ ctxt (Pos.unmark def_key)
        in
-       match (Pos.unmark def_key_typ, param_uid) with
+       match Pos.unmark def_key_typ, param_uid with
        | Scopelang.Ast.TArrow (t_in, _), Some param_uid ->
          Some (Pos.unmark param_uid, t_in)
        | Scopelang.Ast.TArrow _, None ->
@@ -1128,10 +1125,10 @@ let process_def
   (* We add to the name resolution context the name of the parameter variable *)
   let param_uid, new_ctxt =
     match def.definition_parameter with
-    | None -> (None, ctxt)
+    | None -> None, ctxt
     | Some param ->
       let ctxt, param_var = Name_resolution.add_def_local_var ctxt param in
-      (Some (Pos.same_pos_as param_var param), ctxt)
+      Some (Pos.same_pos_as param_var param), ctxt
   in
   let scope_updated =
     let scope_def = Desugared.Ast.ScopeDefMap.find def_key scope.scope_defs in
@@ -1139,7 +1136,7 @@ let process_def
     let parent_rules =
       match def.Ast.definition_exception_to with
       | NotAnException ->
-        (Desugared.Ast.RuleSet.empty, Pos.get_position def.Ast.definition_name)
+        Desugared.Ast.RuleSet.empty, Pos.get_position def.Ast.definition_name
       | UnlabeledException -> (
         match scope_def_ctxt.default_exception_rulename with
         (* This should have been caught previously by
@@ -1147,7 +1144,7 @@ let process_def
         | None | Some (Name_resolution.Ambiguous _) ->
           assert false (* should not happen *)
         | Some (Name_resolution.Unique (name, pos)) ->
-          (Desugared.Ast.RuleSet.singleton name, pos))
+          Desugared.Ast.RuleSet.singleton name, pos)
       | ExceptionToLabel label -> (
         try
           let label_id =
@@ -1295,8 +1292,8 @@ let check_unlabeled_exception
           "This exception does not have a corresponding definition"
       | Some (Ambiguous pos) ->
         Errors.raise_multispanned_error
-          ([ (Some "Ambiguous exception", Pos.get_position item) ]
-          @ List.map (fun p -> (Some "Candidate definition", p)) pos)
+          ([Some "Ambiguous exception", Pos.get_position item]
+          @ List.map (fun p -> Some "Candidate definition", p) pos)
           "This exception can refer to several definitions. Try using labels \
            to disambiguate"
       | Some (Unique _) -> ()))

@@ -47,13 +47,13 @@ type qident = ident Pos.marked list
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map"; "ident_map" ];
+      ancestors = ["Pos.marked_map"; "ident_map"];
       name = "qident_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter"; "ident_iter" ];
+        ancestors = ["Pos.marked_iter"; "ident_iter"];
         name = "qident_iter";
       }]
 
@@ -70,13 +70,13 @@ type primitive_typ =
   visitors
     {
       variety = "map";
-      ancestors = [ "constructor_map" ];
+      ancestors = ["constructor_map"];
       name = "primitive_typ_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "constructor_iter" ];
+        ancestors = ["constructor_iter"];
         name = "primitive_typ_iter";
       }]
 
@@ -87,13 +87,13 @@ type base_typ_data =
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map"; "primitive_typ_map" ];
+      ancestors = ["Pos.marked_map"; "primitive_typ_map"];
       name = "base_typ_data_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter"; "primitive_typ_iter" ];
+        ancestors = ["Pos.marked_iter"; "primitive_typ_iter"];
         name = "base_typ_data_iter";
       }]
 
@@ -102,14 +102,14 @@ type base_typ = Condition | Data of base_typ_data
   visitors
     {
       variety = "map";
-      ancestors = [ "base_typ_data_map" ];
+      ancestors = ["base_typ_data_map"];
       name = "base_typ_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "base_typ_data_iter" ];
+        ancestors = ["base_typ_data_iter"];
         name = "base_typ_iter";
         nude = true;
       }]
@@ -122,14 +122,14 @@ type func_typ = {
   visitors
     {
       variety = "map";
-      ancestors = [ "base_typ_map" ];
+      ancestors = ["base_typ_map"];
       name = "func_typ_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "base_typ_iter" ];
+        ancestors = ["base_typ_iter"];
         name = "func_typ_iter";
         nude = true;
       }]
@@ -139,14 +139,14 @@ type typ = Base of base_typ | Func of func_typ
   visitors
     {
       variety = "map";
-      ancestors = [ "func_typ_map" ];
+      ancestors = ["func_typ_map"];
       name = "typ_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "func_typ_iter" ];
+        ancestors = ["func_typ_iter"];
         name = "typ_iter";
         nude = true;
       }]
@@ -159,13 +159,13 @@ type struct_decl_field = {
   visitors
     {
       variety = "map";
-      ancestors = [ "typ_map"; "ident_map" ];
+      ancestors = ["typ_map"; "ident_map"];
       name = "struct_decl_field_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "typ_iter"; "ident_iter" ];
+        ancestors = ["typ_iter"; "ident_iter"];
         name = "struct_decl_field_iter";
       }]
 
@@ -177,13 +177,13 @@ type struct_decl = {
   visitors
     {
       variety = "map";
-      ancestors = [ "struct_decl_field_map" ];
+      ancestors = ["struct_decl_field_map"];
       name = "struct_decl_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "struct_decl_field_iter" ];
+        ancestors = ["struct_decl_field_iter"];
         name = "struct_decl_iter";
       }]
 
@@ -195,14 +195,14 @@ type enum_decl_case = {
   visitors
     {
       variety = "map";
-      ancestors = [ "typ_map" ];
+      ancestors = ["typ_map"];
       name = "enum_decl_case_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "typ_iter" ];
+        ancestors = ["typ_iter"];
         name = "enum_decl_case_iter";
         nude = true;
       }]
@@ -215,14 +215,14 @@ type enum_decl = {
   visitors
     {
       variety = "map";
-      ancestors = [ "enum_decl_case_map" ];
+      ancestors = ["enum_decl_case_map"];
       name = "enum_decl_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "enum_decl_case_iter" ];
+        ancestors = ["enum_decl_case_iter"];
         name = "enum_decl_iter";
         nude = true;
       }]
@@ -234,13 +234,13 @@ type match_case_pattern =
   visitors
     {
       variety = "map";
-      ancestors = [ "ident_map"; "constructor_map"; "Pos.marked_map" ];
+      ancestors = ["ident_map"; "constructor_map"; "Pos.marked_map"];
       name = "match_case_pattern_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "ident_iter"; "constructor_iter"; "Pos.marked_iter" ];
+        ancestors = ["ident_iter"; "constructor_iter"; "Pos.marked_iter"];
         name = "match_case_pattern_iter";
       }]
 
@@ -268,14 +268,14 @@ type binop =
   visitors
     {
       variety = "map";
-      ancestors = [ "op_kind_map" ];
+      ancestors = ["op_kind_map"];
       name = "binop_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "op_kind_iter" ];
+        ancestors = ["op_kind_iter"];
         name = "binop_iter";
         nude = true;
       }]
@@ -285,14 +285,14 @@ type unop = Not | Minus of op_kind
   visitors
     {
       variety = "map";
-      ancestors = [ "op_kind_map" ];
+      ancestors = ["op_kind_map"];
       name = "unop_map";
       nude = true;
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "op_kind_iter" ];
+        ancestors = ["op_kind_iter"];
         name = "unop_iter";
         nude = true;
       }]
@@ -317,13 +317,13 @@ type literal_date = {
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map" ];
+      ancestors = ["Pos.marked_map"];
       name = "literal_date_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter" ];
+        ancestors = ["Pos.marked_iter"];
         name = "literal_date_iter";
       }]
 
@@ -467,13 +467,13 @@ type exception_to =
   visitors
     {
       variety = "map";
-      ancestors = [ "ident_map"; "Pos.marked_map" ];
+      ancestors = ["ident_map"; "Pos.marked_map"];
       name = "exception_to_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "ident_iter"; "Pos.marked_iter" ];
+        ancestors = ["ident_iter"; "Pos.marked_iter"];
         name = "exception_to_iter";
       }]
 
@@ -491,13 +491,13 @@ type rule = {
   visitors
     {
       variety = "map";
-      ancestors = [ "expression_map"; "qident_map"; "exception_to_map" ];
+      ancestors = ["expression_map"; "qident_map"; "exception_to_map"];
       name = "rule_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "expression_iter"; "qident_iter"; "exception_to_iter" ];
+        ancestors = ["expression_iter"; "qident_iter"; "exception_to_iter"];
         name = "rule_iter";
       }]
 
@@ -515,13 +515,13 @@ type definition = {
   visitors
     {
       variety = "map";
-      ancestors = [ "expression_map"; "qident_map"; "exception_to_map" ];
+      ancestors = ["expression_map"; "qident_map"; "exception_to_map"];
       name = "definition_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "expression_iter"; "qident_iter"; "exception_to_iter" ];
+        ancestors = ["expression_iter"; "qident_iter"; "exception_to_iter"];
         name = "definition_iter";
       }]
 
@@ -540,13 +540,13 @@ type meta_assertion =
   visitors
     {
       variety = "map";
-      ancestors = [ "variation_typ_map"; "qident_map"; "expression_map" ];
+      ancestors = ["variation_typ_map"; "qident_map"; "expression_map"];
       name = "meta_assertion_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "variation_typ_iter"; "qident_iter"; "expression_iter" ];
+        ancestors = ["variation_typ_iter"; "qident_iter"; "expression_iter"];
         name = "meta_assertion_iter";
       }]
 
@@ -556,15 +556,11 @@ type assertion = {
 }
 [@@deriving
   visitors
-    {
-      variety = "map";
-      ancestors = [ "expression_map" ];
-      name = "assertion_map";
-    },
+    { variety = "map"; ancestors = ["expression_map"]; name = "assertion_map" },
     visitors
       {
         variety = "iter";
-        ancestors = [ "expression_iter" ];
+        ancestors = ["expression_iter"];
         name = "assertion_iter";
       }]
 
@@ -578,7 +574,7 @@ type scope_use_item =
     {
       variety = "map";
       ancestors =
-        [ "meta_assertion_map"; "definition_map"; "assertion_map"; "rule_map" ];
+        ["meta_assertion_map"; "definition_map"; "assertion_map"; "rule_map"];
       name = "scope_use_item_map";
     },
     visitors
@@ -603,13 +599,13 @@ type scope_use = {
   visitors
     {
       variety = "map";
-      ancestors = [ "expression_map"; "scope_use_item_map" ];
+      ancestors = ["expression_map"; "scope_use_item_map"];
       name = "scope_use_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "expression_iter"; "scope_use_item_iter" ];
+        ancestors = ["expression_iter"; "scope_use_item_iter"];
         name = "scope_use_iter";
       }]
 
@@ -626,13 +622,13 @@ type scope_decl_context_io = {
   visitors
     {
       variety = "map";
-      ancestors = [ "io_input_map"; "Pos.marked_map" ];
+      ancestors = ["io_input_map"; "Pos.marked_map"];
       name = "scope_decl_context_io_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "io_input_iter"; "Pos.marked_iter" ];
+        ancestors = ["io_input_iter"; "Pos.marked_iter"];
         name = "scope_decl_context_io_iter";
       }]
 
@@ -677,13 +673,13 @@ type scope_decl_context_data = {
   visitors
     {
       variety = "map";
-      ancestors = [ "typ_map"; "scope_decl_context_io_map"; "ident_map" ];
+      ancestors = ["typ_map"; "scope_decl_context_io_map"; "ident_map"];
       name = "scope_decl_context_data_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "typ_iter"; "scope_decl_context_io_iter"; "ident_iter" ];
+        ancestors = ["typ_iter"; "scope_decl_context_io_iter"; "ident_iter"];
         name = "scope_decl_context_data_iter";
       }]
 
@@ -695,14 +691,14 @@ type scope_decl_context_item =
     {
       variety = "map";
       ancestors =
-        [ "scope_decl_context_data_map"; "scope_decl_context_scope_map" ];
+        ["scope_decl_context_data_map"; "scope_decl_context_scope_map"];
       name = "scope_decl_context_item_map";
     },
     visitors
       {
         variety = "iter";
         ancestors =
-          [ "scope_decl_context_data_iter"; "scope_decl_context_scope_iter" ];
+          ["scope_decl_context_data_iter"; "scope_decl_context_scope_iter"];
         name = "scope_decl_context_item_iter";
       }]
 
@@ -714,13 +710,13 @@ type scope_decl = {
   visitors
     {
       variety = "map";
-      ancestors = [ "scope_decl_context_item_map" ];
+      ancestors = ["scope_decl_context_item_map"];
       name = "scope_decl_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "scope_decl_context_item_iter" ];
+        ancestors = ["scope_decl_context_item_iter"];
         name = "scope_decl_iter";
       }]
 
@@ -734,9 +730,7 @@ type code_item =
     {
       variety = "map";
       ancestors =
-        [
-          "scope_decl_map"; "enum_decl_map"; "struct_decl_map"; "scope_use_map";
-        ];
+        ["scope_decl_map"; "enum_decl_map"; "struct_decl_map"; "scope_use_map"];
       name = "code_item_map";
     },
     visitors
@@ -755,15 +749,11 @@ type code_item =
 type code_block = code_item Pos.marked list
 [@@deriving
   visitors
-    {
-      variety = "map";
-      ancestors = [ "code_item_map" ];
-      name = "code_block_map";
-    },
+    { variety = "map"; ancestors = ["code_item_map"]; name = "code_block_map" },
     visitors
       {
         variety = "iter";
-        ancestors = [ "code_item_iter" ];
+        ancestors = ["code_item_iter"];
         name = "code_block_iter";
       }]
 
@@ -772,13 +762,13 @@ type source_repr = (string[@opaque]) Pos.marked
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map" ];
+      ancestors = ["Pos.marked_map"];
       name = "source_repr_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter" ];
+        ancestors = ["Pos.marked_iter"];
         name = "source_repr_iter";
       }]
 
@@ -792,13 +782,13 @@ type law_heading = {
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map" ];
+      ancestors = ["Pos.marked_map"];
       name = "law_heading_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter" ];
+        ancestors = ["Pos.marked_iter"];
         name = "law_heading_iter";
       }]
 
@@ -810,13 +800,13 @@ type law_include =
   visitors
     {
       variety = "map";
-      ancestors = [ "Pos.marked_map" ];
+      ancestors = ["Pos.marked_map"];
       name = "law_include_map";
     },
     visitors
       {
         variety = "iter";
-        ancestors = [ "Pos.marked_iter" ];
+        ancestors = ["Pos.marked_iter"];
         name = "law_include_iter";
       }]
 
@@ -857,15 +847,11 @@ type program = {
 }
 [@@deriving
   visitors
-    {
-      variety = "map";
-      ancestors = [ "law_structure_map" ];
-      name = "program_map";
-    },
+    { variety = "map"; ancestors = ["law_structure_map"]; name = "program_map" },
     visitors
       {
         variety = "iter";
-        ancestors = [ "law_structure_iter" ];
+        ancestors = ["law_structure_iter"];
         name = "program_iter";
       }]
 
@@ -883,6 +869,6 @@ let rule_to_def (rule : rule) : definition =
     definition_parameter = rule.rule_parameter;
     definition_condition = rule.rule_condition;
     definition_id = rule.rule_id;
-    definition_expr = (consequence_expr, Pos.get_position rule.rule_consequence);
+    definition_expr = consequence_expr, Pos.get_position rule.rule_consequence;
     definition_state = rule.rule_state;
   }
