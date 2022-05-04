@@ -1,0 +1,1 @@
+depexts: ["ninja-build"] {os-family = "debian"}
