@@ -39,7 +39,7 @@ depends: [
   "cppo" {>= "1"}
   "obelisk" {dev}
   "alcotest" {with-test & >= "1.5.0"}
-  "ocamlformat" {dev}
+  "ocamlformat" {dev & = "0.21.0"}
   "odoc" {with-doc}
 ]
 depopts: ["z3"]

@@ -78,7 +78,7 @@
   (ocamlformat
    (and
     :dev
-    (= 0.20.1))))
+    (= 0.21.0))))
  (depopts
   z3)
  (conflicts
