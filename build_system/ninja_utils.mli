@@ -111,7 +111,7 @@ build <outputs>: <rule> [<inputs>]
   val empty : t
   (** [empty] is the minimal ninja {!type: Build.t} with ["empty"] as {!field: outputs} and ["phony"] as {!field: rule}. *)
 
-  val unpath : ?sep:string -> string -> string
+  val[@@ocamlformat "disable"]  unpath : ?sep:string -> string -> string
   (** [unpath ~sep path] replaces all [/] occurences with [sep] in [path] to avoid ninja writing the
       corresponding file and use it as sub command. By default, [sep] is set to ["-"]. *)
 
