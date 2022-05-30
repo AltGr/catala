@@ -120,14 +120,14 @@ let wrap_html
 
 (** Performs syntax highlighting on a piece of code by using Pygments and the
     special Catala lexer. *)
-let pygmentize_code (c : string Pos.marked) (language : C.backend_lang) : string
+let pygmentize_code (c : string Marked.pos) (language : C.backend_lang) : string
     =
   C.debug_print "Pygmenting the code chunk %s"
-    (Pos.to_string (Pos.get_position c));
+    (Pos.to_string (Marked.get_mark c));
   let temp_file_in = Filename.temp_file "catala_html_pygments" "in" in
   let temp_file_out = Filename.temp_file "catala_html_pygments" "out" in
   let oc = open_out temp_file_in in
-  Printf.fprintf oc "%s" (Pos.unmark c);
+  Printf.fprintf oc "%s" (Marked.unmark c);
   close_out oc;
   let pygments = "pygmentize" in
   let pygments_lexer = get_language_extension language in
@@ -139,9 +139,9 @@ let pygmentize_code (c : string Pos.marked) (language : C.backend_lang) : string
       "html";
       "-O";
       "style=colorful,anchorlinenos=True,lineanchors=\""
-      ^ Pos.get_file (Pos.get_position c)
+      ^ Pos.get_file (Marked.get_mark c)
       ^ "\",linenos=table,linenostart="
-      ^ string_of_int (Pos.get_start_line (Pos.get_position c));
+      ^ string_of_int (Pos.get_start_line (Marked.get_mark c));
       "-o";
       temp_file_out;
       temp_file_in;
@@ -176,9 +176,9 @@ let rec law_structure_to_html
     Format.fprintf fmt
       "<div class='code-wrapper%s'>\n<div class='filename'>%s</div>\n%s\n</div>"
       (if metadata then " code-metadata" else "")
-      (Pos.get_file (Pos.get_position c))
+      (Pos.get_file (Marked.get_mark c))
       (pygmentize_code
-         (Pos.same_pos_as ("```catala\n" ^ Pos.unmark c ^ "```") c)
+         (Marked.same_mark_as ("```catala\n" ^ Marked.unmark c ^ "```") c)
          language)
   | A.LawHeading (heading, children) ->
     let h_number = heading.law_heading_precedence + 1 in
@@ -191,7 +191,7 @@ let rec law_structure_to_html
           (1900 + ltime.Unix.tm_year)
           (ltime.Unix.tm_mon + 1) ltime.Unix.tm_mday
       | _ -> "#")
-      (pre_html (Pos.unmark heading.law_heading_name))
+      (pre_html (Marked.unmark heading.law_heading_name))
       h_number;
     Format.pp_print_list
       ~pp_sep:(fun fmt () -> Format.fprintf fmt "\n")
