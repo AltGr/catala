@@ -18,7 +18,7 @@ open Utils
 open Ast
 
 type partial_evaluation_ctx = {
-  var_values : expr Marked.pos Ast.VarMap.t;
+  var_values : expr marked Ast.VarMap.t;
   decl_ctx : decl_ctx;
 }
 

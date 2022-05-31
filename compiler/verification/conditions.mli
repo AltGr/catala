@@ -25,12 +25,12 @@ type verification_condition_kind =
       (** This verification condition checks whether a definition never returns
           a conflict error *)
 
-type verification_condition = {
-  vc_guard : Dcalc.Ast.expr Utils.Marked.pos;
+type 'm verification_condition = {
+  vc_guard : 'm Dcalc.Ast.marked_expr;
       (** This expression should have type [bool]*)
   vc_kind : verification_condition_kind;
   vc_scope : Dcalc.Ast.ScopeName.t;
-  vc_variable : Dcalc.Ast.Var.t Utils.Marked.pos;
+  vc_variable : ('m Dcalc.Ast.Var.t, 'm) Utils.Marked.t;
   vc_free_vars_typ : Dcalc.Ast.typ Utils.Marked.pos Dcalc.Ast.VarMap.t;
       (** Types of the locally free variables in [vc_guard]. The types of other
           free variables linked to scope variables can be obtained with
@@ -38,9 +38,9 @@ type verification_condition = {
 }
 
 val generate_verification_conditions :
-  Dcalc.Ast.program ->
+  'm Dcalc.Ast.program ->
   Dcalc.Ast.ScopeName.t option ->
-  verification_condition list
+  'm verification_condition list
 (** [generate_verification_conditions p None] will generate the verification
     conditions for all the variables of all the scopes of the program [p], while
     [generate_verification_conditions p (Some s)] will focus only on the

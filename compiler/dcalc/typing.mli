@@ -17,8 +17,10 @@
 (** Typing for the default calculus. Because of the error terms, we perform type
     inference using the classical W algorithm with union-find unification. *)
 
-val infer_type :
-  Ast.decl_ctx -> Ast.expr Utils.Marked.pos -> Ast.typ Utils.Marked.pos
+val infer_types :
+  Ast.decl_ctx ->
+  Utils.Pos.t Ast.marked_expr ->
+  Ast.mark Ast.marked_expr * Ast.typ Utils.Marked.pos
 
 val check_type :
-  Ast.decl_ctx -> Ast.expr Utils.Marked.pos -> Ast.typ Utils.Marked.pos -> unit
+  Ast.decl_ctx -> 'm Ast.marked_expr -> Ast.typ Utils.Marked.pos -> unit

@@ -102,35 +102,43 @@ type unop =
 
 type operator = Ternop of ternop | Binop of binop | Unop of unop
 
-type marked_expr = expr Marked.pos
+type 'm marked_expr = ('m expr, 'm) Marked.t
+
 (** The expressions use the {{:https://lepigre.fr/ocaml-bindlib/} Bindlib}
     library, based on higher-order abstract syntax*)
-
-and expr =
-  | EVar of expr Bindlib.var
-  | ETuple of marked_expr list * StructName.t option
+and 'm expr =
+  | EVar of 'm expr Bindlib.var
+  | ETuple of 'm marked_expr list * StructName.t option
       (** The [MarkedString.info] is the former struct field name*)
   | ETupleAccess of
-      marked_expr * int * StructName.t option * typ Marked.pos list
+      'm marked_expr * int * StructName.t option * typ Marked.pos list
       (** The [MarkedString.info] is the former struct field name *)
-  | EInj of marked_expr * int * EnumName.t * typ Marked.pos list
+  | EInj of 'm marked_expr * int * EnumName.t * typ Marked.pos list
       (** The [MarkedString.info] is the former enum case name *)
-  | EMatch of marked_expr * marked_expr list * EnumName.t
+  | EMatch of 'm marked_expr * 'm marked_expr list * EnumName.t
       (** The [MarkedString.info] is the former enum case name *)
-  | EArray of marked_expr list
+  | EArray of 'm marked_expr list
   | ELit of lit
-  | EAbs of ((expr, marked_expr) Bindlib.mbinder[@opaque]) * typ Marked.pos list
-  | EApp of marked_expr * marked_expr list
-  | EAssert of marked_expr
+  | EAbs of
+      (('m expr, 'm marked_expr) Bindlib.mbinder[@opaque])
+      * typ Marked.pos list
+  | EApp of 'm marked_expr * 'm marked_expr list
+  | EAssert of 'm marked_expr
   | EOp of operator
-  | EDefault of marked_expr list * marked_expr * marked_expr
-  | EIfThenElse of marked_expr * marked_expr * marked_expr
-  | ErrorOnEmpty of marked_expr
+  | EDefault of 'm marked_expr list * 'm marked_expr * 'm marked_expr
+  | EIfThenElse of 'm marked_expr * 'm marked_expr * 'm marked_expr
+  | ErrorOnEmpty of 'm marked_expr
+
+type mark = { pos : Pos.t; ty : typ }
+(** Type of mark used for typed values (replacing plain [Pos.t]) *)
+
+type 'a marked = ('a, mark) Marked.t
+(** Values annotated with the [mark] type, containing type information *)
 
 type struct_ctx = (StructFieldName.t * typ Marked.pos) list StructMap.t
 type enum_ctx = (EnumConstructor.t * typ Marked.pos) list EnumMap.t
 type decl_ctx = { ctx_enums : enum_ctx; ctx_structs : struct_ctx }
-type binder = (expr, expr Marked.pos) Bindlib.binder
+type 'm binder = ('m expr, 'm marked_expr) Bindlib.binder
 
 (** This kind annotation signals that the let-binding respects a structural
     invariant. These invariants concern the shape of the expression in the
@@ -147,10 +155,10 @@ type scope_let_kind =
 
 type 'expr scope_let = {
   scope_let_kind : scope_let_kind;
-  scope_let_typ : typ Utils.Marked.pos;
-  scope_let_expr : 'expr Utils.Marked.pos;
+  scope_let_typ : typ Marked.pos;
+  scope_let_expr : 'expr Marked.pos;
   scope_let_next : ('expr, 'expr scope_body_expr) Bindlib.binder;
-  scope_let_pos : Utils.Pos.t;
+  scope_let_pos : Pos.t;
 }
 (** This type is parametrized by the expression type so it can be reused in
     later intermediate representations. *)
@@ -159,7 +167,7 @@ type 'expr scope_let = {
     let-binding expression, plus an annotation for the kind of the let-binding
     that comes from the compilation of a {!module: Scopelang.Ast} statement. *)
 and 'expr scope_body_expr =
-  | Result of 'expr Utils.Marked.pos
+  | Result of 'expr Marked.pos
   | ScopeLet of 'expr scope_let
 
 type 'expr scope_body = {
@@ -182,85 +190,82 @@ type 'expr scope_def = {
     lets. This permit us to use bindlib variables for scopes names. *)
 and 'a scopes = Nil | ScopeDef of 'a scope_def
 
-type program = { decl_ctx : decl_ctx; scopes : expr scopes }
+type 'm program = { decl_ctx : decl_ctx; scopes : 'm expr scopes }
 
 (** {1 Helpers} *)
 
 (** {2 Boxed constructors}*)
 
-val evar : expr Bindlib.var -> Pos.t -> expr Marked.pos Bindlib.box
+val evar : 'm expr Bindlib.var -> 'm -> 'm marked_expr Bindlib.box
 
 val etuple :
-  expr Marked.pos Bindlib.box list ->
+  'm marked_expr Bindlib.box list ->
   StructName.t option ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  'm marked_expr Bindlib.box
 
 val etupleaccess :
-  expr Marked.pos Bindlib.box ->
+  'm marked_expr Bindlib.box ->
   int ->
   StructName.t option ->
   typ Marked.pos list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  'm marked_expr Bindlib.box
 
 val einj :
-  expr Marked.pos Bindlib.box ->
+  'm marked_expr Bindlib.box ->
   int ->
   EnumName.t ->
   typ Marked.pos list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  'm marked_expr Bindlib.box
 
 val ematch :
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box list ->
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box list ->
   EnumName.t ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  'm marked_expr Bindlib.box
 
-val earray :
-  expr Marked.pos Bindlib.box list -> Pos.t -> expr Marked.pos Bindlib.box
-
-val elit : lit -> Pos.t -> expr Marked.pos Bindlib.box
+val earray : 'm marked_expr Bindlib.box list -> 'm -> 'm marked_expr Bindlib.box
+val elit : lit -> 'm -> 'm marked_expr Bindlib.box
 
 val eabs :
-  (expr, expr Marked.pos) Bindlib.mbinder Bindlib.box ->
+  ('m expr, 'm marked_expr) Bindlib.mbinder Bindlib.box ->
   typ Marked.pos list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  'm marked_expr Bindlib.box
 
 val eapp :
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box list ->
+  'm ->
+  'm marked_expr Bindlib.box
 
-val eassert :
-  expr Marked.pos Bindlib.box -> Pos.t -> expr Marked.pos Bindlib.box
-
-val eop : operator -> Pos.t -> expr Marked.pos Bindlib.box
+val eassert : 'm marked_expr Bindlib.box -> 'm -> 'm marked_expr Bindlib.box
+val eop : operator -> 'm -> 'm marked_expr Bindlib.box
 
 val edefault :
-  expr Marked.pos Bindlib.box list ->
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm marked_expr Bindlib.box list ->
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box ->
+  'm ->
+  'm marked_expr Bindlib.box
 
 val eifthenelse :
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box ->
+  'm ->
+  'm marked_expr Bindlib.box
 
 val eerroronempty :
-  expr Marked.pos Bindlib.box -> Pos.t -> expr Marked.pos Bindlib.box
+  'm marked_expr Bindlib.box -> 'm -> 'm marked_expr Bindlib.box
 
-val box_expr : expr Marked.pos -> expr Marked.pos Bindlib.box
+type ('expr, 'm) box_expr_sig =
+  ('expr, 'm) Marked.t -> ('expr, 'm) Marked.t Bindlib.box
 
-type 'expr box_expr_sig = 'expr Marked.pos -> 'expr Marked.pos Bindlib.box
+val box_expr : ('m expr, 'm) box_expr_sig
 
 (**{2 Program traversal}*)
 
@@ -269,9 +274,9 @@ type 'expr box_expr_sig = 'expr Marked.pos -> 'expr Marked.pos Bindlib.box
 
 val map_expr :
   'a ->
-  f:('a -> expr Marked.pos -> expr Marked.pos Bindlib.box) ->
-  expr Marked.pos ->
-  expr Marked.pos Bindlib.box
+  f:('a -> 'm marked_expr -> 'm marked_expr Bindlib.box) ->
+  'm marked_expr ->
+  'm marked_expr Bindlib.box
 (** If you want to apply a map transform to an expression, you can save up
     writing a painful match over all the cases of the AST. For instance, if you
     want to remove all errors on empty, you can write
@@ -348,77 +353,65 @@ val map_exprs_in_scopes :
 
 (** {2 Variables}*)
 
+(** {2 Boxed term constructors}*)
 module Var : sig
-  type t = expr Bindlib.var
+  type 'm t = 'm expr Bindlib.var
 
   val make : string -> t
   val compare : t -> t -> int
 end
 
-module VarMap : Map.S with type key = Var.t
-module VarSet : Set.S with type elt = Var.t
+module VarMap : Map.S with type key = Pos.t Var.t
+module VarSet : Set.S with type elt = Pos.t Var.t
 
-val free_vars_expr : expr Marked.pos -> VarSet.t
-val free_vars_scope_body_expr : expr scope_body_expr -> VarSet.t
-val free_vars_scope_body : expr scope_body -> VarSet.t
-val free_vars_scopes : expr scopes -> VarSet.t
+(* val free_vars_expr : expr Marked.pos -> VarSet.t val
+ *   free_vars_scope_body_expr : expr scope_body_expr -> VarSet.t val
+ *   free_vars_scope_body : expr scope_body -> VarSet.t val free_vars_scopes :
+ *   expr scopes -> VarSet.t *)
 
-type vars = expr Bindlib.mvar
+(* type vars = expr Bindlib.mvar *)
 
-(** {2 Boxed term constructors}*)
+val make_var : ('m Var.t, 'm) Marked.t -> 'm marked_expr Bindlib.box
 
-val make_var : Var.t Marked.pos -> expr Marked.pos Bindlib.box
-
-val make_abs :
-  vars ->
-  expr Marked.pos Bindlib.box ->
+type ('expr, 'm) make_abs_sig =
+  'expr Bindlib.mvar ->
+  ('expr, 'm) Marked.t Bindlib.box ->
   typ Marked.pos list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm ->
+  ('expr, 'm) Marked.t Bindlib.box
+
+val make_abs : ('m expr, 'm) make_abs_sig
 
 val make_app :
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box list ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  'm marked_expr Bindlib.box ->
+  'm marked_expr Bindlib.box list ->
+  'm ->
+  'm marked_expr Bindlib.box
 
-val make_let_in :
-  Var.t ->
+type ('expr, 'm) make_let_in_sig =
+  'expr Bindlib.var ->
   typ Marked.pos ->
-  expr Marked.pos Bindlib.box ->
-  expr Marked.pos Bindlib.box ->
-  Pos.t ->
-  expr Marked.pos Bindlib.box
+  ('expr, 'm) Marked.t Bindlib.box ->
+  ('expr, 'm) Marked.t Bindlib.box ->
+  'm ->
+  ('expr, 'm) Marked.t Bindlib.box
+
+val make_let_in : ('m expr, 'm) make_let_in_sig
 
 (**{2 Other}*)
 
-val empty_thunked_term : expr Marked.pos
-val is_value : expr Marked.pos -> bool
+val empty_thunked_term : 'm -> 'm marked_expr
+val is_value : 'm marked_expr -> bool
 
-val equal_exprs : expr Marked.pos -> expr Marked.pos -> bool
+val equal_exprs : 'm marked_expr -> 'm marked_expr -> bool
 (** Determines if two expressions are equal, omitting their position information *)
 
 (** {1 AST manipulation helpers}*)
 
-type 'expr make_let_in_sig =
-  'expr Bindlib.var ->
-  typ Marked.pos ->
-  'expr Marked.pos Bindlib.box ->
-  'expr Marked.pos Bindlib.box ->
-  Pos.t ->
-  'expr Marked.pos Bindlib.box
-
-type 'expr make_abs_sig =
-  'expr Bindlib.mvar ->
-  'expr Marked.pos Bindlib.box ->
-  typ Marked.pos list ->
-  Pos.t ->
-  'expr Marked.pos Bindlib.box
-
 val build_whole_scope_expr :
-  box_expr:'expr box_expr_sig ->
-  make_abs:'expr make_abs_sig ->
-  make_let_in:'expr make_let_in_sig ->
+  box_expr:('expr, 'm) box_expr_sig ->
+  make_abs:('expr, 'm) make_abs_sig ->
+  make_let_in:('expr, 'm) make_let_in_sig ->
   decl_ctx ->
   'expr scope_body ->
   Pos.t ->
@@ -432,23 +425,23 @@ type 'expr scope_name_or_var =
   | ScopeVar of 'expr Bindlib.var
 
 val unfold_scopes :
-  box_expr:'expr box_expr_sig ->
-  make_abs:'expr make_abs_sig ->
-  make_let_in:'expr make_let_in_sig ->
+  box_expr:('expr, 'm) box_expr_sig ->
+  make_abs:('expr, 'm) make_abs_sig ->
+  make_let_in:('expr, 'm) make_let_in_sig ->
   decl_ctx ->
   'expr scopes ->
   'expr scope_name_or_var ->
   'expr Marked.pos Bindlib.box
 
 val build_whole_program_expr :
-  program -> ScopeName.t -> expr Marked.pos Bindlib.box
+  'm program -> ScopeName.t -> 'm marked_expr Bindlib.box
 (** Usage: [build_whole_program_expr program main_scope] builds an expression
     corresponding to the main program and returning the main scope as a
     function. *)
 
-val expr_size : expr Marked.pos -> int
+val expr_size : 'm marked_expr -> int
 (** Used by the optimizer to know when to stop *)
 
-val remove_logging_calls : expr Marked.pos -> expr Marked.pos Bindlib.box
+val remove_logging_calls : 'm marked_expr -> 'm marked_expr Bindlib.box
 (** Removes all calls to [Log] unary operators in the AST, replacing them by
     their argument. *)

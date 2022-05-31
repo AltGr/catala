@@ -43,18 +43,18 @@ val format_binop : Format.formatter -> Ast.binop Marked.pos -> unit
 val format_ternop : Format.formatter -> Ast.ternop Marked.pos -> unit
 val format_log_entry : Format.formatter -> Ast.log_entry -> unit
 val format_unop : Format.formatter -> Ast.unop Marked.pos -> unit
-val format_var : Format.formatter -> Ast.Var.t -> unit
+val format_var : Format.formatter -> 'm Ast.Var.t -> unit
 
 val format_expr :
   ?debug:bool (** [true] for debug printing *) ->
   Ast.decl_ctx ->
   Format.formatter ->
-  Ast.expr Marked.pos ->
+  'm Ast.marked_expr ->
   unit
 
 val format_scope :
   ?debug:bool (** [true] for debug printing *) ->
   Ast.decl_ctx ->
   Format.formatter ->
-  Ast.ScopeName.t * Ast.expr Ast.scope_body ->
+  Ast.ScopeName.t * 'm Ast.expr Ast.scope_body ->
   unit
