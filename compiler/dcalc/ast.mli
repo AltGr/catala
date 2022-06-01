@@ -129,12 +129,19 @@ and 'm expr =
   | EIfThenElse of 'm marked_expr * 'm marked_expr * 'm marked_expr
   | ErrorOnEmpty of 'm marked_expr
 
-type mark = { pos : Pos.t; ty : typ }
+(** {3 Expression annotations ([Marked.t])} *)
+
+type untyped = Pos.t
+(** Type of mark used for untyped values. Alias defined for symmetry with the
+    [typed] mark type *)
+
+type typed = { pos : Pos.t; ty : typ }
 (** Type of mark used for typed values (replacing plain [Pos.t]) *)
 
-type 'a marked = ('a, mark) Marked.t
-(** Values annotated with the [mark] type, containing type information *)
+type 'a ty_marked = ('a, typed) Marked.t
+(** Values annotated with the [typed] type, containing type information *)
 
+type typed_expr = typed marked_expr
 type struct_ctx = (StructFieldName.t * typ Marked.pos) list StructMap.t
 type enum_ctx = (EnumConstructor.t * typ Marked.pos) list EnumMap.t
 type decl_ctx = { ctx_enums : enum_ctx; ctx_structs : struct_ctx }
