@@ -252,7 +252,7 @@ let rec typecheck_expr_bottom_up
     let out =
       match Marked.unmark e with
       | EVar v -> (
-        match A.VarMap.find_opt (Marked.unmark v) env with
+        match A.VarMap.find_opt v env with
         | Some t -> t
         | None ->
           Errors.raise_spanned_error (Marked.get_mark e)
@@ -325,8 +325,9 @@ let rec typecheck_expr_bottom_up
             typecheck_expr_top_down ctx env es' t_es')
           es;
         t_ret
-      | EAbs ((binder, pos_binder), taus) ->
+      | EAbs (binder, taus) ->
         let xs, body = Bindlib.unmbind binder in
+        let pos_binder = Marked.get_mark e in
         if Array.length xs = List.length taus then
           let xstaus =
             List.map2
@@ -416,7 +417,7 @@ and typecheck_expr_top_down
   try
     match Marked.unmark e with
     | EVar v -> (
-      match A.VarMap.find_opt (Marked.unmark v) env with
+      match A.VarMap.find_opt v env with
       | Some tau' -> ignore (unify ctx tau tau')
       | None ->
         Errors.raise_spanned_error (Marked.get_mark e)
@@ -503,8 +504,9 @@ and typecheck_expr_top_down
           typecheck_expr_top_down ctx env es' t_es')
         es;
       unify ctx tau t_ret
-    | EAbs ((binder, pos_binder), t_args) ->
+    | EAbs (binder, t_args) ->
       let xs, body = Bindlib.unmbind binder in
+      let pos_binder = Marked.get_mark e in
       if Array.length xs = List.length t_args then
         let xstaus =
           List.map2
