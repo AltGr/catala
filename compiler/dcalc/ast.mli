@@ -102,6 +102,20 @@ type unop =
 
 type operator = Ternop of ternop | Binop of binop | Unop of unop
 
+type untyped = [ `Untyped of Pos.t ]
+(** Type of mark used for untyped values. Using a polymorphic variant allows
+    functions to specify, by typing, that they work on a typed or untyped ast,
+    or on both. *)
+
+type tmark = { pos : Pos.t; ty : typ }
+
+type typed = [ `Typed of tmark ]
+(** Type of mark used for typed values *)
+
+type mark = [ untyped | typed ]
+(** The generic type of AST markings, typed or not. To be used as input type for
+    functions: should not appear in covariant position *)
+
 type 'm marked_expr = ('m expr, 'm) Marked.t
 
 (** The expressions use the {{:https://lepigre.fr/ocaml-bindlib/} Bindlib}
@@ -130,13 +144,6 @@ and 'm expr =
   | ErrorOnEmpty of 'm marked_expr
 
 (** {3 Expression annotations ([Marked.t])} *)
-
-type untyped = Pos.t
-(** Type of mark used for untyped values. Alias defined for symmetry with the
-    [typed] mark type *)
-
-type typed = { pos : Pos.t; ty : typ }
-(** Type of mark used for typed values (replacing plain [Pos.t]) *)
 
 type 'a ty_marked = ('a, typed) Marked.t
 (** Values annotated with the [typed] type, containing type information *)
@@ -187,17 +194,17 @@ type 'expr scope_body = {
     a result expression that uses the let-binded variables. The first binder is
     the argument of type [scope_body_input_struct]. *)
 
-type 'expr scope_def = {
+type ('expr, 'm) scope_def = {
   scope_name : ScopeName.t;
   scope_body : 'expr scope_body;
-  scope_next : ('expr, 'expr scopes) Bindlib.binder;
+  scope_next : ('expr, ('expr, 'm) scopes) Bindlib.binder;
 }
 
 (** Finally, we do the same transformation for the whole program for the kinded
     lets. This permit us to use bindlib variables for scopes names. *)
-and 'a scopes = Nil | ScopeDef of 'a scope_def
+and ('expr, 'm) scopes = Nil | ScopeDef of ('expr, 'm) scope_def
 
-type 'm program = { decl_ctx : decl_ctx; scopes : 'm expr scopes }
+type 'm program = { decl_ctx : decl_ctx; scopes : ('m expr, 'm) scopes }
 
 (** {1 Helpers} *)
 
@@ -327,9 +334,9 @@ val map_exprs_in_scope_lets :
   'expr scope_body_expr Bindlib.box
 
 val fold_left_scope_defs :
-  f:('a -> 'expr scope_def -> 'expr Bindlib.var -> 'a) ->
+  f:('a -> ('expr, 'm) scope_def -> 'expr Bindlib.var -> 'a) ->
   init:'a ->
-  'expr scopes ->
+  ('expr, 'm) scopes ->
   'a
 (** Usage:
     [fold_left_scope_defs ~f:(fun acc scope_def scope_var -> ...) ~init scope_def],
@@ -337,9 +344,9 @@ val fold_left_scope_defs :
     be examined. *)
 
 val fold_right_scope_defs :
-  f:('expr scope_def -> 'expr Bindlib.var -> 'a -> 'a) ->
+  f:(('expr, 'm) scope_def -> 'expr Bindlib.var -> 'a -> 'a) ->
   init:'a ->
-  'expr scopes ->
+  ('expr, 'm) scopes ->
   'a
 (** Usage:
     [fold_right_scope_defs ~f:(fun  scope_def scope_var acc -> ...) ~init scope_def],
@@ -347,14 +354,14 @@ val fold_right_scope_defs :
     be examined (which are before in the program order). *)
 
 val map_scope_defs :
-  f:('expr scope_def -> 'expr scope_def Bindlib.box) ->
-  'expr scopes ->
-  'expr scopes Bindlib.box
+  f:(('expr, 'm) scope_def -> ('expr, 'm) scope_def Bindlib.box) ->
+  ('expr, 'm) scopes ->
+  ('expr, 'm) scopes Bindlib.box
 
 val map_exprs_in_scopes :
   f:('expr Marked.pos -> 'expr Marked.pos Bindlib.box) ->
-  'expr scopes ->
-  'expr scopes Bindlib.box
+  ('expr, 'm) scopes ->
+  ('expr, 'm) scopes Bindlib.box
 (** This is the main map visitor for all the expressions inside all the scopes
     of the program. *)
 
@@ -368,8 +375,8 @@ module Var : sig
   val compare : t -> t -> int
 end
 
-module VarMap : Map.S with type key = Pos.t Var.t
-module VarSet : Set.S with type elt = Pos.t Var.t
+module VarMap : Map.S with type key = untyped Var.t
+module VarSet : Set.S with type elt = untyped Var.t
 
 (* val free_vars_expr : expr Marked.pos -> VarSet.t val
  *   free_vars_scope_body_expr : expr scope_body_expr -> VarSet.t val
@@ -436,7 +443,7 @@ val unfold_scopes :
   make_abs:('expr, 'm) make_abs_sig ->
   make_let_in:('expr, 'm) make_let_in_sig ->
   decl_ctx ->
-  'expr scopes ->
+  ('expr, 'm) scopes ->
   'expr scope_name_or_var ->
   'expr Marked.pos Bindlib.box
 

@@ -15,12 +15,13 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
-type ('a, 'm) t = 'a * 'm
-type 'a pos = ('a, Pos.t) t
+type ('a, 'm) t = 'a * 'm constraint 'm = [> ]
+type 'a pos = ('a, [ `Untyped of Pos.t ]) t
 
 let mark m e : ('a, 'm) t = e, m
 let unmark ((x, _) : ('a, 'm) t) : 'a = x
 let get_mark ((_, x) : ('a, 'm) t) : 'm = x
+let get_pos ((_, `Untyped pos) : ('a, 'm) t) : Pos.t = pos
 let map_under_mark (f : 'a -> 'b) ((x, y) : ('a, 'm) t) : ('b, 'c) t = f x, y
 let same_mark_as (x : 'a) ((_, y) : ('b, 'm) t) : ('a, 'm) t = x, y
 
