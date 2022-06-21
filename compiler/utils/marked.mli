@@ -17,22 +17,16 @@
 
 (** AST node annotations (used for position, type, etc.) *)
 
-module type MARK = sig
-  type t
-  val get_pos
-end
-
-type ('a, 'm) t = 'a * 'm constraint 'm = < .. >
+type ('a, 'm) t = 'a * 'm
 (** Everything related to the source code should keep at least its position
     stored, to improve error messages *)
 
-type 'a pos = ('a, < pos: Pos.t >) t
+type 'a pos = ('a, Pos.t) t
 (** The type of marks containing only position information *)
 
 val mark : 'm -> 'a -> ('a, 'm) t
 val unmark : ('a, 'm) t -> 'a
 val get_mark : ('a, 'm) t -> 'm
-val get_pos : 'a pos -> Pos.t
 val map_under_mark : ('a -> 'b) -> ('a, 'm) t -> ('b, 'm) t
 val same_mark_as : 'a -> ('b, 'm) t -> ('a, 'm) t
 val unmark_option : ('a, 'm) t option -> 'a option
