@@ -217,10 +217,16 @@ let ty (_, A.Typed { ty; _ }) = ty
 let translate_var v = Bindlib.copy_var v (fun x -> A.EVar x) (Bindlib.name_of v)
 
 (** Infers the most permissive type from an expression *)
-let rec typecheck_expr_bottom_up
+let rec typecheck_expr_bottom_up: 'm . 
+    Ast.decl_ctx ->
+    env ->
+    'm A.marked_expr -> A.typed_expr = fun
     (ctx : Ast.decl_ctx)
     (env : env)
-    (e : 'm A.marked_expr) : A.typed_expr =
+    (e : 'm A.marked_expr) : A.typed_expr  ->
+    (* (ctx : Ast.decl_ctx)
+     * (env : env)
+     * (e : 'm A.marked_expr) : A.typed_expr = *)
   (* Cli.debug_print (Format.asprintf "Looking for type of %a"
      (Print.format_expr ctx) e); *)
   try
@@ -232,11 +238,11 @@ let rec typecheck_expr_bottom_up
     let mark_with_uf e1 ?pos ty = mark e1 (unionfind_make ?pos ty) in
     match Marked.unmark e with
     | A.EVar v -> begin
-      match A.VarMap.find_opt v env with
+      match A.VarMap.find_opt (A.Var.t v) env with
       | Some t ->
         mark (EVar (translate_var v)) t
       | None ->
-        Errors.raise_spanned_error (Ast.pos e)
+        Errors.raise_spanned_error (A.pos e)
           "Variable not found in the current context"
     end
     | A.ELit (LBool _) as e1 -> mark_with_uf e1 (TLit TBool)
@@ -318,7 +324,7 @@ let rec typecheck_expr_bottom_up
             (Array.to_list xs) taus
         in
         let env =
-          List.fold_left (fun env (x, tau) -> A.VarMap.add x tau env) env xstaus
+          List.fold_left (fun env (x, tau) -> A.VarMap.add (A.Var.t x) tau env) env xstaus
         in
         let body' = typecheck_expr_bottom_up ctx env body in
         let t_func =
@@ -384,16 +390,19 @@ let rec typecheck_expr_bottom_up
       (Errors.StructuredError
          ( msg,
            ( Some "Error coming from typechecking the following expression:",
-             Ast.pos e )
+             A.pos e )
            :: err_pos ))
 
 (** Checks whether the expression can be typed with the provided type *)
 and typecheck_expr_top_down
-    (ctx : Ast.decl_ctx)
+: 'm . 
+    Ast.decl_ctx ->
+    env ->
+    'm A.marked_expr -> typ Marked.pos UnionFind.elem -> A.typed_expr = fun    (ctx : Ast.decl_ctx)
     (env : env)
     (e : 'm A.marked_expr)
     (tau : typ Marked.pos UnionFind.elem) :
-  A.typed_expr =
+  A.typed_expr ->
   (* Cli.debug_print (Format.asprintf "Typechecking %a : %a" (Print.format_expr
      ctx) e (format_typ ctx) tau); *)
   try
@@ -411,7 +420,7 @@ and typecheck_expr_top_down
     in
     match Marked.unmark e with
     | A.EVar v -> begin
-        match A.VarMap.find_opt v env with
+        match A.VarMap.find_opt (A.Var.t v) env with
         | Some tau' -> unify_and_mark (A.EVar (translate_var v)) tau'
         | None ->
           Errors.raise_spanned_error (A.pos e)
@@ -481,6 +490,7 @@ and typecheck_expr_top_down
       in
       unify_and_mark (EMatch (e1', es', e_name)) t_ret
     | A.EAbs (binder, t_args) ->
+      (* Bindlib.box binder |> Bindlib.mbind_apply *)
       let xs, body = Bindlib.unmbind binder in
       if Array.length xs <> List.length t_args then
         Errors.raise_spanned_error (A.pos e)
@@ -496,7 +506,7 @@ and typecheck_expr_top_down
         in
         let env =
           List.fold_left
-            (fun env (x, t_arg) -> A.VarMap.add x t_arg env)
+            (fun env (x, t_arg) -> A.VarMap.add (A.Var.t x) t_arg env)
             env xstaus
         in
         let body' = typecheck_expr_bottom_up ctx env body in
@@ -564,15 +574,36 @@ and typecheck_expr_top_down
 (** {1 API} *)
 
 (* Infer the type of an expression *)
-let infer_type (ctx : Ast.decl_ctx) (e : 'm A.marked_expr) :  Ast.typed Ast.marked_expr * Ast.typ Utils.Marked.pos
+let infer_types (ctx : Ast.decl_ctx) (e : 'm A.marked_expr) :  Ast.typed Ast.marked_expr
  =
-  let e' = typecheck_expr_bottom_up ctx A.VarMap.empty e in
-  e', typ_to_ast (ty e')
+  typecheck_expr_bottom_up ctx A.VarMap.empty e
+
+let infer_type (type m) ctx (e: m A.marked_expr) =
+  match Marked.get_mark e with
+  | A.Typed {ty; _} -> typ_to_ast ty
+  | A.Untyped _ -> typ_to_ast (ty (infer_types ctx e))
 
 (** Typechecks an expression given an expected type *)
 let check_type
     (ctx : Ast.decl_ctx)
     (e : 'm A.marked_expr)
     (tau : A.typ Marked.pos) =
+  (* todo: consider using the already inferred type if ['m] = [typed] *)
+  ignore @@
   typecheck_expr_top_down ctx A.VarMap.empty e
     (UnionFind.make (Marked.map_under_mark ast_to_typ tau))
+
+let infer_types_program prg =
+  let scopes =
+    Bindlib.unbox @@
+    A.map_exprs_in_scopes
+      ~f:(fun e -> Bindlib.box (typecheck_expr_bottom_up prg.A.decl_ctx A.VarMap.empty e))
+      ~varf:translate_var
+      prg.A.scopes
+  in
+  {A.
+    decl_ctx = prg.A.decl_ctx;
+    scopes;
+    mark_witness = assert false;
+  }
+

@@ -345,24 +345,25 @@ val fold_left_scope_lets :
     scope lets to be examined. *)
 
 val fold_right_scope_lets :
-  f:(('expr, 'm) scope_let -> 'expr Bindlib.var -> 'a -> 'a) ->
-  init:(('expr, 'm) marked -> 'a) ->
-  ('expr, 'm) scope_body_expr ->
+  f:(('expr1, 'm1) scope_let -> 'expr1 Bindlib.var -> 'a -> 'a) ->
+  init:(('expr1, 'm1) marked -> 'a) ->
+  ('expr1, 'm1) scope_body_expr ->
   'a
 (** Usage:
     [fold_right_scope_lets ~f:(fun scope_let scope_let_var acc -> ...) ~init scope_lets],
     where [scope_let_var] is the variable bound to the scope let in the next
     scope lets to be examined (which are before in the program order). *)
-(*
+
 val map_exprs_in_scope_lets :
-  f:(('expr Marked.pos -> 'expr Marked.pos Bindlib.box) ->
-  'expr scope_body_expr ->
-  'expr scope_body_expr Bindlib.box
+  f:(('expr1, 'm1) marked -> ('expr2, 'm2) marked Bindlib.box) ->
+  varf:('expr1 Bindlib.var -> 'expr2 Bindlib.var) ->
+  ('expr1, 'm1) scope_body_expr ->
+  ('expr2, 'm2) scope_body_expr Bindlib.box
 
 val fold_left_scope_defs :
-  f:('a -> ('expr, 'm) scope_def -> 'expr Bindlib.var -> 'a) ->
+  f:('a -> ('expr1, 'm1) scope_def -> 'expr1 Bindlib.var -> 'a) ->
   init:'a ->
-  ('expr, 'm) scopes ->
+  ('expr1, 'm1) scopes ->
   'a
 (** Usage:
     [fold_left_scope_defs ~f:(fun acc scope_def scope_var -> ...) ~init scope_def],
@@ -370,9 +371,9 @@ val fold_left_scope_defs :
     be examined. *)
 
 val fold_right_scope_defs :
-  f:(('expr, 'm) scope_def -> 'expr Bindlib.var -> 'a -> 'a) ->
+  f:(('expr1, 'm1) scope_def -> 'expr1 Bindlib.var -> 'a -> 'a) ->
   init:'a ->
-  ('expr, 'm) scopes ->
+  ('expr1, 'm1) scopes ->
   'a
 (** Usage:
     [fold_right_scope_defs ~f:(fun  scope_def scope_var acc -> ...) ~init scope_def],
@@ -385,20 +386,24 @@ val map_scope_defs :
   ('expr, 'm) scopes Bindlib.box
 
 val map_exprs_in_scopes :
-  f:('expr Marked.pos -> 'expr Marked.pos Bindlib.box) ->
-  ('expr, 'm) scopes ->
-  ('expr, 'm) scopes Bindlib.box
+  f:(('expr1, 'm1) marked -> ('expr2, 'm2) marked Bindlib.box) ->
+  varf:('expr1 Bindlib.var -> 'expr2 Bindlib.var) ->
+  ('expr1, 'm1) scopes ->
+  ('expr2, 'm2) scopes Bindlib.box
 (** This is the main map visitor for all the expressions inside all the scopes
     of the program. *)
-*)
-(** {2 Variables}*)
+
+(** {2 Variables} *)
 
 type 'm var = 'm expr Bindlib.var
 
+val new_var: string -> 'm var
+
 (** {2 Boxed term constructors} *)
 module Var : sig
-  type t = untyped var
+  type t
 
+  val t: 'm var -> t
   val make : string -> t
   val compare : t -> t -> int
 end

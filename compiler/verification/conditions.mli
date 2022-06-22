@@ -30,7 +30,7 @@ type verification_condition = {
       (** This expression should have type [bool]*)
   vc_kind : verification_condition_kind;
   vc_scope : Dcalc.Ast.ScopeName.t;
-  vc_variable : Utils.Pos.t Dcalc.Ast.Var.t Utils.Marked.pos;
+  vc_variable : Dcalc.Ast.Var.t Utils.Marked.pos;
   vc_free_vars_typ : Dcalc.Ast.typ Utils.Marked.pos Dcalc.Ast.VarMap.t;
       (** Types of the locally free variables in [vc_guard]. The types of other
           free variables linked to scope variables can be obtained with
