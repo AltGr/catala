@@ -349,11 +349,11 @@ let rec fold_right_scope_lets ~f ~init scope_body_expr =
 let map_exprs_in_scope_lets ~f ~varf scope_body_expr =
   fold_right_scope_lets
     ~f:(fun scope_let var_next acc ->
-        Bindlib.box_apply2
-          (fun scope_let_next scope_let_expr ->
-             ScopeLet { scope_let with scope_let_next; scope_let_expr })
-          (Bindlib.bind_var (varf var_next) acc)
-          (f scope_let.scope_let_expr))
+      Bindlib.box_apply2
+        (fun scope_let_next scope_let_expr ->
+          ScopeLet { scope_let with scope_let_next; scope_let_expr })
+        (Bindlib.bind_var (varf var_next) acc)
+        (f scope_let.scope_let_expr))
     ~init:(fun res -> Bindlib.box_apply (fun res -> Result res) (f res))
     scope_body_expr
 
@@ -396,15 +396,14 @@ let map_exprs_in_scopes ~f ~varf scopes =
       let new_next = Bindlib.bind_var (varf var_next) acc in
       Bindlib.box_apply2
         (fun scope_body_expr scope_next ->
-          ScopeDef {
-            scope_def with
-            scope_body = { scope_def.scope_body with scope_body_expr };
-            scope_next;
-          })
-        new_scope_body_expr
-        new_next)
-    ~init:(Bindlib.box Nil)
-    scopes
+          ScopeDef
+            {
+              scope_def with
+              scope_body = { scope_def.scope_body with scope_body_expr };
+              scope_next;
+            })
+        new_scope_body_expr new_next)
+    ~init:(Bindlib.box Nil) scopes
 
 type 'm var = 'm expr Bindlib.var
 
@@ -427,50 +426,89 @@ end
 module VarSet = Set.Make (Var)
 module VarMap = Map.Make (Var)
 
-(* let rec free_vars_expr (e : untyped marked_expr) : VarSet.t = match
-   Marked.unmark e with | EVar v -> VarSet.singleton v | ETuple (es, _) | EArray
-   es -> es |> List.map free_vars_expr |> List.fold_left VarSet.union
-   VarSet.empty | ETupleAccess (e1, _, _, _) | EAssert e1 | ErrorOnEmpty e1 |
-   EInj (e1, _, _, _) -> free_vars_expr e1 | EApp (e1, es) | EMatch (e1, es, _)
-   -> e1 :: es |> List.map free_vars_expr |> List.fold_left VarSet.union
-   VarSet.empty | EDefault (es, ejust, econs) -> ejust :: econs :: es |>
-   List.map free_vars_expr |> List.fold_left VarSet.union VarSet.empty | EOp _ |
-   ELit _ -> VarSet.empty | EIfThenElse (e1, e2, e3) -> [e1; e2; e3] |> List.map
-   free_vars_expr |> List.fold_left VarSet.union VarSet.empty | EAbs (binder, _)
-   -> let vs, body = Bindlib.unmbind binder in Array.fold_right VarSet.remove vs
-   (free_vars_expr body)
+(** {[
+      let rec free_vars_expr (e : untyped marked_expr) : VarSet.t =
+        match Marked.unmark e with
+        | EVar v -> VarSet.singleton v
+        | ETuple (es, _) | EArray es ->
+          es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | ETupleAccess (e1, _, _, _)
+        | EAssert e1
+        | ErrorOnEmpty e1
+        | EInj (e1, _, _, _) ->
+          free_vars_expr e1
+        | EApp (e1, es) | EMatch (e1, es, _) ->
+          e1 :: es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EDefault (es, ejust, econs) ->
+          ejust :: econs :: es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EOp _ | ELit _ -> VarSet.empty
+        | EIfThenElse (e1, e2, e3) ->
+          [e1; e2; e3] |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EAbs (binder, _) ->
+          let vs, body = Bindlib.unmbind binder in
+          Array.fold_right VarSet.remove vs (free_vars_expr body)
 
-   module VarMap = Map.Make (Var(struct type t = untyped end)) module VarSet =
-   Set.Make (Var(struct type t = untyped end))
+      module VarMap = Map.Make (Var (struct
+        type t = untyped
+      end))
 
-   let rec free_vars_expr (e : expr) : VarSet.t = match Marked.unmark e with |
-   EVar (v, _) -> VarSet.singleton v | ETuple (es, _) | EArray es -> es |>
-   List.map free_vars_expr |> List.fold_left VarSet.union VarSet.empty |
-   ETupleAccess (e1, _, _, _) | EAssert e1 | ErrorOnEmpty e1 | EInj (e1, _, _,
-   _) -> free_vars_expr e1 | EApp (e1, es) | EMatch (e1, es, _) -> e1 :: es |>
-   List.map free_vars_expr |> List.fold_left VarSet.union VarSet.empty |
-   EDefault (es, ejust, econs) -> ejust :: econs :: es |> List.map
-   free_vars_expr |> List.fold_left VarSet.union VarSet.empty | EOp _ | ELit _
-   -> VarSet.empty | EIfThenElse (e1, e2, e3) -> [e1; e2; e3] |> List.map
-   free_vars_expr |> List.fold_left VarSet.union VarSet.empty | EAbs ((binder,
-   _), _) -> let vs, body = Bindlib.unmbind binder in Array.fold_right
-   VarSet.remove vs (free_vars_expr body)
+      module VarSet = Set.Make (Var (struct
+        type t = untyped
+      end))
 
-   let rec free_vars_scope_body_expr (scope_lets : expr scope_body_expr) :
-   VarSet.t = match scope_lets with | Result e -> free_vars_expr e | ScopeLet {
-   scope_let_expr = e; scope_let_next = next; _ } -> let v, body =
-   Bindlib.unbind next in VarSet.union (free_vars_expr e) (VarSet.remove v
-   (free_vars_scope_body_expr body))
+      let rec free_vars_expr (e : expr) : VarSet.t =
+        match Marked.unmark e with
+        | EVar (v, _) -> VarSet.singleton v
+        | ETuple (es, _) | EArray es ->
+          es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | ETupleAccess (e1, _, _, _)
+        | EAssert e1
+        | ErrorOnEmpty e1
+        | EInj (e1, _, _, _) ->
+          free_vars_expr e1
+        | EApp (e1, es) | EMatch (e1, es, _) ->
+          e1 :: es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EDefault (es, ejust, econs) ->
+          ejust :: econs :: es |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EOp _ | ELit _ -> VarSet.empty
+        | EIfThenElse (e1, e2, e3) ->
+          [e1; e2; e3] |> List.map free_vars_expr
+          |> List.fold_left VarSet.union VarSet.empty
+        | EAbs ((binder, _), _) ->
+          let vs, body = Bindlib.unmbind binder in
+          Array.fold_right VarSet.remove vs (free_vars_expr body)
 
-   let free_vars_scope_body (scope_body : expr scope_body) : VarSet.t = let {
-   scope_body_expr = binder; _ } = scope_body in let v, body = Bindlib.unbind
-   binder in VarSet.remove v (free_vars_scope_body_expr body)
+      let rec free_vars_scope_body_expr (scope_lets : expr scope_body_expr) :
+          VarSet.t =
+        match scope_lets with
+        | Result e -> free_vars_expr e
+        | ScopeLet { scope_let_expr = e; scope_let_next = next; _ } ->
+          let v, body = Bindlib.unbind next in
+          VarSet.union (free_vars_expr e)
+            (VarSet.remove v (free_vars_scope_body_expr body))
 
-   let rec free_vars_scopes (scopes : expr scopes) : VarSet.t = match scopes
-   with | Nil -> VarSet.empty | ScopeDef { scope_body = body; scope_next = next;
-   _ } -> let v, next = Bindlib.unbind next in VarSet.union (VarSet.remove v
-   (free_vars_scopes next)) (free_vars_scope_body body) (* type vars = expr
-   Bindlib.mvar *) *)
+      let free_vars_scope_body (scope_body : expr scope_body) : VarSet.t =
+        let { scope_body_expr = binder; _ } = scope_body in
+        let v, body = Bindlib.unbind binder in
+        VarSet.remove v (free_vars_scope_body_expr body)
+
+      let rec free_vars_scopes (scopes : expr scopes) : VarSet.t =
+        match scopes with
+        | Nil -> VarSet.empty
+        | ScopeDef { scope_body = body; scope_next = next; _ } ->
+          let v, next = Bindlib.unbind next in
+          VarSet.union
+            (VarSet.remove v (free_vars_scopes next))
+            (free_vars_scope_body body)
+      (* type vars = expr Bindlib.mvar *)
+    ]}*)
 
 let make_var ((x, mark) : ('m expr Bindlib.var, 'm) marked) :
     'm marked_expr Bindlib.box =

@@ -51,7 +51,7 @@ and expr =
   | ERaise of except
   | ECatch of marked_expr * except * marked_expr
 
-type program = { decl_ctx : Dcalc.Ast.decl_ctx; scopes : expr Dcalc.Ast.scopes }
+type program = { decl_ctx : Dcalc.Ast.decl_ctx; scopes : (expr, Dcalc.Ast.untyped) Dcalc.Ast.scopes }
 
 let evar (v : expr Bindlib.var) (pos : Pos.t) : expr Marked.pos Bindlib.box =
   Bindlib.box_apply (fun v' -> v', pos) (Bindlib.box_var v)
