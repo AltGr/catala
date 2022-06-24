@@ -543,7 +543,7 @@ let rec format_scopes
 
 let format_program
     (fmt : Format.formatter)
-    (p : Ast.program)
+    (p : 'm Ast.program)
     (type_ordering : Scopelang.Dependency.TVertex.t list) : unit =
   Cli.style_flag := false;
   Format.fprintf fmt

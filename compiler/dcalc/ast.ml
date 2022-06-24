@@ -251,7 +251,7 @@ let with_ty (type m) (ty : Infer.unionfind_typ) (x : ('a, m) marked) :
     | Typed m -> Typed { m with ty })
     (Marked.unmark x)
 
-let evar v mark = Bindlib.box_apply (fun v' -> v', mark) (Bindlib.box_var v)
+let evar v mark = Bindlib.box_apply (Marked.mark mark) (Bindlib.box_var v)
 
 let etuple args s mark =
   Bindlib.box_apply (fun args -> ETuple (args, s), mark) (Bindlib.box_list args)
@@ -406,19 +406,18 @@ let map_exprs_in_scopes ~f ~varf scopes =
     ~init:(Bindlib.box Nil) scopes
 
 type 'm var = 'm expr Bindlib.var
+type 'm vars = 'm expr Bindlib.mvar
 
 let new_var s = Bindlib.new_var (fun x -> EVar x) s
 
 module Var = struct
-  type t = V : 'm var -> t
+  type t = V : 'a Bindlib.var -> t
   (* We use this trivial GADT to make the 'm parameter disappear under an
      existential. It's fine for a use as keys only.
      (bindlib defines [any_var] similarly but it's not exported)
      todo: add [@@ocaml.unboxed] once it's possible through abstract types *)
 
   let t v = V v
-
-  let make (s : string) : t = V (new_var s)
 
   let compare (V x) (V y) = Bindlib.compare_vars x y
 end

@@ -31,12 +31,12 @@ val format_expr :
   ?debug:bool ->
   Dcalc.Ast.decl_ctx ->
   Format.formatter ->
-  Ast.expr Marked.pos ->
+  'm Ast.marked_expr ->
   unit
 
 val format_scope :
   ?debug:bool ->
   Dcalc.Ast.decl_ctx ->
   Format.formatter ->
-  Dcalc.Ast.ScopeName.t * Ast.expr Dcalc.Ast.scope_body ->
+  Dcalc.Ast.ScopeName.t * ('m Ast.expr, 'm) Dcalc.Ast.scope_body ->
   unit
