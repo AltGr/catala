@@ -98,11 +98,19 @@ type 'm vars = 'm expr Bindlib.mvar
 
 let new_var s = Bindlib.new_var (fun x -> EVar x) s
 
-module Var = D.Var
+module Var = struct
+  type t = V : 'a var -> t
+  (* See Dcalc.Ast.var *)
 
-module VarSet = D.VarSet
+  let t v = V v
 
-module VarMap = D.VarMap 
+  let get (V v) = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
+
+  let compare (V x) (V y) = Bindlib.compare_vars x y
+end
+
+module VarSet = Set.Make (Var)
+module VarMap = Map.Make (Var)
 
 (* </copy-paste> *)
 

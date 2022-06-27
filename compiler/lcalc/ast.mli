@@ -70,9 +70,15 @@ type 'm program = { decl_ctx : Dcalc.Ast.decl_ctx; scopes : ('m expr, 'm) Dcalc.
 type 'm var = 'm expr Bindlib.var
 type 'm vars = 'm expr Bindlib.mvar
 
-module Var = Dcalc.Ast.Var
-module VarMap = Dcalc.Ast.VarMap
-module VarSet = Dcalc.Ast.VarSet
+module Var : sig
+  type t
+
+  val t: 'm expr Bindlib.var -> t
+  val get: t -> 'm expr Bindlib.var
+  val compare : t -> t -> int
+end
+module VarMap : Map.S with type key = Var.t
+module VarSet : Set.S with type elt = Var.t
 
 val new_var: string -> 'm var
 
@@ -211,7 +217,7 @@ val make_matchopt :
 
 val box_expr : 'm marked_expr -> 'm marked_expr Bindlib.box
 
-(** {1 Special symbols}*)
+(** {1 Special symbols} *)
 
 val handle_default : Var.t
 val handle_default_opt : Var.t

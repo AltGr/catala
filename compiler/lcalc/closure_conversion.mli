@@ -1,6 +1,6 @@
 (* This file is part of the Catala compiler, a specification language for tax
-   and social benefits computation rules. Copyright (C) 2020-2022 Inria,
-   contributor: Alain Delaët-Tixeuil <alain.delaet--tixeuil@inria.fr>
+   and social benefits computation rules. Copyright (C) 2022 Inria, contributor:
+   Denis Merigoux <denis.merigoux@inria.fr>
 
    Licensed under the Apache License, Version 2.0 (the "License"); you may not
    use this file except in compliance with the License. You may obtain a copy of
@@ -14,9 +14,7 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
-(** Translation from the default calculus to the lambda calculus. This
-    translation uses an option monad to handle empty defaults terms. This
-    transformation is one piece to permit to compile toward legacy languages
-    that does not contains exceptions. *)
-
-val translate_program : 'm Dcalc.Ast.program -> 'mAst.program
+val closure_conversion: Dcalc.Ast.untyped Ast.program -> Dcalc.Ast.untyped Ast.program Bindlib.box
+(* TODO: at the moment this interface restricts to untyped AST although a typed
+   ast would be accepted, because no effort was yet made to ensure the correct
+   propagation of types during the transformation *)

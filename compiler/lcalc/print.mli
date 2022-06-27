@@ -24,7 +24,7 @@ val begins_with_uppercase : string -> bool
 (** {1 Formatters} *)
 
 val format_lit : Format.formatter -> Ast.lit Marked.pos -> unit
-val format_var : Format.formatter -> Ast.Var.t -> unit
+val format_var : Format.formatter -> 'm Ast.var -> unit
 val format_exception : Format.formatter -> Ast.except -> unit
 
 val format_expr :

@@ -406,7 +406,8 @@ val new_var: string -> 'm var
 module Var : sig
   type t
 
-  val t: 'a Bindlib.var -> t
+  val t: 'm expr Bindlib.var -> t
+  val get: t -> 'm expr Bindlib.var
   val compare : t -> t -> int
 end
 

@@ -411,13 +411,15 @@ type 'm vars = 'm expr Bindlib.mvar
 let new_var s = Bindlib.new_var (fun x -> EVar x) s
 
 module Var = struct
-  type t = V : 'a Bindlib.var -> t
+  type t = V : 'a expr Bindlib.var -> t
   (* We use this trivial GADT to make the 'm parameter disappear under an
      existential. It's fine for a use as keys only.
      (bindlib defines [any_var] similarly but it's not exported)
      todo: add [@@ocaml.unboxed] once it's possible through abstract types *)
 
   let t v = V v
+
+  let get (V v) = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
 
   let compare (V x) (V y) = Bindlib.compare_vars x y
 end
