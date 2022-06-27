@@ -305,7 +305,7 @@ and translate_expr ?(append_esome = true) (ctx : 'm ctx) (e : 'm D.marked_expr) 
      (Format.pp_print_list Print.format_var) (List.map fst hoists); *)
   ListLabels.fold_left hoists
     ~init:(if append_esome then A.make_some e' else e')
-    ~f:(fun acc (v, (hoist, pos_hoist)) ->
+    ~f:(fun acc (v, (hoist, mark_hoist)) ->
       (* Cli.debug_print @@ Format.asprintf "hoist using A.%a" Print.format_var
          v; *)
       let c' : 'm A.marked_expr Bindlib.box =
@@ -319,37 +319,37 @@ and translate_expr ?(append_esome = true) (ctx : 'm ctx) (e : 'm D.marked_expr) 
           let cons' = translate_expr ctx cons in
           (* calls handle_option. *)
           A.make_app
-            (A.make_var (A.handle_default_opt, pos_hoist))
+            (A.make_var (A.Var.get A.handle_default_opt, mark_hoist))
             [
               Bindlib.box_apply
-                (fun excep' -> A.EArray excep', pos_hoist)
+                (fun excep' -> A.EArray excep', mark_hoist)
                 (Bindlib.box_list excep');
               just';
               cons';
             ]
-            pos_hoist
-        | D.ELit D.LEmptyError -> A.make_none pos_hoist
+            mark_hoist
+        | D.ELit D.LEmptyError -> A.make_none mark_hoist
         | D.EAssert arg ->
           let arg' = translate_expr ctx arg in
 
           (* [ match arg with | None -> raise NoValueProvided | Some v -> assert
              {{ v }} ] *)
-          let silent_var = A.Var.make "_" in
-          let x = A.Var.make "assertion_argument" in
+          let silent_var = A.new_var "_" in
+          let x = A.new_var "assertion_argument" in
 
           A.make_matchopt_with_abs_arms arg'
             (A.make_abs [| silent_var |]
-               (Bindlib.box (A.ERaise A.NoValueProvided, pos_hoist))
-               [D.TAny, pos_hoist]
-               pos_hoist)
+               (Bindlib.box (A.ERaise A.NoValueProvided, mark_hoist))
+               [D.TAny, D.mark_pos mark_hoist]
+               mark_hoist)
             (A.make_abs [| x |]
                (Bindlib.box_apply
-                  (fun arg -> A.EAssert arg, pos_hoist)
-                  (A.make_var (x, pos_hoist)))
-               [D.TAny, pos_hoist]
-               pos_hoist)
+                  (fun arg -> A.EAssert arg, mark_hoist)
+                  (A.make_var (x, mark_hoist)))
+               [D.TAny, D.mark_pos mark_hoist]
+               mark_hoist)
         | _ ->
-          Errors.raise_spanned_error pos_hoist
+          Errors.raise_spanned_error (D.mark_pos mark_hoist)
             "Internal Error: An term was found in a position where it should \
              not be"
       in
@@ -358,11 +358,11 @@ and translate_expr ?(append_esome = true) (ctx : 'm ctx) (e : 'm D.marked_expr) 
          ] *)
       (* Cli.debug_print @@ Format.asprintf "build matchopt using %a"
          Print.format_var v; *)
-      A.make_matchopt pos_hoist v (D.TAny, pos_hoist) c' (A.make_none pos_hoist)
+      A.make_matchopt mark_hoist (A.Var.get v) (D.TAny, D.mark_pos mark_hoist) c' (A.make_none mark_hoist)
         acc)
 
-let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
-    A.expr D.scope_body_expr Bindlib.box =
+let rec translate_scope_let (ctx : 'm ctx) (lets : ('m D.expr, 'm) D.scope_body_expr) :
+    ('m A.expr, 'm) D.scope_body_expr Bindlib.box =
   match lets with
   | Result e ->
     Bindlib.box_apply
@@ -372,7 +372,7 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
       {
         scope_let_kind = SubScopeVarDefinition;
         scope_let_typ = typ;
-        scope_let_expr = D.EAbs (binder, _), _;
+        scope_let_expr = D.EAbs (binder, _), emark;
         scope_let_next = next;
         scope_let_pos = pos;
       } ->
@@ -384,7 +384,10 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
     let var, next = Bindlib.unbind next in
     (* Cli.debug_print @@ Format.asprintf "unbinding %a" Dcalc.Print.format_var
        var; *)
-    let ctx' = add_var pos var var_is_pure ctx in
+    let vmark =
+      D.map_mark (fun _ -> pos) (fun _ -> D.Infer.ast_to_typ typ) emark
+    in
+    let ctx' = add_var vmark var var_is_pure ctx in
     let new_var = (find ~info:"variable that was just created" var ctx').var in
     let new_next = translate_scope_let ctx' next in
     Bindlib.box_apply2
@@ -403,7 +406,7 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
       {
         scope_let_kind = SubScopeVarDefinition;
         scope_let_typ = typ;
-        scope_let_expr = (D.ErrorOnEmpty _, _) as expr;
+        scope_let_expr = (D.ErrorOnEmpty _, emark) as expr;
         scope_let_next = next;
         scope_let_pos = pos;
       } ->
@@ -412,7 +415,10 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
     let var, next = Bindlib.unbind next in
     (* Cli.debug_print @@ Format.asprintf "unbinding %a" Dcalc.Print.format_var
        var; *)
-    let ctx' = add_var pos var var_is_pure ctx in
+    let vmark =
+      D.map_mark (fun _ -> pos) (fun _ -> D.Infer.ast_to_typ typ) emark
+    in
+    let ctx' = add_var vmark var var_is_pure ctx in
     let new_var = (find ~info:"variable that was just created" var ctx').var in
     Bindlib.box_apply2
       (fun new_expr new_next ->
@@ -464,7 +470,10 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
     let var, next = Bindlib.unbind next in
     (* Cli.debug_print @@ Format.asprintf "unbinding %a" Dcalc.Print.format_var
        var; *)
-    let ctx' = add_var pos var var_is_pure ctx in
+    let vmark =
+      D.map_mark (fun _ -> pos) (fun _ -> D.Infer.ast_to_typ typ) (Marked.get_mark expr)
+    in
+    let ctx' = add_var vmark var var_is_pure ctx in
     let new_var = (find ~info:"variable that was just created" var ctx').var in
     Bindlib.box_apply2
       (fun new_expr new_next ->
@@ -481,8 +490,8 @@ let rec translate_scope_let (ctx : ctx) (lets : D.expr D.scope_body_expr) :
 
 let translate_scope_body
     (scope_pos : Pos.t)
-    (ctx : ctx)
-    (body : D.expr D.scope_body) : A.expr D.scope_body Bindlib.box =
+    (ctx : 'm ctx)
+    (body : ('m D.expr, 'm) D.scope_body) : ('m A.expr, 'm) D.scope_body Bindlib.box =
   match body with
   | {
    scope_body_expr = result;
@@ -490,7 +499,11 @@ let translate_scope_body
    scope_body_output_struct = output_struct;
   } ->
     let v, lets = Bindlib.unbind result in
-    let ctx' = add_var scope_pos v true ctx in
+    let vmark =
+      let m = match lets with Result e | ScopeLet { scope_let_expr=e; _} -> Marked.get_mark e in
+      D.map_mark (fun _ -> scope_pos) (fun ty -> ty) m
+    in
+    let ctx' = add_var vmark v true ctx in
     let v' = (find ~info:"variable that was just created" v ctx').var in
     Bindlib.box_apply
       (fun new_expr ->
@@ -501,13 +514,17 @@ let translate_scope_body
         })
       (Bindlib.bind_var v' (translate_scope_let ctx' lets))
 
-let rec translate_scopes (ctx : ctx) (scopes : D.expr D.scopes) :
-    A.expr D.scopes Bindlib.box =
+let rec translate_scopes (ctx : 'm ctx) (scopes : ('m D.expr, 'm) D.scopes) :
+    ('m A.expr, 'm) D.scopes Bindlib.box =
   match scopes with
   | Nil -> Bindlib.box D.Nil
   | ScopeDef { scope_name; scope_body; scope_next } ->
     let scope_var, next = Bindlib.unbind scope_next in
-    let new_ctx = add_var Pos.no_pos scope_var true ctx in
+    let vmark =
+      match Bindlib.unbind scope_body.scope_body_expr with _, (Result e | ScopeLet { scope_let_expr=e; _}) -> Marked.get_mark e
+    in
+
+    let new_ctx = add_var vmark scope_var true ctx in
     let new_scope_name =
       (find ~info:"variable that was just created" scope_var new_ctx).var
     in
@@ -523,7 +540,7 @@ let rec translate_scopes (ctx : ctx) (scopes : D.expr D.scopes) :
       new_body
       (Bindlib.bind_var new_scope_name tail)
 
-let translate_program (prgm : D.program) : A.program =
+let translate_program (prgm : 'm D.program) : 'm A.program =
   let inputs_structs =
     D.fold_left_scope_defs prgm.scopes ~init:[] ~f:(fun acc scope_def _ ->
         scope_def.D.scope_body.scope_body_input_struct :: acc)

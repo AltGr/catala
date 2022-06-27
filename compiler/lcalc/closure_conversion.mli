@@ -14,7 +14,6 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
-val closure_conversion: Dcalc.Ast.untyped Ast.program -> Dcalc.Ast.untyped Ast.program Bindlib.box
-(* TODO: at the moment this interface restricts to untyped AST although a typed
-   ast would be accepted, because no effort was yet made to ensure the correct
-   propagation of types during the transformation *)
+val closure_conversion: 'm Ast.program -> 'm Ast.program Bindlib.box
+(** Warning/todo: no effort was yet made to ensure
+    correct propagation of type annotations in the typed case *)
