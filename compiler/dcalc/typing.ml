@@ -220,8 +220,14 @@ let rec typecheck_expr_bottom_up
     (ctx : Ast.decl_ctx)
     (env : env)
     (e : 'm A.marked_expr) : A.typed_expr Bindlib.box =
-  (* Cli.debug_print (Format.asprintf "Looking for type of %a"
-     (Print.format_expr ctx) e); *)
+  Cli.debug_format "Looking for type of %a"
+     (Print.format_expr ~debug:true ctx) e;
+  (fun r ->
+     let e = Bindlib.unbox r in
+     Cli.debug_format "--> type of %a: %a"
+       (Print.format_expr ~debug:true ctx) e
+       (Print.format_typ ctx) (A.ty e);
+     r) @@
   try
     let pos_e = A.pos e in
     let mark (e : A.typed A.expr) ty =
@@ -237,7 +243,9 @@ let rec typecheck_expr_bottom_up
         mark v' t
       | None ->
         Errors.raise_spanned_error (A.pos e)
-          "Variable not found in the current context"
+          "Variable not found in the current context. Env: @[<hov 2>{@,%a@,}@]"
+          (Format.pp_print_seq (fun ppf (v, _t) -> Format.pp_print_string ppf @@ Bindlib.name_of (A.Var.get v)))
+          (A.VarMap.to_seq env)
     end
     | A.ELit (LBool _) as e1 -> Bindlib.box @@ mark_with_uf e1 (TLit TBool)
     | A.ELit (LInt _) as e1 -> Bindlib.box @@ mark_with_uf e1 (TLit TInt)
@@ -395,6 +403,9 @@ and typecheck_expr_top_down
     (e : 'm A.marked_expr)
     (tau : typ Marked.pos UnionFind.elem) :
   A.typed_expr Bindlib.box =
+  Cli.debug_format "Propagating type %a for expr %a"
+    (format_typ ctx) tau
+    (Print.format_expr ~debug:true ctx) e;
   (* Cli.debug_print (Format.asprintf "Typechecking %a : %a" (Print.format_expr
      ctx) e (format_typ ctx) tau); *)
   try
@@ -610,6 +621,9 @@ let infer_types_program prg =
           } ->
           let ty = ast_to_typ scope_let_typ in
           let e = typecheck_expr_top_down ctx env e ty in
+          Cli.debug_format "@[<hv 2>CHECK SCOPELET:@ %a@ : %a@]"
+            (Print.format_expr ~debug:true ctx) (Bindlib.unbox e)
+            (Print.format_typ ctx) (fst scope_let_typ);
           let var, next = Bindlib.unbind scope_let_next in
           let env = A.VarMap.add (A.Var.t var) ty env in
           let next = process_scope_body_expr env next in
