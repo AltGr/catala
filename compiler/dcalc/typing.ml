@@ -647,8 +647,9 @@ let infer_types_program prg =
               })
             e scope_let_next
       in
-      let var, e = Bindlib.unbind body in
       let scope_body_expr =
+        let var, e = Bindlib.unbind body in
+        let env = A.VarMap.add (A.Var.t var) ty_in env in
         Bindlib.bind_var (translate_var var)
           (process_scope_body_expr env e)
       in
