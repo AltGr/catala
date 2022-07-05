@@ -388,7 +388,7 @@ let rec typecheck_expr_bottom_up
           es
       in
       mark_with_uf (A.EArray es') (TArray cell_type)
-  with Errors.StructuredError (msg, err_pos) when List.length err_pos = 2 ->
+  with Errors.StructuredError (msg, ([_; _] as err_pos)) ->
     raise
       (Errors.StructuredError
          ( msg,
@@ -527,7 +527,8 @@ and typecheck_expr_top_down
           (fun arg acc -> unionfind_make (TArrow (ty arg, acc)))
           args' tau
       in
-      unify_and_mark (EApp (e1', args')) t_func
+      unify ctx (ty e1') t_func;
+      unify_and_mark (EApp (e1', args')) tau
     | A.EOp op as e1 ->
       let op_typ = op_type (add_pos e op) in
       Bindlib.box (unify_and_mark e1 op_typ)
@@ -606,11 +607,17 @@ let infer_types_program prg =
         }
       } ->
       let scope_pos = Marked.get_mark (A.ScopeName.get_info scope_name) in
-      let tau = A.build_scope_typ_from_sig ctx s_in s_out scope_pos in
-      let ty = ast_to_typ tau in
+      let struct_ty struct_name =
+        let struc = A.StructMap.find struct_name ctx.A.ctx_structs in
+        ast_to_typ (Marked.mark scope_pos (A.TTuple (List.map snd struc, Some struct_name)))
+      in
+      let ty_in = struct_ty s_in in
+      let ty_out = struct_ty s_out in
+      let ty_scope =
+        UnionFind.make (Marked.mark scope_pos (TArrow (ty_in, ty_out))) in
       let rec process_scope_body_expr env = function
         | A.Result e ->
-          let e' = typecheck_expr_top_down ctx env e ty in
+          let e' = typecheck_expr_top_down ctx env e ty_out in
           Bindlib.box_apply (fun e -> A.Result e) e'
         | A.ScopeLet {
             scope_let_kind;
@@ -645,7 +652,7 @@ let infer_types_program prg =
       in
       let scope_next =
         let scope_var, next = Bindlib.unbind scope_next in
-        let env = A.VarMap.add (A.Var.t scope_var) ty env in
+        let env = A.VarMap.add (A.Var.t scope_var) ty_scope env in
         let next = process_scopes env next in
         Bindlib.bind_var (translate_var scope_var) next;
       in
@@ -667,7 +674,7 @@ let infer_types_program prg =
         let pos = A.mark_pos prg.mark_witness in
         A.Typed {
           pos;
-          ty = UnionFind.make (Marked.mark pos (TAny (Any.fresh())));
+          ty = UnionFind.make (Marked.mark pos (TLit TUnit));
         }
       in
       { A.
