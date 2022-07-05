@@ -758,13 +758,13 @@ let rec unfold_scopes
     ~(make_let_in : ('expr, 'm) make_let_in_sig)
     (ctx : decl_ctx)
     (s : ('expr, 'm) scopes)
-    (mark_witness : 'm mark)
+    (mark : 'm mark)
     (main_scope : 'expr scope_name_or_var) : ('expr, 'm) marked Bindlib.box =
   match s with
   | Nil -> (
     match main_scope with
     | ScopeVar v ->
-      Bindlib.box_apply (fun v -> v, no_mark mark_witness) (Bindlib.box_var v)
+      Bindlib.box_apply (fun v -> v, mark) (Bindlib.box_var v)
     | ScopeName _ -> failwith "should not happen")
   | ScopeDef { scope_name; scope_body; scope_next } ->
     let scope_var, scope_next = Bindlib.unbind scope_next in
@@ -783,12 +783,21 @@ let rec unfold_scopes
       (build_whole_scope_expr ~box_expr ~make_abs ~make_let_in ctx scope_body
          scope_body_mark)
       (unfold_scopes ~box_expr ~make_abs ~make_let_in ctx scope_next
-         mark_witness main_scope)
+         mark main_scope)
       scope_pos
 
+let rec find_scope name vars = function
+  | Nil -> raise Not_found
+  | ScopeDef {scope_name; scope_body; _} when scope_name = name ->
+    List.rev vars, scope_body
+  | ScopeDef {scope_next; _} ->
+    let var, next = Bindlib.unbind scope_next in
+    find_scope name (var :: vars) next
+
 let build_whole_program_expr (p : 'm program) (main_scope : ScopeName.t) =
+  let _, main_scope_body = find_scope main_scope [] p.scopes in
   unfold_scopes ~box_expr ~make_abs ~make_let_in p.decl_ctx p.scopes
-    p.mark_witness (ScopeName main_scope)
+    (get_scope_body_mark main_scope_body) (ScopeName main_scope)
 
 let rec expr_size (e : 'm marked_expr) : int =
   match Marked.unmark e with
