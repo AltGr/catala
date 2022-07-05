@@ -243,7 +243,8 @@ let rec typecheck_expr_bottom_up
         mark v' t
       | None ->
         Errors.raise_spanned_error (A.pos e)
-          "Variable not found in the current context. Env: @[<hov 2>{@,%a@,}@]"
+          "Variable %S not found in the current context. Env: @[<hov 2>{@,%a@,}@]"
+          (Bindlib.name_of v)
           (Format.pp_print_seq (fun ppf (v, _t) -> Format.pp_print_string ppf @@ Bindlib.name_of (A.Var.get v)))
           (A.VarMap.to_seq env)
     end
@@ -425,7 +426,8 @@ and typecheck_expr_top_down
           unify_and_mark v' tau'
         | None ->
           Errors.raise_spanned_error (A.pos e)
-            "Variable not found in the current context"
+            "Variable %S not found in the current context"
+            (Bindlib.name_of v)
       end
     | A.ELit (LBool _) as e1 -> Bindlib.box @@ unify_and_mark e1 (unionfind_make (TLit TBool))
     | A.ELit (LInt _) as e1 -> Bindlib.box @@ unify_and_mark e1 (unionfind_make (TLit TInt))
