@@ -223,15 +223,15 @@ let driver source_file (options : Cli.options) : int =
           | `Typecheck ->
             (* That's it! *)
             Cli.result_print "Typechecking successful!"
-          | `Proof -> assert false
-            (* let vcs =
-             *   Verification.Conditions.generate_verification_conditions prgm
-             *     (match options.ex_scope with
-             *     | None -> None
-             *     | Some _ -> Some scope_uid)
-             * in
-             * 
-             * Verification.Solver.solve_vc prgm.decl_ctx vcs *)
+          | `Proof ->
+            let vcs =
+              Verification.Conditions.generate_verification_conditions prgm
+                (match options.ex_scope with
+                | None -> None
+                | Some _ -> Some scope_uid)
+            in
+
+            Verification.Solver.solve_vc prgm.decl_ctx vcs
           | `Interpret ->
             Cli.debug_print "Starting interpretation...";
             let prgrm_dcalc_expr =

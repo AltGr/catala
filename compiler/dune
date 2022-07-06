@@ -10,7 +10,8 @@
   dcalc
   lcalc
   scalc
-  runtime)
+  runtime
+  verification)
  (modules plugin driver))
 
 (library
