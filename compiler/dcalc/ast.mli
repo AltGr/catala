@@ -222,7 +222,7 @@ type ('expr, 'm) scope_def = {
     lets. This permit us to use bindlib variables for scopes names. *)
 and ('expr, 'm) scopes = Nil | ScopeDef of ('expr, 'm) scope_def
 
-type 'm program = { decl_ctx : decl_ctx; scopes : ('m expr, 'm) scopes; mark_witness : 'm mark }
+type 'm program = { decl_ctx : decl_ctx; scopes : ('m expr, 'm) scopes }
 
 (** {1 Helpers} *)
 

@@ -669,17 +669,9 @@ let infer_types_program prg =
   in
   let scopes = process_scopes A.VarMap.empty prg.scopes in
   Bindlib.box_apply (fun scopes ->
-      let mark_witness =
-        let pos = A.mark_pos prg.mark_witness in
-        A.Typed {
-          pos;
-          ty = UnionFind.make (Marked.mark pos (TLit TUnit));
-        }
-      in
       { A.
         decl_ctx = ctx;
         scopes;
-        mark_witness;
       })
     scopes
   |> Bindlib.unbox

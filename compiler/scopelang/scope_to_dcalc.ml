@@ -951,4 +951,4 @@ let translate_program (prgm : Ast.program) :
       scope_ordering
       (Bindlib.box Dcalc.Ast.Nil, decl_ctx)
   in
-  { scopes = Bindlib.unbox scopes; decl_ctx; mark_witness = pos_mark Pos.no_pos }, types_ordering
+  { scopes = Bindlib.unbox scopes; decl_ctx }, types_ordering

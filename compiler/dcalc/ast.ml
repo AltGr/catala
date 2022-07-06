@@ -225,7 +225,6 @@ and ('expr, 'm) scopes = Nil | ScopeDef of ('expr, 'm) scope_def
 type 'm program = {
   decl_ctx : decl_ctx;
   scopes : ('m expr, 'm) scopes;
-  mark_witness : 'm mark;
 }
 
 let no_mark (type m) : m mark -> m mark = function
