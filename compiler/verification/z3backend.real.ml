@@ -426,7 +426,7 @@ let rec translate_op
           (Format.asprintf
              "[Z3 encoding] Ill-formed ternary operator application: %a"
              (Print.format_expr ctx.ctx_decl)
-             (EApp ((EOp op, Untyped {pos=Pos.no_pos}), args), Untyped {pos=Pos.no_pos}))
+             (EApp ((EOp op, Untyped {pos=Pos.no_pos}), (List.map untype_expr args)), Untyped {pos=Pos.no_pos}))
     in
 
     failwith "[Z3 encoding] ternary operator application not supported"
@@ -514,7 +514,7 @@ let rec translate_op
             (Format.asprintf
                "[Z3 encoding] Ill-formed binary operator application: %a"
                (Print.format_expr ctx.ctx_decl)
-               (EApp ((EOp op, Untyped{pos=Pos.no_pos}), args), Untyped{pos=Pos.no_pos}))
+               (EApp ((EOp op, Untyped{pos=Pos.no_pos}), List.map untype_expr args), Untyped{pos=Pos.no_pos}))
       in
 
       match bop with
@@ -561,7 +561,7 @@ let rec translate_op
           (Format.asprintf
              "[Z3 encoding] Ill-formed unary operator application: %a"
              (Print.format_expr ctx.ctx_decl)
-             (EApp ((EOp op, Untyped{pos=Pos.no_pos}), args), Untyped{pos=Pos.no_pos}))
+             (EApp ((EOp op, Untyped{pos=Pos.no_pos}), List.map untype_expr args), Untyped{pos=Pos.no_pos}))
     in
 
     match uop with
