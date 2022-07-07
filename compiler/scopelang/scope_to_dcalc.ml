@@ -403,7 +403,7 @@ let translate_rule
           failwith "should not happen"
           (* scopelang should not contain any definitions of input only
              variables *)
-        | Reentrant -> merge_defaults a_expr new_e (Marked.get_mark a_io.io_input)
+        | Reentrant -> merge_defaults a_expr new_e (var_def_pos)
         | NoInput -> new_e)
     in
     let merged_expr =
