@@ -326,10 +326,13 @@ let make_default ?(pos = Pos.no_pos) exceptions just cons =
   match exceptions, bool_value just, cons with
   | [], Some true, cons -> cons
   | exceptions, Some true, (EDefault ([], just, cons), pos) ->
+    assert (pos <> Pos.no_pos);
     EDefault (exceptions, just, cons), pos
-  | [except], Some false, _ -> except
+  | [except], Some false, _ ->     assert (Marked.get_mark except <> Pos.no_pos);
+except
   | exceptions, _, cons ->
     let pos = if pos <> Pos.no_pos then pos else Marked.get_mark just in
+    assert (pos <> Pos.no_pos);
     EDefault (exceptions, just, cons), pos
 
 module VarMap = Map.Make (Var)

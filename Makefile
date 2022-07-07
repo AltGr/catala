@@ -266,10 +266,10 @@ CLERK=$(CLERK_BIN) --exe $(CATALA_BIN) \
 .FORCE:
 
 test_suite: .FORCE
-	$(CLERK) test tests
+	OCAMLRUNPARAM= $(CLERK) test tests
 
 test_examples: .FORCE
-	$(CLERK) test examples
+	OCAMLRUNPARAM= $(CLERK) test examples
 
 test_clerk: .FORCE
 	dune test $(BUILD_SYSTEM_DIR)

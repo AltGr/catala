@@ -1061,8 +1061,11 @@ let process_default
     | Some just -> Some (translate_expr scope (Some def_key) ctxt just)
     | None -> None
   in
+  assert (Marked.get_mark def_key <> Pos.no_pos);
   let just = merge_conditions precond just (Marked.get_mark def_key) in
+  assert (Marked.get_mark (Bindlib.unbox just) <> Pos.no_pos);
   let cons = translate_expr scope (Some def_key) ctxt cons in
+  assert (Marked.get_mark (Bindlib.unbox cons) <> Pos.no_pos);
   {
     rule_just = just;
     rule_cons = cons;

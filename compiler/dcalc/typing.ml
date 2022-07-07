@@ -386,6 +386,8 @@ let rec typecheck_expr_bottom_up
       in
       mark_with_uf (A.EArray es') (TArray cell_type)
   with Errors.StructuredError (msg, ([_; _] as err_pos)) ->
+    Cli.debug_format "Error while typing: %a"
+      (Print.format_expr ~debug:true ctx) e;
     raise
       (Errors.StructuredError
          ( msg,
@@ -562,7 +564,9 @@ and typecheck_expr_top_down
           es
       in
       unify_and_mark (A.EArray es') (unionfind_make (TArray cell_type))
-  with Errors.StructuredError (msg, err_pos) when List.length err_pos = 2 ->
+  with Errors.StructuredError (msg, ([_;_] as err_pos)) ->
+    Cli.debug_format "Error while typing: %a"
+      (Print.format_expr ~debug:true ctx) e;
     raise
       (Errors.StructuredError
          ( msg,
