@@ -216,6 +216,9 @@ let driver source_file (options : Cli.options) : int =
         | ( `Interpret | `Typecheck | `OCaml | `Python | `Scalc | `Lcalc
           | `Proof | `Plugin _ ) as backend -> (
           Cli.debug_print "Typechecking...";
+          let _prgm0 = Dcalc.Typing.infer_types prgm.decl_ctx @@
+                            Bindlib.unbox (Dcalc.Ast.build_whole_program_expr prgm scope_uid)
+ in
           let prgm = Dcalc.Typing.infer_types_program prgm in
           (* Cli.debug_print (Format.asprintf "Typechecking results :@\n%a"
              (Dcalc.Print.format_typ prgm.decl_ctx) typ); *)

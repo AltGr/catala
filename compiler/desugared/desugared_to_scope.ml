@@ -133,7 +133,7 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr Marked.pos) :
   | EDefault (excepts, just, cons) ->
     Bindlib.box_apply3
       (fun new_excepts new_just new_cons ->
-        Scopelang.Ast.make_default ~pos:(m) new_excepts new_just
+        Scopelang.Ast.make_default ~pos:m new_excepts new_just
           new_cons)
       (Bindlib.box_list (List.map (translate_expr ctx) excepts))
       (translate_expr ctx just) (translate_expr ctx cons)
@@ -202,7 +202,6 @@ let rec rule_tree_to_expr
     (def_pos : Pos.t)
     (is_func : Ast.Var.t option)
     (tree : rule_tree) : Scopelang.Ast.expr Marked.pos Bindlib.box =
-  assert (def_pos <> Pos.no_pos);
   let exceptions, base_rules =
     match tree with Leaf r -> [], r | Node (exceptions, r) -> exceptions, r
   in
@@ -212,9 +211,6 @@ let rec rule_tree_to_expr
   let substitute_parameter
       (e : Ast.expr Marked.pos Bindlib.box)
       (rule : Ast.rule) : Ast.expr Marked.pos Bindlib.box =
-    assert (Marked.get_mark (Bindlib.unbox e) <> Pos.no_pos);
-
-    (fun r -> assert (Bindlib.unbox r |> Marked.get_mark <> Pos.no_pos); r) @@
     match is_func, rule.Ast.rule_parameter with
     | Some new_param, Some (old_param, _) ->
       let binder = Bindlib.bind_var old_param e in

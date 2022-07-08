@@ -87,22 +87,23 @@ let pos_mark_as e = pos_mark (Marked.get_mark e)
 
 let merge_defaults
     (caller : Dcalc.Ast.untyped Dcalc.Ast.marked_expr Bindlib.box)
-    (callee : Dcalc.Ast.untyped Dcalc.Ast.marked_expr Bindlib.box)
-    (pos : Pos.t) :
+    (callee : Dcalc.Ast.untyped Dcalc.Ast.marked_expr Bindlib.box) :
     Dcalc.Ast.untyped Dcalc.Ast.marked_expr Bindlib.box =
   let caller =
+    let m = Marked.get_mark (Bindlib.unbox caller) in
     Dcalc.Ast.make_app caller
-      [Bindlib.box (Dcalc.Ast.ELit Dcalc.Ast.LUnit, (pos_mark pos))]
-      (pos_mark pos)
+      [Bindlib.box (Dcalc.Ast.ELit Dcalc.Ast.LUnit, m)]
+      m
   in
   let body =
     Bindlib.box_apply2
       (fun caller callee ->
-        ( Dcalc.Ast.EDefault
+         let m = Marked.get_mark callee in
+         ( Dcalc.Ast.EDefault
             ( [caller],
-              (Dcalc.Ast.ELit (Dcalc.Ast.LBool true), (pos_mark pos)),
+              (Dcalc.Ast.ELit (Dcalc.Ast.LBool true), m),
               callee ),
-          (pos_mark pos) ))
+          m ))
       caller callee
   in
   body
@@ -403,7 +404,7 @@ let translate_rule
           failwith "should not happen"
           (* scopelang should not contain any definitions of input only
              variables *)
-        | Reentrant -> merge_defaults a_expr new_e (var_def_pos)
+        | Reentrant -> merge_defaults a_expr new_e
         | NoInput -> new_e)
     in
     let merged_expr =
@@ -578,7 +579,7 @@ let translate_rule
     let call_expr =
       tag_with_log_entry
         (Bindlib.box_apply2
-           (fun e u -> Dcalc.Ast.EApp (e, [u]), (pos_mark pos_sigma))
+           (fun e u -> Dcalc.Ast.EApp (e, [u]), (pos_mark Pos.no_pos))
            subscope_func subscope_struct_arg)
         Dcalc.Ast.EndCall
         [

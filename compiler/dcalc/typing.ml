@@ -68,28 +68,33 @@ let rec unify
   let raise_type_error (t1_pos : Pos.t) (t2_pos : Pos.t) : 'a =
     (* TODO: if we get weird error messages, then it means that we should use
        the persistent version of the union-find data structure. *)
-    let t1_s =
-      Cli.with_style [ANSITerminal.yellow] "%s"
-        (Re.Pcre.substitute ~rex:(Re.Pcre.regexp "\n\\s*")
-           ~subst:(fun _ -> " ")
-           (Format.asprintf "%a" (format_typ ctx) t1))
+    let unformat_typ typ =
+      let buf = Buffer.create 59 in
+      let ppf = Format.formatter_of_buffer buf in
+      (* set infinite width to disable line cuts *)
+      Format.pp_set_margin ppf max_int;
+      format_typ ctx ppf typ;
+      Format.pp_print_flush ppf ();
+      Buffer.contents buf
     in
-    let t2_s =
-      Cli.with_style [ANSITerminal.yellow] "%s"
-        (Re.Pcre.substitute ~rex:(Re.Pcre.regexp "\n\\s*")
-           ~subst:(fun _ -> " ")
-           (Format.asprintf "%a" (format_typ ctx) t2))
+    let t1_s fmt () =
+      Cli.format_with_style [ANSITerminal.yellow] fmt
+        (unformat_typ t1)
+    in
+    let t2_s fmt () =
+      Cli.format_with_style [ANSITerminal.yellow] fmt
+        (unformat_typ t2)
     in
     Errors.raise_multispanned_error
       [
-        Some (Format.asprintf "Type %s coming from expression:" t1_s), t1_pos;
-        Some (Format.asprintf "Type %s coming from expression:" t2_s), t2_pos;
+        Some (Format.asprintf "Type %a coming from expression:" t1_s ()), t1_pos;
+        Some (Format.asprintf "Type %a coming from expression:" t2_s ()), t2_pos;
       ]
-      "Error during typechecking, incompatible types:\n%a %s\n%a %s"
+      "Error during typechecking, incompatible types:\n%a %a\n%a %a"
       (Cli.format_with_style [ANSITerminal.blue; ANSITerminal.Bold])
-      "-->" t1_s
+      "-->" t1_s ()
       (Cli.format_with_style [ANSITerminal.blue; ANSITerminal.Bold])
-      "-->" t2_s
+      "-->" t2_s ()
   in
   let repr =
     match t1_repr, t2_repr with
@@ -608,7 +613,12 @@ let infer_types_program prg =
           scope_body_expr = body;
         }
       } ->
-      let scope_pos = Marked.get_mark (A.ScopeName.get_info scope_name) in
+      let scope_pos = match snd (Bindlib.unbind body) with A.Result e -> A.pos e
+        | ScopeLet {A.scope_let_pos = pos} ->
+          Cli.debug_format "SCOPELET POS = %s" (Pos.to_string pos);
+          pos
+      in
+        (* Marked.get_mark (A.ScopeName.get_info scope_name) in *)
       let struct_ty struct_name =
         let struc = A.StructMap.find struct_name ctx.A.ctx_structs in
         ast_to_typ (Marked.mark scope_pos (A.TTuple (List.map snd struc, Some struct_name)))
