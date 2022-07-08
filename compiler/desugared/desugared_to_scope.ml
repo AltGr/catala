@@ -133,7 +133,7 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr Marked.pos) :
   | EDefault (excepts, just, cons) ->
     Bindlib.box_apply3
       (fun new_excepts new_just new_cons ->
-        Scopelang.Ast.make_default ~pos:m new_excepts new_just
+        Scopelang.Ast.make_default (* ~pos:m *) new_excepts new_just
           new_cons)
       (Bindlib.box_list (List.map (translate_expr ctx) excepts))
       (translate_expr ctx just) (translate_expr ctx cons)
@@ -266,10 +266,10 @@ let rec rule_tree_to_expr
     Bindlib.box_apply2
       (fun base_just_list base_cons_list ->
         Scopelang.Ast.make_default
-          ~pos:def_pos
+          (* ~pos:def_pos *)
           (List.map2
              (fun base_just base_cons ->
-               Scopelang.Ast.make_default ~pos:def_pos []
+               Scopelang.Ast.make_default (* ~pos:def_pos *) []
                  (* Here we insert the logging command that records when a
                     decision is taken for the value of a variable. *)
                  (tag_with_log_entry base_just Dcalc.Ast.PosRecordIfTrueBool [])
@@ -291,7 +291,7 @@ let rec rule_tree_to_expr
       (fun exceptions default_containing_base_cases ->
         Scopelang.Ast.make_default exceptions
           (Scopelang.Ast.ELit (Dcalc.Ast.LBool true), def_pos)
-          ~pos:def_pos
+          (* ~pos:def_pos *)
           default_containing_base_cases)
       exceptions default_containing_base_cases
   in
