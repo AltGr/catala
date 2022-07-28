@@ -17,6 +17,7 @@
 
 open Utils
 include Astgen
+include Astgen_utils
 
 type lit = dcalc glit
 type 'm expr = (dcalc, 'm mark) gexpr
@@ -42,9 +43,6 @@ let with_ty (type m) (ty : marked_typ) (x : ('a, m) marked) : ('a, typed) marked
     | Untyped { pos } -> Typed { pos; ty }
     | Typed m -> Typed { m with ty })
     (Marked.unmark x)
-
-
-let translate_var v = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
 
 let map_expr ctx ~f e = Astgen_utils.map_gexpr ctx ~f e
 
@@ -74,9 +72,10 @@ let untype_program prg =
       Bindlib.unbox
         (map_exprs_in_scopes
            ~f:(fun e -> untype_expr e)
-           ~varf:translate_var prg.scopes);
+           prg.scopes);
   }
 
+(*
 type 'm var = 'm expr Bindlib.var
 type 'm vars = 'm expr Bindlib.mvar
 
@@ -97,10 +96,11 @@ end
 
 module VarSet = Set.Make (Var)
 module VarMap = Map.Make (Var)
+*)
 
 let rec free_vars_expr (e : 'm marked_expr) : VarSet.t =
   match Marked.unmark e with
-  | EVar v -> VarSet.singleton (Var.t v)
+  | EVar v -> VarSet.singleton v
   | ETuple (es, _) | EArray es ->
     es |> List.map free_vars_expr |> List.fold_left VarSet.union VarSet.empty
   | ETupleAccess (e1, _, _, _)
@@ -120,7 +120,7 @@ let rec free_vars_expr (e : 'm marked_expr) : VarSet.t =
     |> List.fold_left VarSet.union VarSet.empty
   | EAbs (binder, _) ->
     let vs, body = Bindlib.unmbind binder in
-    Array.fold_right VarSet.remove (Array.map Var.t vs) (free_vars_expr body)
+    Array.fold_right VarSet.remove (Array.map (fun v -> Var v) vs) (free_vars_expr body)
 
 let rec free_vars_scope_body_expr (scope_lets : ('m expr, 'm) scope_body_expr) :
     VarSet.t =
@@ -129,7 +129,7 @@ let rec free_vars_scope_body_expr (scope_lets : ('m expr, 'm) scope_body_expr) :
   | ScopeLet { scope_let_expr = e; scope_let_next = next; _ } ->
     let v, body = Bindlib.unbind next in
     VarSet.union (free_vars_expr e)
-      (VarSet.remove (Var.t v) (free_vars_scope_body_expr body))
+      (VarSet.remove (Var v) (free_vars_scope_body_expr body))
 
 let free_vars_scope_body (scope_body : ('m expr, 'm) scope_body) : VarSet.t =
   let { scope_body_expr = binder; _ } = scope_body in
@@ -145,19 +145,21 @@ let rec free_vars_scopes (scopes : ('m expr, 'm) scopes) : VarSet.t =
       (VarSet.remove (Var.t v) (free_vars_scopes next))
       (free_vars_scope_body body)
 
-let make_var ((x, mark) : ('m expr Bindlib.var, 'm) marked) :
+let make_var (((Var x), mark) : (var, 'm) marked) :
     'm marked_expr Bindlib.box =
-  Bindlib.box_apply (fun x -> x, mark) (Bindlib.box_var x)
+  Bindlib.box_apply
+    (fun x -> EVar x, mark)
+    (Bindlib.box_var x)
 
 type ('e, 'm) make_abs_sig =
-  'e Bindlib.mvar ->
+  var Bindlib.mvar ->
   ('e, 'm) marked Bindlib.box ->
   typ Marked.pos list ->
   'm mark ->
   ('e, 'm) marked Bindlib.box
 
 let (make_abs : ('m expr, 'm) make_abs_sig) =
- fun xs e taus mark ->
+  fun xs e taus mark ->
   Bindlib.box_apply (fun b -> EAbs (b, taus), mark) (Bindlib.bind_mvar xs e)
 
 let make_app :
@@ -169,7 +171,7 @@ let make_app :
   Bindlib.box_apply2 (fun e u -> EApp (e, u), mark) e (Bindlib.box_list u)
 
 type ('expr, 'm) make_let_in_sig =
-  'expr Bindlib.var ->
+  var ->
   typ Marked.pos ->
   ('expr, 'm) marked Bindlib.box ->
   ('expr, 'm) marked Bindlib.box ->
@@ -212,7 +214,7 @@ let fold_marks
       }
 
 let empty_thunked_term mark : 'm marked_expr =
-  let silent = new_var "_" in
+  let (Var silent) = new_var "_" in
   let pos = mark_pos mark in
   Bindlib.unbox
     (make_abs [| silent |]
@@ -225,7 +227,7 @@ let empty_thunked_term mark : 'm marked_expr =
           mark))
 
 let (make_let_in : ('m expr, 'm) make_let_in_sig) =
- fun x tau e1 e2 pos ->
+ fun (Var x) tau e1 e2 pos ->
   let m_e1 = Marked.get_mark (Bindlib.unbox e1) in
   let m_e2 = Marked.get_mark (Bindlib.unbox e2) in
   let m_abs =
@@ -278,7 +280,7 @@ let equal_ops (op1 : operator) (op2 : operator) : bool =
 
 let rec equal_exprs (e1 : 'm marked_expr) (e2 : 'm marked_expr) : bool =
   match Marked.unmark e1, Marked.unmark e2 with
-  | EVar v1, EVar v2 -> Bindlib.eq_vars v1 v2
+  | EVar v1, EVar v2 -> Var.eq v1 v2
   | ETuple (es1, n1), ETuple (es2, n2) -> n1 = n2 && equal_exprs_list es1 es2
   | ETupleAccess (e1, id1, n1, tys1), ETupleAccess (e2, id2, n2, tys2) ->
     equal_exprs e1 e2 && id1 = id2 && n1 = n2 && equal_typs_list tys1 tys2
@@ -292,7 +294,7 @@ let rec equal_exprs (e1 : 'm marked_expr) (e2 : 'm marked_expr) : bool =
     equal_typs_list tys1 tys2
     &&
     let vars1, body1 = Bindlib.unmbind b1 in
-    let body2 = Bindlib.msubst b2 (Array.map (fun x -> EVar x) vars1) in
+    let body2 = Bindlib.msubst b2 (Array.map (fun x -> Var x) vars1) in
     equal_exprs body1 body2
   | EAssert e1, EAssert e2 -> equal_exprs e1 e2
   | EOp op1, EOp op2 -> equal_ops op1 op2
@@ -327,7 +329,7 @@ let rec unfold_scope_body_expr
         scope_let_pos;
       } ->
     let var, next = Bindlib.unbind scope_let_next in
-    make_let_in var scope_let_typ (box_expr scope_let_expr)
+    make_let_in (Var var) scope_let_typ (box_expr scope_let_expr)
       (unfold_scope_body_expr ~box_expr ~make_let_in ctx next)
       scope_let_pos
 
@@ -367,9 +369,9 @@ let build_scope_typ_from_sig
   in
   TArrow (input_typ, result_typ), pos
 
-type 'expr scope_name_or_var =
+type scope_name_or_var =
   | ScopeName of ScopeName.t
-  | ScopeVar of 'expr Bindlib.var
+  | ScopeVar of var
 
 let get_scope_body_mark scope_body =
   match snd (Bindlib.unbind scope_body.scope_body_expr) with
@@ -377,16 +379,18 @@ let get_scope_body_mark scope_body =
 
 let rec unfold_scopes
     ~(box_expr : ('expr, 'm) box_expr_sig)
+    ~(make_var : var -> 'expr)
     ~(make_abs : ('expr, 'm) make_abs_sig)
     ~(make_let_in : ('expr, 'm) make_let_in_sig)
     (ctx : decl_ctx)
     (s : ('expr, 'm) scopes)
     (mark : 'm mark)
-    (main_scope : 'expr scope_name_or_var) : ('expr, 'm) marked Bindlib.box =
+    (main_scope : scope_name_or_var)
+  : ('expr, 'm) marked Bindlib.box =
   match s with
   | Nil -> (
     match main_scope with
-    | ScopeVar v -> Bindlib.box_apply (fun v -> v, mark) (Bindlib.box_var v)
+    | ScopeVar (Var v) -> Bindlib.box_apply (fun v -> make_var v, mark) (Bindlib.box_var v)
     | ScopeName _ -> failwith "should not happen")
   | ScopeDef { scope_name; scope_body; scope_next } ->
     let scope_var, scope_next = Bindlib.unbind scope_next in
@@ -396,15 +400,15 @@ let rec unfold_scopes
       match main_scope with
       | ScopeVar v -> ScopeVar v
       | ScopeName n ->
-        if ScopeName.compare n scope_name = 0 then ScopeVar scope_var
+        if ScopeName.compare n scope_name = 0 then ScopeVar (Var scope_var)
         else ScopeName n
     in
-    make_let_in scope_var
+    make_let_in (Var scope_var)
       (build_scope_typ_from_sig ctx scope_body.scope_body_input_struct
          scope_body.scope_body_output_struct scope_pos)
       (build_whole_scope_expr ~box_expr ~make_abs ~make_let_in ctx scope_body
          scope_body_mark)
-      (unfold_scopes ~box_expr ~make_abs ~make_let_in ctx scope_next mark
+      (unfold_scopes ~box_expr ~make_var ~make_abs ~make_let_in ctx scope_next mark
          main_scope)
       scope_pos
 
@@ -418,12 +422,13 @@ let rec find_scope name vars = function
 
 let build_whole_program_expr
     ~(box_expr : ('expr, 'm) box_expr_sig)
+    ~(make_var : var -> 'expr)
     ~(make_abs : ('expr, 'm) make_abs_sig)
     ~(make_let_in : ('expr, 'm) make_let_in_sig)
     (p : ('expr, 'm) program_generic)
     (main_scope : ScopeName.t) : ('expr, 'm) marked Bindlib.box =
   let _, main_scope_body = find_scope main_scope [] p.scopes in
-  unfold_scopes ~box_expr ~make_abs ~make_let_in p.decl_ctx p.scopes
+  unfold_scopes ~box_expr ~make_var ~make_abs ~make_let_in p.decl_ctx p.scopes
     (get_scope_body_mark main_scope_body)
     (ScopeName main_scope)
 

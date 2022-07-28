@@ -24,9 +24,9 @@ type scope_var_ctx = {
 
 type scope_sig_ctx = {
   scope_sig_local_vars : scope_var_ctx list;  (** List of scope variables *)
-  scope_sig_scope_var : Dcalc.Ast.untyped Dcalc.Ast.var;
+  scope_sig_scope_var : Astgen.var;
       (** Var representing the scope *)
-  scope_sig_input_var : Dcalc.Ast.untyped Dcalc.Ast.var;
+  scope_sig_input_var : Astgen.var;
       (** Var representing the scope input inside the scope func *)
   scope_sig_input_struct : Ast.StructName.t;  (** Scope input *)
   scope_sig_output_struct : Ast.StructName.t;  (** Scope output *)
@@ -40,11 +40,11 @@ type ctx = {
   scope_name : Ast.ScopeName.t;
   scopes_parameters : scope_sigs_ctx;
   scope_vars :
-    (Dcalc.Ast.untyped Dcalc.Ast.var * Dcalc.Ast.typ * Ast.io) Ast.ScopeVarMap.t;
+    (Astgen.var * Dcalc.Ast.typ * Ast.io) Ast.ScopeVarMap.t;
   subscope_vars :
-    (Dcalc.Ast.untyped Dcalc.Ast.var * Dcalc.Ast.typ * Ast.io) Ast.ScopeVarMap.t
+    (Astgen.var * Dcalc.Ast.typ * Ast.io) Ast.ScopeVarMap.t
     Ast.SubScopeMap.t;
-  local_vars : Dcalc.Ast.untyped Dcalc.Ast.var Ast.VarMap.t;
+  local_vars : Astgen.var Ast.VarMap.t;
 }
 
 let empty_ctx
@@ -169,7 +169,7 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr Marked.pos) :
       Marked.mark (pos_mark_as e) x)
   @@
   match Marked.unmark e with
-  | EVar v -> Bindlib.box_var (Ast.VarMap.find v ctx.local_vars)
+  | EVar v -> Astgen.box_var (Ast.VarMap.find v ctx.local_vars)
   | ELit l -> Bindlib.box (Dcalc.Ast.ELit l)
   | EStruct (struct_name, e_fields) ->
     let struct_sig = Ast.StructMap.find struct_name ctx.structs in
@@ -347,7 +347,7 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr Marked.pos) :
         }
         body
     in
-    let binder = Bindlib.bind_mvar new_xs body in
+    let binder = Bindlib.bind_mvar (Array.map (fun (Astgen.Var v) -> v) new_xs) body in
     Bindlib.box_apply
       (fun b -> Dcalc.Ast.EAbs (b, List.map (translate_typ ctx) typ))
       binder
@@ -359,14 +359,14 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr Marked.pos) :
       (translate_expr ctx just) (translate_expr ctx cons)
   | ELocation (ScopeVar a) ->
     let v, _, _ = Ast.ScopeVarMap.find (Marked.unmark a) ctx.scope_vars in
-    Bindlib.box_var v
+    Astgen.box_var v
   | ELocation (SubScopeVar (_, s, a)) -> (
     try
       let v, _, _ =
         Ast.ScopeVarMap.find (Marked.unmark a)
           (Ast.SubScopeMap.find (Marked.unmark s) ctx.subscope_vars)
       in
-      Bindlib.box_var v
+      Astgen.box_var v
     with Not_found ->
       Errors.raise_multispanned_error
         [
@@ -447,7 +447,7 @@ let translate_rule
                 Dcalc.Ast.scope_let_kind = Dcalc.Ast.ScopeVarDefinition;
                 Dcalc.Ast.scope_let_pos = Marked.get_mark a;
               })
-          (Bindlib.bind_var a_var next)
+          (Astgen.bind_var a_var next)
           merged_expr),
       {
         ctx with
@@ -475,7 +475,7 @@ let translate_rule
         (Dcalc.Ast.VarDef (Marked.unmark tau))
         [sigma_name, pos_sigma; a_name]
     in
-    let silent_var = Dcalc.Ast.new_var "_" in
+    let Var silent_var = Dcalc.Ast.new_var "_" in
     let thunked_or_nonempty_new_e =
       match Marked.unmark a_io.io_input with
       | NoInput -> failwith "should not happen"
@@ -507,7 +507,7 @@ let translate_rule
                 Dcalc.Ast.scope_let_expr = thunked_or_nonempty_new_e;
                 Dcalc.Ast.scope_let_kind = Dcalc.Ast.SubScopeVarDefinition;
               })
-          (Bindlib.bind_var a_var next)
+          (Astgen.bind_var a_var next)
           thunked_or_nonempty_new_e),
       {
         ctx with
@@ -632,12 +632,12 @@ let translate_rule
               Dcalc.Ast.scope_let_typ = result_tuple_typ;
               Dcalc.Ast.scope_let_expr = call_expr;
             })
-        (Bindlib.bind_var result_tuple_var next)
+        (Astgen.bind_var result_tuple_var next)
         call_expr
     in
     let result_bindings_lets next =
       List.fold_right
-        (fun (var_ctx, v) (next, i) ->
+        (fun (var_ctx, Astgen.Var v) (next, i) ->
           ( Bindlib.box_apply2
               (fun next r ->
                 Dcalc.Ast.ScopeLet
@@ -697,7 +697,7 @@ let translate_rule
                     new_e;
                 Dcalc.Ast.scope_let_kind = Dcalc.Ast.Assertion;
               })
-          (Bindlib.bind_var (Dcalc.Ast.new_var "_") next)
+          (Astgen.bind_var (Dcalc.Ast.new_var "_") next)
           new_e),
       ctx )
 
@@ -823,7 +823,7 @@ let translate_scope_decl
   let input_destructurings next =
     fst
       (List.fold_right
-         (fun (var_ctx, v) (next, i) ->
+         (fun (var_ctx, Astgen.Var v) (next, i) ->
            ( Bindlib.box_apply2
                (fun next r ->
                  Dcalc.Ast.ScopeLet
@@ -851,7 +851,7 @@ let translate_scope_decl
   in
   let scope_return_struct_fields =
     List.map
-      (fun (var_ctx, dvar) ->
+      (fun (var_ctx, Astgen.Var dvar) ->
         let struct_field_name =
           Ast.StructFieldName.fresh (Bindlib.name_of dvar ^ "_out", pos_sigma)
         in
@@ -860,7 +860,7 @@ let translate_scope_decl
   in
   let scope_input_struct_fields =
     List.map
-      (fun (var_ctx, dvar) ->
+      (fun (var_ctx, Astgen.Var dvar) ->
         let struct_field_name =
           Ast.StructFieldName.fresh (Bindlib.name_of dvar ^ "_in", pos_sigma)
         in
@@ -879,7 +879,7 @@ let translate_scope_decl
           Dcalc.Ast.scope_body_input_struct = scope_input_struct_name;
           Dcalc.Ast.scope_body_output_struct = scope_return_struct_name;
         })
-      (Bindlib.bind_var scope_input_var
+      (Astgen.bind_var scope_input_var
          (input_destructurings rules_with_return_expr)),
     new_struct_ctx )
 
@@ -976,7 +976,7 @@ let translate_program (prgm : Ast.program) :
                 decl_ctx.Dcalc.Ast.ctx_structs scope_out_struct;
           }
         in
-        let scope_next = Bindlib.bind_var dvar scopes in
+        let scope_next = Astgen.bind_var dvar scopes in
         let new_scopes =
           Bindlib.box_apply2
             (fun scope_body scope_next ->

@@ -19,7 +19,7 @@ open Astgen
 
 (** Functions handling the types in [Astgen] *)
 
-let evar v mark = Bindlib.box_apply (Marked.mark mark) (Bindlib.box_var v)
+let evar (Var v) mark = Bindlib.box_apply (fun v -> Marked.mark mark (EVar v)) (Bindlib.box_var v)
 
 let etuple args s mark =
   Bindlib.box_apply (fun args -> ETuple (args, s), mark) (Bindlib.box_list args)
@@ -67,9 +67,6 @@ let eraise e1 pos = Bindlib.box (ERaise e1, pos)
 let ecatch e1 exn e2 pos =
   Bindlib.box_apply2 (fun e1 e2 -> ECatch (e1, exn, e2), pos) e1 e2
 
-let translate_var v = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
-
-
 let map_gexpr (type a) (ctx: 'ctx) ~(f: 'ctx -> (a, 'm1) marked_gexpr -> (a, 'm2) marked_gexpr Bindlib.box) (e: ((a, 'm1) gexpr, 'm2) Marked.t) : (a, 'm2) marked_gexpr Bindlib.box =
   let m = Marked.get_mark e in
   match Marked.unmark e with
@@ -78,10 +75,10 @@ let map_gexpr (type a) (ctx: 'ctx) ~(f: 'ctx -> (a, 'm1) marked_gexpr -> (a, 'm2
   | EOp op -> Bindlib.box (EOp op, m)
   | EArray args -> earray (List.map (f ctx) args) m
 
-  | EVar v -> evar (translate_var v) m
+  | EVar v -> evar v m
   | EAbs (binder, typs) ->
     let vars, body = Bindlib.unmbind binder in
-    eabs (Bindlib.bind_mvar (Array.map translate_var vars) (f ctx body)) typs m
+    eabs (Bindlib.bind_mvar vars (f ctx body)) typs m
   | EIfThenElse (e1, e2, e3) ->
     eifthenelse ((f ctx) e1) ((f ctx) e2) ((f ctx) e3) m
 
@@ -112,7 +109,7 @@ let rec fold_left_scope_lets ~f ~init scope_body_expr =
   | Result _ -> init
   | ScopeLet scope_let ->
     let var, next = Bindlib.unbind scope_let.scope_let_next in
-    fold_left_scope_lets ~f ~init:(f init scope_let var) next
+    fold_left_scope_lets ~f ~init:(f init scope_let (Var var)) next
 
 let rec fold_right_scope_lets ~f ~init scope_body_expr =
   match scope_body_expr with
@@ -120,15 +117,15 @@ let rec fold_right_scope_lets ~f ~init scope_body_expr =
   | ScopeLet scope_let ->
     let var, next = Bindlib.unbind scope_let.scope_let_next in
     let next_result = fold_right_scope_lets ~f ~init next in
-    f scope_let var next_result
+    f scope_let (Var var) next_result
 
-let map_exprs_in_scope_lets ~f ~varf scope_body_expr =
+let map_exprs_in_scope_lets ~f scope_body_expr =
   fold_right_scope_lets
-    ~f:(fun scope_let var_next acc ->
+    ~f:(fun scope_let (Var var_next) acc ->
       Bindlib.box_apply2
         (fun scope_let_next scope_let_expr ->
           ScopeLet { scope_let with scope_let_next; scope_let_expr })
-        (Bindlib.bind_var (varf var_next) acc)
+        (Bindlib.bind_var var_next acc)
         (f scope_let.scope_let_expr))
     ~init:(fun res -> Bindlib.box_apply (fun res -> Result res) (f res))
     scope_body_expr
@@ -138,7 +135,7 @@ let rec fold_left_scope_defs ~f ~init scopes =
   | Nil -> init
   | ScopeDef scope_def ->
     let var, next = Bindlib.unbind scope_def.scope_next in
-    fold_left_scope_defs ~f ~init:(f init scope_def var) next
+    fold_left_scope_defs ~f ~init:(f init scope_def (Var var)) next
 
 let rec fold_right_scope_defs ~f ~init scopes =
   match scopes with
@@ -146,11 +143,11 @@ let rec fold_right_scope_defs ~f ~init scopes =
   | ScopeDef scope_def ->
     let var_next, next = Bindlib.unbind scope_def.scope_next in
     let result_next = fold_right_scope_defs ~f ~init next in
-    f scope_def var_next result_next
+    f scope_def (Var var_next) result_next
 
 let map_scope_defs ~f scopes =
   fold_right_scope_defs
-    ~f:(fun scope_def var_next acc ->
+    ~f:(fun scope_def (Var var_next) acc ->
       let new_scope_def = f scope_def in
       let new_next = Bindlib.bind_var var_next acc in
       Bindlib.box_apply2
@@ -159,17 +156,17 @@ let map_scope_defs ~f scopes =
         new_scope_def new_next)
     ~init:(Bindlib.box Nil) scopes
 
-let map_exprs_in_scopes ~f ~varf scopes =
+let map_exprs_in_scopes ~f scopes =
   fold_right_scope_defs
-    ~f:(fun scope_def var_next acc ->
+    ~f:(fun scope_def (Var var_next) acc ->
       let scope_input_var, scope_lets =
         Bindlib.unbind scope_def.scope_body.scope_body_expr
       in
-      let new_scope_body_expr = map_exprs_in_scope_lets ~f ~varf scope_lets in
+      let new_scope_body_expr = map_exprs_in_scope_lets ~f scope_lets in
       let new_scope_body_expr =
-        Bindlib.bind_var (varf scope_input_var) new_scope_body_expr
+        Bindlib.bind_var scope_input_var new_scope_body_expr
       in
-      let new_next = Bindlib.bind_var (varf var_next) acc in
+      let new_next = Bindlib.bind_var var_next acc in
       Bindlib.box_apply2
         (fun scope_body_expr scope_next ->
           ScopeDef

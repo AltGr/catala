@@ -217,7 +217,7 @@ let format_unop (fmt : Format.formatter) (op : unop) : unit =
 let needs_parens (e : 'm marked_expr) : bool =
   match Marked.unmark e with EAbs _ | ETuple (_, Some _) -> true | _ -> false
 
-let format_var (fmt : Format.formatter) (v : 'm Ast.var) : unit =
+let format_var (fmt : Format.formatter) ((Var v) : Ast.var) : unit =
   Format.fprintf fmt "%s_%d" (Bindlib.name_of v) (Bindlib.uid_of v)
 
 let rec format_expr
@@ -292,7 +292,7 @@ let rec format_expr
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "")
          (fun fmt (x, tau, arg) ->
            Format.fprintf fmt "@[<hov 2>%a@ %a@ %a@ %a@ %a@ %a@ %a@]@\n"
-             format_keyword "let" format_var x format_punctuation ":"
+             format_keyword "let" format_var (Var x) format_punctuation ":"
              (format_typ ctx) tau format_punctuation "=" format_expr arg
              format_keyword "in"))
       xs_tau_arg format_expr body
@@ -306,7 +306,7 @@ let rec format_expr
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ ")
          (fun fmt (x, tau) ->
-           Format.fprintf fmt "%a%a%a %a%a" format_punctuation "(" format_var x
+           Format.fprintf fmt "%a%a%a %a%a" format_punctuation "(" format_var (Var x)
              format_punctuation ":" (format_typ ctx) tau format_punctuation ")"))
       xs_tau format_punctuation "→" format_expr body
   | EApp ((EOp (Binop ((Ast.Map | Ast.Filter) as op)), _), [arg1; arg2]) ->

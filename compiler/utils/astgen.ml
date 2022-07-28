@@ -136,12 +136,13 @@ type 'a glit =
   | LDate: date -> 'a glit
   | LDuration: duration -> 'a glit
 
+(** Common type for variables across the AST variants. We use the {{:https://lepigre.fr/ocaml-bindlib/} Bindlib}
+    library, based on higher-order abstract syntax *)
+type var = Var of var Bindlib.var
 
 (** General expressions: groups all expression cases of the different ASTs, and uses a GADT to eliminate irrelevant cases for each one. The ['t] annotations are also totally unconstrained at this point. The dcalc exprs, for example, are then defined with [type expr = dcalc gexpr] plus the annotations. *)
 type ('a, 't) marked_gexpr = (('a, 't) gexpr, 't) Marked.t
 
-(** The expressions use the {{:https://lepigre.fr/ocaml-bindlib/} Bindlib}
-    library, based on higher-order abstract syntax *)
 and ('a, 't) gexpr =
   (* Constructors common to all ASTs *)
   | ELit : 'a glit -> ('a, 't) gexpr
@@ -149,11 +150,10 @@ and ('a, 't) gexpr =
   | EOp : operator -> ('a, 't) gexpr
   | EArray : ('a, 't) marked_gexpr list -> ('a, 't) gexpr
   (* All but statement calculus *)
-  | EVar :
-      ('a, 't) gexpr Bindlib.var
-      -> (([< desugared | scopelang | dcalc | lcalc ] as 'a), 't) gexpr
+  | EVar : var -> ([< desugared | scopelang | dcalc | lcalc ] as 'a, 't) gexpr
+  (* Variables are polymorphic in 'a and 't, these are unbound here on purpose *)
   | EAbs :
-      (('a, 't) gexpr, ('a, 't) marked_gexpr) Bindlib.mbinder
+      (var, ('a, 't) marked_gexpr) Bindlib.mbinder
       * typ Marked.pos list
       -> (([< desugared | scopelang | dcalc | lcalc ] as 'a), 't) gexpr
   | EIfThenElse :
@@ -202,7 +202,6 @@ and ('a, 't) gexpr =
  * | ESInj: ('a, 't) marked_gexpr * EnumConstructor.t * EnumName.t -> (scalc as 'a, 't) gexpr
  * | ESFunc: TopLevelName.t -> (scalc as 'a, 't) gexpr *)
 
-
 (** {2 Markings} *)
 
 
@@ -219,6 +218,35 @@ type _ mark =
   (* | Inferring : inferring -> inferring mark *)
 
 type ('a, 'm) marked = ('a, 'm mark) Marked.t
+
+(** Useful for errors and printing, for example *)
+type any_marked_expr = AnyExpr: ([< any ], 'm mark) marked_gexpr -> any_marked_expr
+
+(** {2 Variables and their collections} *)
+
+(** Bindlib variables, with existentially qualified type parameters (corresponding to the generalised type of `EVar _`) *)
+(* type var = Var: ([< desugared | scopelang | dcalc | lcalc ], 't) gexpr Bindlib.var -> var *)
+
+let new_var s : var = Var (Bindlib.new_var (fun x -> (Var x)) s)
+
+let box_var ((Var v): var) : ('a, 't) gexpr Bindlib.box =
+  Bindlib.box_apply (fun v -> EVar v) (Bindlib.box_var v)
+
+let bind_var (Var v) e = Bindlib.bind_var v e
+
+let var_name (Var v) = Bindlib.name_of v
+
+module Var = struct
+  type t = var
+  let t v = Var v
+  let get (Var v) = Bindlib.copy_var v
+  let compare (Var x) (Var y) = Bindlib.compare_vars x y
+  let eq (Var x) (Var y) = Bindlib.eq_vars x y
+end
+
+module VarSet = Set.Make (Var)
+module VarMap = Map.Make (Var)
+
 
 (** {2 Higher-level program structure} *)
 
@@ -241,7 +269,7 @@ type ('expr, 'm) scope_let = {
   scope_let_kind : scope_let_kind;
   scope_let_typ : marked_typ;
   scope_let_expr : ('expr, 'm) marked;
-  scope_let_next : ('expr, ('expr, 'm) scope_body_expr) Bindlib.binder;
+  scope_let_next : (var, ('expr, 'm) scope_body_expr) Bindlib.binder;
   scope_let_pos : Pos.t;
 }
 (** This type is parametrized by the expression type so it can be reused in
@@ -257,7 +285,7 @@ and ('expr, 'm) scope_body_expr =
 type ('expr, 'm) scope_body = {
   scope_body_input_struct : StructName.t;
   scope_body_output_struct : StructName.t;
-  scope_body_expr : ('expr, ('expr, 'm) scope_body_expr) Bindlib.binder;
+  scope_body_expr : (var, ('expr, 'm) scope_body_expr) Bindlib.binder;
 }
 (** Instead of being a single expression, we give a little more ad-hoc structure
     to the scope body by decomposing it in an ordered list of let-bindings, and
@@ -267,7 +295,7 @@ type ('expr, 'm) scope_body = {
 type ('expr, 'm) scope_def = {
   scope_name : ScopeName.t;
   scope_body : ('expr, 'm) scope_body;
-  scope_next : ('expr, ('expr, 'm) scopes) Bindlib.binder;
+  scope_next : (var, ('expr, 'm) scopes) Bindlib.binder;
 }
 
 (** Finally, we do the same transformation for the whole program for the kinded

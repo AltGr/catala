@@ -19,6 +19,7 @@
 
 open Utils
 include module type of Astgen
+include module type of Astgen_utils
 
 type lit = dcalc glit
 type 'm expr = (dcalc, 'm mark) gexpr
@@ -59,7 +60,7 @@ val untype_program : 'm program -> untyped program
 
 (** {2 Boxed constructors} *)
 
-val evar : 'm expr Bindlib.var -> 'm mark -> 'm marked_expr Bindlib.box
+val evar : var -> 'm mark -> 'm marked_expr Bindlib.box
 
 val etuple :
   'm marked_expr Bindlib.box list ->
@@ -96,7 +97,7 @@ val earray :
 val elit : lit -> 'm mark -> 'm marked_expr Bindlib.box
 
 val eabs :
-  ('m expr, 'm marked_expr) Bindlib.mbinder Bindlib.box ->
+  (var, 'm marked_expr) Bindlib.mbinder Bindlib.box ->
   marked_typ list ->
   'm mark ->
   'm marked_expr Bindlib.box
@@ -174,43 +175,17 @@ val map_expr_marks :
 
 (** {2 Variables} *)
 
-type 'm var = 'm expr Bindlib.var
-type 'm vars = 'm expr Bindlib.mvar
-
-val new_var : string -> 'm var
-
-val translate_var : 'm1 var -> 'm2 var
-(** used to convert between e.g. [untyped expr var] into a [typed expr var] *)
-
-module Var : sig
-  type t
-
-  val t : 'm expr Bindlib.var -> t
-  (** Hides the marking type parameter annotation behind an existential type so
-      that variables can be stored in non-polymorphic sets and maps *)
-
-  val get : t -> 'm expr Bindlib.var
-  (** Be careful with this, it breaks the type abstraction by casting the
-      existential type annotation. See [!Bindlib.copy_var] for more detail. *)
-
-  val compare : t -> t -> int
-  val eq : t -> t -> bool
-end
-
-module VarMap : Map.S with type key = Var.t
-module VarSet : Set.S with type elt = Var.t
-
 val free_vars_expr : 'm marked_expr -> VarSet.t
 val free_vars_scope_body_expr : ('m expr, 'm) scope_body_expr -> VarSet.t
 val free_vars_scope_body : ('m expr, 'm) scope_body -> VarSet.t
 val free_vars_scopes : ('m expr, 'm) scopes -> VarSet.t
 
-val make_var : ('m var, 'm) marked -> 'm marked_expr Bindlib.box
+val make_var : (var, 'm) marked -> 'm marked_expr Bindlib.box
 
 (** {2 Boxed term constructors} *)
 
 type ('e, 'm) make_abs_sig =
-  'e Bindlib.mvar ->
+  var Bindlib.mvar ->
   ('e, 'm) marked Bindlib.box ->
   marked_typ list ->
   'm mark ->
@@ -225,7 +200,7 @@ val make_app :
   'm marked_expr Bindlib.box
 
 type ('expr, 'm) make_let_in_sig =
-  'expr Bindlib.var ->
+  var ->
   marked_typ ->
   ('expr, 'm) marked Bindlib.box ->
   ('expr, 'm) marked Bindlib.box ->
@@ -256,22 +231,24 @@ val build_whole_scope_expr :
     [scope_position] corresponds to the line of the scope declaration for
     instance. *)
 
-type 'expr scope_name_or_var =
+type scope_name_or_var =
   | ScopeName of ScopeName.t
-  | ScopeVar of 'expr Bindlib.var
+  | ScopeVar of var
 
 val unfold_scopes :
   box_expr:('expr, 'm) box_expr_sig ->
+  make_var: (var -> 'expr) ->
   make_abs:('expr, 'm) make_abs_sig ->
   make_let_in:('expr, 'm) make_let_in_sig ->
   decl_ctx ->
   ('expr, 'm) scopes ->
   'm mark ->
-  'expr scope_name_or_var ->
+  scope_name_or_var ->
   ('expr, 'm) marked Bindlib.box
 
 val build_whole_program_expr :
   box_expr:('expr, 'm) box_expr_sig ->
+  make_var : (var -> 'expr) ->
   make_abs:('expr, 'm) make_abs_sig ->
   make_let_in:('expr, 'm) make_let_in_sig ->
   ('expr, 'm) program_generic ->

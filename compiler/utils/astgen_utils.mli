@@ -21,7 +21,7 @@ open Astgen
 
 (** {2 Boxed constructors} *)
 
-val evar : (([< desugared | scopelang | dcalc | lcalc ] as 'a), 't) gexpr Bindlib.var -> 't -> ('a, 't) marked_gexpr Bindlib.box
+val evar : var -> 't -> ([< `Dcalc | `Desugared | `Lcalc | `Scopelang ], 't) marked_gexpr Bindlib.box
 
 val etuple :
   (([< dcalc | lcalc ] as 'a), 't) marked_gexpr Bindlib.box list ->
@@ -58,7 +58,7 @@ val earray :
 val elit : 'a glit -> 't -> ('a, 't) marked_gexpr Bindlib.box
 
 val eabs :
-  ((([< desugared | scopelang | dcalc | lcalc ] as 'a), 't) gexpr, ('a, 't) marked_gexpr) Bindlib.mbinder Bindlib.box ->
+  (var, ([< `Dcalc | `Desugared | `Lcalc | `Scopelang ] as 'a, 't) marked_gexpr) Bindlib.mbinder Bindlib.box ->
   marked_typ list ->
   't ->
   ('a, 't) marked_gexpr Bindlib.box
@@ -107,9 +107,8 @@ val map_gexpr_top_down :
 val map_gexpr_marks :
   f:('t1 -> 't2) -> ('a, 't1) marked_gexpr -> ('a, 't2) marked_gexpr Bindlib.box
 
-
 val fold_left_scope_lets :
-  f:('a -> ('expr, 'm) scope_let -> 'expr Bindlib.var -> 'a) ->
+  f:('a -> ('expr, 'm) scope_let -> var -> 'a) ->
   init:'a ->
   ('expr, 'm) scope_body_expr ->
   'a
@@ -119,7 +118,7 @@ val fold_left_scope_lets :
     scope lets to be examined. *)
 
 val fold_right_scope_lets :
-  f:(('expr1, 'm1) scope_let -> 'expr1 Bindlib.var -> 'a -> 'a) ->
+  f:(('expr1, 'm1) scope_let -> var -> 'a -> 'a) ->
   init:(('expr1, 'm1) marked -> 'a) ->
   ('expr1, 'm1) scope_body_expr ->
   'a
@@ -130,12 +129,11 @@ val fold_right_scope_lets :
 
 val map_exprs_in_scope_lets :
   f:(('expr1, 'm1) marked -> ('expr2, 'm2) marked Bindlib.box) ->
-  varf:('expr1 Bindlib.var -> 'expr2 Bindlib.var) ->
   ('expr1, 'm1) scope_body_expr ->
   ('expr2, 'm2) scope_body_expr Bindlib.box
 
 val fold_left_scope_defs :
-  f:('a -> ('expr1, 'm1) scope_def -> 'expr1 Bindlib.var -> 'a) ->
+  f:('a -> ('expr1, 'm1) scope_def -> var -> 'a) ->
   init:'a ->
   ('expr1, 'm1) scopes ->
   'a
@@ -145,7 +143,7 @@ val fold_left_scope_defs :
     be examined. *)
 
 val fold_right_scope_defs :
-  f:(('expr1, 'm1) scope_def -> 'expr1 Bindlib.var -> 'a -> 'a) ->
+  f:(('expr1, 'm1) scope_def -> var -> 'a -> 'a) ->
   init:'a ->
   ('expr1, 'm1) scopes ->
   'a
@@ -161,7 +159,6 @@ val map_scope_defs :
 
 val map_exprs_in_scopes :
   f:(('expr1, 'm1) marked -> ('expr2, 'm2) marked Bindlib.box) ->
-  varf:('expr1 Bindlib.var -> 'expr2 Bindlib.var) ->
   ('expr1, 'm1) scopes ->
   ('expr2, 'm2) scopes Bindlib.box
 (** This is the main map visitor for all the expressions inside all the scopes

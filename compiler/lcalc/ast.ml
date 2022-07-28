@@ -64,23 +64,6 @@ let eop op mark = Bindlib.box (EOp op, mark)
 let eifthenelse e1 e2 e3 pos =
   Bindlib.box_apply3 (fun e1 e2 e3 -> EIfThenElse (e1, e2, e3), pos) e1 e2 e3
 
-type 'm var = 'm expr Bindlib.var
-type 'm vars = 'm expr Bindlib.mvar
-
-let new_var s = Bindlib.new_var (fun x -> EVar x) s
-
-module Var = struct
-  type t = V : 'a var -> t
-  (* See Dcalc.Ast.var *)
-
-  let t v = V v
-  let get (V v) = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
-  let compare (V x) (V y) = Bindlib.compare_vars x y
-end
-
-module VarSet = Set.Make (Var)
-module VarMap = Map.Make (Var)
-
 (* </copy-paste> *)
 
 let eraise e1 pos = Bindlib.box (ERaise e1, pos)
