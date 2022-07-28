@@ -752,7 +752,7 @@ let translate_scope_decl
     (sigma : Ast.scope_decl) :
     (Dcalc.Ast.untyped Dcalc.Ast.expr, Dcalc.Ast.untyped) Dcalc.Ast.scope_body
     Bindlib.box
-    * Dcalc.Ast.struct_ctx =
+    * Astgen.struct_ctx =
   let sigma_info = Ast.ScopeName.get_info sigma.scope_decl_name in
   let scope_sig = Ast.ScopeMap.find sigma.scope_decl_name sctx in
   let scope_variables = scope_sig.scope_sig_local_vars in

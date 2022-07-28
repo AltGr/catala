@@ -18,130 +18,19 @@
 open Utils
 include Astgen
 
-(** Some structures used for type inference *)
-module Infer = struct
-  module Any =
-    Utils.Uid.Make
-      (struct
-        type info = unit
-
-        let format_info fmt () = Format.fprintf fmt "any"
-      end)
-      ()
-
-  type unionfind_typ = typ Marked.pos UnionFind.elem
-  (** We do not reuse {!type: Dcalc.Ast.typ} because we have to include a new
-      [TAny] variant. Indeed, error terms can have any type and this has to be
-      captured by the type sytem. *)
-
-  and typ =
-    | TLit of typ_lit
-    | TArrow of unionfind_typ * unionfind_typ
-    | TTuple of unionfind_typ list * StructName.t option
-    | TEnum of unionfind_typ list * EnumName.t
-    | TArray of unionfind_typ
-    | TAny of Any.t
-
-  let rec typ_to_ast (ty : unionfind_typ) : marked_typ =
-    let ty, pos = UnionFind.get (UnionFind.find ty) in
-    match ty with
-    | TLit l -> TLit l, pos
-    | TTuple (ts, s) -> TTuple (List.map typ_to_ast ts, s), pos
-    | TEnum (ts, e) -> TEnum (List.map typ_to_ast ts, e), pos
-    | TArrow (t1, t2) -> TArrow (typ_to_ast t1, typ_to_ast t2), pos
-    | TAny _ -> TAny, pos
-    | TArray t1 -> TArray (typ_to_ast t1), pos
-
-  let rec ast_to_typ (ty : marked_typ) : unionfind_typ =
-    let ty' =
-      match Marked.unmark ty with
-      | TLit l -> TLit l
-      | TArrow (t1, t2) -> TArrow (ast_to_typ t1, ast_to_typ t2)
-      | TTuple (ts, s) -> TTuple (List.map (fun t -> ast_to_typ t) ts, s)
-      | TEnum (ts, e) -> TEnum (List.map (fun t -> ast_to_typ t) ts, e)
-      | TArray t -> TArray (ast_to_typ t)
-      | TAny -> TAny (Any.fresh ())
-    in
-    UnionFind.make (Marked.same_mark_as ty' ty)
-end
-
-type untyped = { pos : Pos.t } [@@ocaml.unboxed]
-type typed = { pos : Pos.t; ty : marked_typ }
-type inferring = { pos : Pos.t; uf : Infer.unionfind_typ }
-
-(** The generic type of AST markings. Using a GADT allows functions to be
-    polymorphic in the marking, but still do transformations on types when
-    appropriate *)
-type _ mark =
-  | Untyped : untyped -> untyped mark
-  | Typed : typed -> typed mark
-  | Inferring : inferring -> inferring mark
-
 type lit = dcalc glit
 type 'm expr = (dcalc, 'm mark) gexpr
 and 'm marked_expr = (dcalc, 'm mark) marked_gexpr
-
-type ('a, 'm) marked = ('a, 'm mark) Marked.t
-type typed_expr = typed marked_expr
-type struct_ctx = (StructFieldName.t * typ Marked.pos) list StructMap.t
-type enum_ctx = (EnumConstructor.t * typ Marked.pos) list EnumMap.t
-type decl_ctx = { ctx_enums : enum_ctx; ctx_structs : struct_ctx }
-type 'm binder = ('m expr, 'm marked_expr) Bindlib.binder
-
-type scope_let_kind =
-  | DestructuringInputStruct
-  | ScopeVarDefinition
-  | SubScopeVarDefinition
-  | CallingSubScope
-  | DestructuringSubScopeResults
-  | Assertion
-
-type ('expr, 'm) scope_let = {
-  scope_let_kind : scope_let_kind;
-  scope_let_typ : typ Marked.pos;
-  scope_let_expr : ('expr, 'm) marked;
-  scope_let_next : ('expr, ('expr, 'm) scope_body_expr) Bindlib.binder;
-  scope_let_pos : Pos.t;
-}
-
-and ('expr, 'm) scope_body_expr =
-  | Result of ('expr, 'm) marked
-  | ScopeLet of ('expr, 'm) scope_let
-
-type ('expr, 'm) scope_body = {
-  scope_body_input_struct : StructName.t;
-  scope_body_output_struct : StructName.t;
-  scope_body_expr : ('expr, ('expr, 'm) scope_body_expr) Bindlib.binder;
-}
-
-type ('expr, 'm) scope_def = {
-  scope_name : ScopeName.t;
-  scope_body : ('expr, 'm) scope_body;
-  scope_next : ('expr, ('expr, 'm) scopes) Bindlib.binder;
-}
-
-and ('expr, 'm) scopes = Nil | ScopeDef of ('expr, 'm) scope_def
-
-type ('expr, 'm) program_generic = {
-  decl_ctx : decl_ctx;
-  scopes : ('expr, 'm) scopes;
-}
 
 type 'm program = ('m expr, 'm) program_generic
 
 let no_mark (type m) : m mark -> m mark = function
   | Untyped _ -> Untyped { pos = Pos.no_pos }
   | Typed _ -> Typed { pos = Pos.no_pos; ty = Marked.mark Pos.no_pos TAny }
-  | Inferring _ ->
-    Inferring
-      {
-        pos = Pos.no_pos;
-        uf = UnionFind.make Infer.(TAny (Any.fresh ()), Pos.no_pos);
-      }
 
 let mark_pos (type m) (m : m mark) : Pos.t =
   match m with
-  | Untyped { pos } | Typed { pos; _ } | Inferring { pos; _ } -> pos
+  | Untyped { pos } | Typed { pos; _ } -> pos
 
 let pos (type m) (x : ('a, m) marked) : Pos.t = mark_pos (Marked.get_mark x)
 let ty (_, m) : marked_typ = match m with Typed { ty; _ } -> ty
@@ -150,78 +39,14 @@ let with_ty (type m) (ty : marked_typ) (x : ('a, m) marked) : ('a, typed) marked
     =
   Marked.mark
     (match Marked.get_mark x with
-    | Untyped { pos } | Inferring { pos; _ } -> Typed { pos; ty }
+    | Untyped { pos } -> Typed { pos; ty }
     | Typed m -> Typed { m with ty })
     (Marked.unmark x)
 
-let evar v mark = Bindlib.box_apply (Marked.mark mark) (Bindlib.box_var v)
-
-let etuple args s mark =
-  Bindlib.box_apply (fun args -> ETuple (args, s), mark) (Bindlib.box_list args)
-
-let etupleaccess e1 i s typs mark =
-  Bindlib.box_apply (fun e1 -> ETupleAccess (e1, i, s, typs), mark) e1
-
-let einj e1 i e_name typs mark =
-  Bindlib.box_apply (fun e1 -> EInj (e1, i, e_name, typs), mark) e1
-
-let ematch arg arms e_name mark =
-  Bindlib.box_apply2
-    (fun arg arms -> EMatch (arg, arms, e_name), mark)
-    arg (Bindlib.box_list arms)
-
-let earray args mark =
-  Bindlib.box_apply (fun args -> EArray args, mark) (Bindlib.box_list args)
-
-let elit l mark = Bindlib.box (ELit l, mark)
-
-let eabs binder typs mark =
-  Bindlib.box_apply (fun binder -> EAbs (binder, typs), mark) binder
-
-let eapp e1 args mark =
-  Bindlib.box_apply2
-    (fun e1 args -> EApp (e1, args), mark)
-    e1 (Bindlib.box_list args)
-
-let eassert e1 mark = Bindlib.box_apply (fun e1 -> EAssert e1, mark) e1
-let eop op mark = Bindlib.box (EOp op, mark)
-
-let edefault excepts just cons mark =
-  Bindlib.box_apply3
-    (fun excepts just cons -> EDefault (excepts, just, cons), mark)
-    (Bindlib.box_list excepts) just cons
-
-let eifthenelse e1 e2 e3 mark =
-  Bindlib.box_apply3 (fun e1 e2 e3 -> EIfThenElse (e1, e2, e3), mark) e1 e2 e3
-
-let eerroronempty e1 mark =
-  Bindlib.box_apply (fun e1 -> ErrorOnEmpty e1, mark) e1
 
 let translate_var v = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
 
-let map_expr ctx ~f e =
-  let m = Marked.get_mark e in
-  match Marked.unmark e with
-  | EVar v -> evar (translate_var v) m
-  | EApp (e1, args) -> eapp (f ctx e1) (List.map (f ctx) args) m
-  | EAbs (binder, typs) ->
-    let vars, body = Bindlib.unmbind binder in
-    eabs (Bindlib.bind_mvar (Array.map translate_var vars) (f ctx body)) typs m
-  | ETuple (args, s) -> etuple (List.map (f ctx) args) s m
-  | ETupleAccess (e1, n, s_name, typs) ->
-    etupleaccess ((f ctx) e1) n s_name typs m
-  | EInj (e1, i, e_name, typs) -> einj ((f ctx) e1) i e_name typs m
-  | EMatch (arg, arms, e_name) ->
-    ematch ((f ctx) arg) (List.map (f ctx) arms) e_name m
-  | EArray args -> earray (List.map (f ctx) args) m
-  | ELit l -> elit l m
-  | EAssert e1 -> eassert ((f ctx) e1) m
-  | EOp op -> Bindlib.box (EOp op, m)
-  | EDefault (excepts, just, cons) ->
-    edefault (List.map (f ctx) excepts) ((f ctx) just) ((f ctx) cons) m
-  | EIfThenElse (e1, e2, e3) ->
-    eifthenelse ((f ctx) e1) ((f ctx) e2) ((f ctx) e3) m
-  | ErrorOnEmpty e1 -> eerroronempty ((f ctx) e1) m
+let map_expr ctx ~f e = Astgen_utils.map_gexpr ctx ~f e
 
 let rec map_expr_top_down ~f e =
   map_expr () ~f:(fun () -> map_expr_top_down ~f) (f e)
@@ -240,79 +65,7 @@ let box_expr : ('m expr, 'm) box_expr_sig =
   let rec id_t () e = map_expr () ~f:id_t e in
   id_t () e
 
-let rec fold_left_scope_lets ~f ~init scope_body_expr =
-  match scope_body_expr with
-  | Result _ -> init
-  | ScopeLet scope_let ->
-    let var, next = Bindlib.unbind scope_let.scope_let_next in
-    fold_left_scope_lets ~f ~init:(f init scope_let var) next
-
-let rec fold_right_scope_lets ~f ~init scope_body_expr =
-  match scope_body_expr with
-  | Result result -> init result
-  | ScopeLet scope_let ->
-    let var, next = Bindlib.unbind scope_let.scope_let_next in
-    let next_result = fold_right_scope_lets ~f ~init next in
-    f scope_let var next_result
-
-let map_exprs_in_scope_lets ~f ~varf scope_body_expr =
-  fold_right_scope_lets
-    ~f:(fun scope_let var_next acc ->
-      Bindlib.box_apply2
-        (fun scope_let_next scope_let_expr ->
-          ScopeLet { scope_let with scope_let_next; scope_let_expr })
-        (Bindlib.bind_var (varf var_next) acc)
-        (f scope_let.scope_let_expr))
-    ~init:(fun res -> Bindlib.box_apply (fun res -> Result res) (f res))
-    scope_body_expr
-
-let rec fold_left_scope_defs ~f ~init scopes =
-  match scopes with
-  | Nil -> init
-  | ScopeDef scope_def ->
-    let var, next = Bindlib.unbind scope_def.scope_next in
-    fold_left_scope_defs ~f ~init:(f init scope_def var) next
-
-let rec fold_right_scope_defs ~f ~init scopes =
-  match scopes with
-  | Nil -> init
-  | ScopeDef scope_def ->
-    let var_next, next = Bindlib.unbind scope_def.scope_next in
-    let result_next = fold_right_scope_defs ~f ~init next in
-    f scope_def var_next result_next
-
-let map_scope_defs ~f scopes =
-  fold_right_scope_defs
-    ~f:(fun scope_def var_next acc ->
-      let new_scope_def = f scope_def in
-      let new_next = Bindlib.bind_var var_next acc in
-      Bindlib.box_apply2
-        (fun new_scope_def new_next ->
-          ScopeDef { new_scope_def with scope_next = new_next })
-        new_scope_def new_next)
-    ~init:(Bindlib.box Nil) scopes
-
-let map_exprs_in_scopes ~f ~varf scopes =
-  fold_right_scope_defs
-    ~f:(fun scope_def var_next acc ->
-      let scope_input_var, scope_lets =
-        Bindlib.unbind scope_def.scope_body.scope_body_expr
-      in
-      let new_scope_body_expr = map_exprs_in_scope_lets ~f ~varf scope_lets in
-      let new_scope_body_expr =
-        Bindlib.bind_var (varf scope_input_var) new_scope_body_expr
-      in
-      let new_next = Bindlib.bind_var (varf var_next) acc in
-      Bindlib.box_apply2
-        (fun scope_body_expr scope_next ->
-          ScopeDef
-            {
-              scope_def with
-              scope_body = { scope_def.scope_body with scope_body_expr };
-              scope_next;
-            })
-        new_scope_body_expr new_next)
-    ~init:(Bindlib.box Nil) scopes
+open Astgen_utils
 
 let untype_program prg =
   {
@@ -431,11 +184,6 @@ let map_mark
   match m with
   | Untyped { pos } -> Untyped { pos = pos_f pos }
   | Typed { pos; ty } -> Typed { pos = pos_f pos; ty = ty_f ty }
-  | Inferring { pos; uf } ->
-    Inferring
-      { pos = pos_f pos; uf = Infer.ast_to_typ (ty_f (Infer.typ_to_ast uf)) }
-
-let resolve_inferring { uf; pos } = { ty = Infer.typ_to_ast uf; pos }
 
 let map_mark2
     (type m)
@@ -446,13 +194,6 @@ let map_mark2
   match m1, m2 with
   | Untyped m1, Untyped m2 -> Untyped { pos = pos_f m1.pos m2.pos }
   | Typed m1, Typed m2 -> Typed { pos = pos_f m1.pos m2.pos; ty = ty_f m1 m2 }
-  | Inferring m1, Inferring m2 ->
-    Inferring
-      {
-        pos = pos_f m1.pos m2.pos;
-        uf =
-          Infer.ast_to_typ (ty_f (resolve_inferring m1) (resolve_inferring m2));
-      }
 
 let fold_marks
     (type m)
@@ -468,14 +209,6 @@ let fold_marks
       {
         pos = pos_f (List.map (function Typed { pos; _ } -> pos) ms);
         ty = ty_f (List.map (function Typed m -> m) ms);
-      }
-  | Inferring _ :: _ ->
-    Inferring
-      {
-        pos = pos_f (List.map (function Inferring { pos; _ } -> pos) ms);
-        uf =
-          Infer.ast_to_typ
-            (ty_f (List.map (function Inferring m -> resolve_inferring m) ms));
       }
 
 let empty_thunked_term mark : 'm marked_expr =

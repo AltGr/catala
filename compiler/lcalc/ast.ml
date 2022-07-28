@@ -90,30 +90,7 @@ let ecatch e1 exn e2 pos =
 
 let translate_var v = Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)
 
-let map_expr ctx ~f e =
-  let m = Marked.get_mark e in
-  match Marked.unmark e with
-  | EVar v -> evar (translate_var v) (Marked.get_mark e)
-  | EApp (e1, args) ->
-    eapp (f ctx e1) (List.map (f ctx) args) (Marked.get_mark e)
-  | EAbs (binder, typs) ->
-    let vars, body = Bindlib.unmbind binder in
-    eabs (Bindlib.bind_mvar (Array.map translate_var vars) (f ctx body)) typs m
-  | ETuple (args, s) -> etuple (List.map (f ctx) args) s (Marked.get_mark e)
-  | ETupleAccess (e1, n, s_name, typs) ->
-    etupleaccess ((f ctx) e1) n s_name typs (Marked.get_mark e)
-  | EInj (e1, i, e_name, typs) ->
-    einj ((f ctx) e1) i e_name typs (Marked.get_mark e)
-  | EMatch (arg, arms, e_name) ->
-    ematch ((f ctx) arg) (List.map (f ctx) arms) e_name (Marked.get_mark e)
-  | EArray args -> earray (List.map (f ctx) args) (Marked.get_mark e)
-  | ELit l -> elit l (Marked.get_mark e)
-  | EAssert e1 -> eassert ((f ctx) e1) (Marked.get_mark e)
-  | EOp op -> Bindlib.box (EOp op, Marked.get_mark e)
-  | ERaise exn -> eraise exn (Marked.get_mark e)
-  | EIfThenElse (e1, e2, e3) ->
-    eifthenelse ((f ctx) e1) ((f ctx) e2) ((f ctx) e3) (Marked.get_mark e)
-  | ECatch (e1, exn, e2) -> ecatch (f ctx e1) exn (f ctx e2) (Marked.get_mark e)
+let map_expr ctx ~f e = Astgen_utils.map_gexpr ctx ~f e
 
 let rec map_expr_top_down ~f e =
   map_expr () ~f:(fun () -> map_expr_top_down ~f) (f e)
