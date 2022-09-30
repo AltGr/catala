@@ -184,7 +184,11 @@ let handle_type_error ctx e t1 t2 =
     [
       ( Some
           (Format.asprintf
-             "Error coming from typechecking the following expression:"),
+             "Error coming from typechecking the following expression:%a"
+             (fun fmt (A.AnyExpr e) ->
+               Format.pp_print_char fmt ' ';
+               Print.expr ctx fmt e)
+             e),
         pos );
       Some (Format.asprintf "Type %a coming from expression:" t1_s ()), t1_pos;
       Some (Format.asprintf "Type %a coming from expression:" t2_s ()), t2_pos;
