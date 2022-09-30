@@ -219,6 +219,22 @@ let var fmt v =
 let needs_parens (type a) (e : (a, _) gexpr) : bool =
   match Marked.unmark e with EAbs _ | ETuple (_, Some _) -> true | _ -> false
 
+let addty :
+    type a m.
+    ?ctx:decl_ctx ->
+    Format.formatter ->
+    (a, m mark) gexpr ->
+    (Format.formatter -> 'b) ->
+    'b =
+ fun ?ctx fmt e ->
+  match Marked.get_mark e with
+  | Untyped _ -> fun k -> k fmt
+  | Typed { ty; _ } ->
+    fun k ->
+      Format.fprintf fmt "(";
+      k fmt;
+      Format.fprintf fmt ": %a)" (typ ctx) ty
+
 let rec expr :
     type a.
     ?debug:bool -> decl_ctx option -> Format.formatter -> (a, 't) gexpr -> unit
@@ -232,6 +248,8 @@ let rec expr :
       punctuation fmt ")")
     else expr fmt e
   in
+  addty ?ctx fmt e
+  @@ fun fmt ->
   match Marked.unmark e with
   | EVar v -> Format.fprintf fmt "%a" var v
   | ETuple (es, None) ->
