@@ -82,6 +82,9 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr) :
     Expr.ematchs (translate_expr ctx e1) e_name
       (EnumConstructorMap.map (translate_expr ctx) arms)
       m
+  | EScopeCall (sc_name, fields) ->
+    Expr.esubscopecall sc_name (ScopeVarMap.map (translate_expr ctx) fields)
+      m
   | ELit
       (( LBool _ | LEmptyError | LInt _ | LRat _ | LMoney _ | LUnit | LDate _
        | LDuration _ ) as l) ->

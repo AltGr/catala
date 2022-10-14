@@ -202,6 +202,9 @@ base_expression:
 | e1 = primitive_expression OF e2 = base_expression {
   (FunCall (e1, e2), Pos.from_lpos $sloc)
 }
+| c = constructor OF fields = struct_inject_content {
+  (SubScopeCall (c, fields), Pos.from_lpos $sloc)
+}
 | e = primitive_expression WITH c = constructor_binding {
   (TestMatchCase (e, (c, Pos.from_lpos $sloc)), Pos.from_lpos $sloc)
 }

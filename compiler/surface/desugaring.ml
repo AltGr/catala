@@ -118,7 +118,7 @@ let disambiguate_constructor
 
 (** Usage: [translate_expr scope ctxt naked_expr]
 
-    Translates [naked_expr] into its desugared equivalent. [scope] is used to
+    Translates [expr] into its desugared equivalent. [scope] is used to
     disambiguate the scope and subscopes variables than occur in the expression *)
 let rec translate_expr
     (scope : ScopeName.t)
@@ -266,6 +266,7 @@ let rec translate_expr
       (* the whole box thing is to accomodate for this case *))
   | Dotted (e, c, x) -> (
     match Marked.unmark e with
+      (* FIXME this is superficial and doesn't handle subscopes aliased through let-bindings *)
     | Ident y when Name_resolution.is_subscope_uid scope ctxt y ->
       (* In this case, y.x is a subscope variable *)
       let subscope_uid : SubScopeName.t =
@@ -320,6 +321,16 @@ let rec translate_expr
           Errors.raise_spanned_error (Marked.get_mark c_name)
             "Struct %s has not been defined before" (Marked.unmark c_name))))
   | FunCall (f, arg) -> Expr.eapp (rec_helper f) [rec_helper arg] emark
+  | SubScopeCall ((ssc_name, _pos), fields) ->
+    let sub_scope = Desugared.Ast.IdentMap.find ssc_name ctxt.scope_idmap in
+    let scope_def = ScopeMap.find sub_scope ctxt.scopes in
+    let in_struct =
+      List.fold_left (fun acc (fld_id, e) ->
+          let var = Desugared.Ast.IdentMap.find (Marked.unmark fld_id) scope_def.var_idmap in
+          ScopeVarMap.add var (rec_helper e) acc)
+        ScopeVarMap.empty fields
+    in
+    Expr.esubscopecall sub_scope in_struct emark
   | LetIn (x, e1, e2) ->
     let ctxt, v = Name_resolution.add_def_local_var ctxt (Marked.unmark x) in
     let tau = TAny, Marked.get_mark x in

@@ -42,6 +42,7 @@ and naked_typ =
   | TArrow of unionfind_typ * unionfind_typ
   | TTuple of unionfind_typ list
   | TStruct of A.StructName.t
+  (* | TScopeReturn of A.ScopeName.t TODO *)
   | TEnum of A.EnumName.t
   | TOption of unionfind_typ
   | TArray of unionfind_typ
@@ -284,7 +285,7 @@ module Env = struct
   type 'e t = {
     vars : ('e, unionfind_typ) Var.Map.t;
     scope_vars : A.typ A.ScopeVarMap.t;
-    scopes : A.typ A.ScopeVarMap.t A.ScopeMap.t;
+    scopes : (A.typ A.ScopeVarMap.t * A.typ A.ScopeVarMap.t) A.ScopeMap.t; (* input * output *)
   }
 
   let empty =
@@ -297,8 +298,8 @@ module Env = struct
   let get t v = Var.Map.find_opt v t.vars
   let get_scope_var t sv = A.ScopeVarMap.find_opt sv t.scope_vars
 
-  let get_subscope_var t scope var =
-    Option.bind (A.ScopeMap.find_opt scope t.scopes) (fun vmap ->
+  let get_subscope_out_var t scope var =
+    Option.bind (A.ScopeMap.find_opt scope t.scopes) (fun (_, vmap) ->
         A.ScopeVarMap.find_opt var vmap)
 
   let add v tau t = { t with vars = Var.Map.add v tau t.vars }
@@ -307,8 +308,8 @@ module Env = struct
   let add_scope_var v typ t =
     { t with scope_vars = A.ScopeVarMap.add v typ t.scope_vars }
 
-  let add_scope scope_name vmap t =
-    { t with scopes = A.ScopeMap.add scope_name vmap t.scopes }
+  let add_scope scope_name ~input_vars ~output_vars t =
+    { t with scopes = A.ScopeMap.add scope_name (input_vars, output_vars) t.scopes }
 end
 
 let add_pos e ty = Marked.mark (Expr.pos e) ty
@@ -360,7 +361,7 @@ and typecheck_expr_top_down :
       | DesugaredScopeVar (v, _) | ScopelangScopeVar v ->
         Env.get_scope_var env (Marked.unmark v)
       | SubScopeVar (scope, _, v) ->
-        Env.get_subscope_var env scope (Marked.unmark v)
+        Env.get_subscope_out_var env scope (Marked.unmark v)
     in
     let ty =
       match ty_opt with
@@ -415,6 +416,17 @@ and typecheck_expr_top_down :
         cases
     in
     Expr.ematchs e1' e_name cases' mark
+  | A.EScopeCall (scope_name, fields) ->
+    let mark = uf_mark (unionfind (TAny (Any.fresh()))) in
+    (* FIXME: we don't yet have a type for this term: the implicit output structure type is only created during scopelang→dcalc. A specifc type TScopeOut will need to be defined. *)
+    let vars_in, _vars_out = A.ScopeMap.find scope_name env.scopes in
+    let fields' =
+      A.ScopeVarMap.mapi (fun name ->
+          typecheck_expr_top_down ctx env
+            (ast_to_typ (A.ScopeVarMap.find name vars_in)))
+        fields
+    in
+    Expr.esubscopecall scope_name fields' mark
   | A.ERaise ex -> Expr.eraise ex context_mark
   | A.ECatch (e1, ex, e2) ->
     let e1' = typecheck_expr_top_down ctx env tau e1 in
@@ -508,7 +520,7 @@ and typecheck_expr_top_down :
           env (Array.to_list xs) tau_args
       in
       let body' = typecheck_expr_top_down ctx env t_ret body in
-      let binder' = Bindlib.bind_mvar xs' (Expr.Box.inj body') in
+      let binder' = Bindlib.bind_mvar xs' (Expr.Box.lift body') in
       Expr.eabs binder' t_args mark
   | A.EApp (e1, args) ->
     let t_args = List.map (fun _ -> unionfind (TAny (Any.fresh ()))) args in
@@ -585,7 +597,7 @@ let rec scope_body_expr ctx env ty_out body_expr =
   | A.Result e ->
     let e' = wrap_expr ctx (typecheck_expr_top_down ctx env ty_out) e in
     let e' = Expr.map_marks ~f:get_ty_mark e' in
-    Bindlib.box_apply (fun e -> A.Result e) (Expr.Box.inj e')
+    Bindlib.box_apply (fun e -> A.Result e) (Expr.Box.lift e')
   | A.ScopeLet
       {
         scope_let_kind;
@@ -615,7 +627,7 @@ let rec scope_body_expr ctx env ty_out body_expr =
             scope_let_next;
             scope_let_pos;
           })
-      (Expr.Box.inj (Expr.map_marks ~f:get_ty_mark e))
+      (Expr.Box.lift (Expr.map_marks ~f:get_ty_mark e))
       scope_let_next
 
 let scope_body ctx env body =

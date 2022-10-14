@@ -222,6 +222,9 @@ and ('a, 't) naked_gexpr =
   | EMatchS :
       ('a, 't) gexpr * EnumName.t * ('a, 't) gexpr EnumConstructorMap.t
       -> (([< desugared | scopelang ] as 'a), 't) naked_gexpr
+  | EScopeCall :
+      ScopeName.t * ('a, 't) gexpr ScopeVarMap.t
+      -> (([< desugared | scopelang ] as 'a), 't) naked_gexpr
   (* Lambda-like *)
   | ETuple :
       ('a, 't) gexpr list * StructName.t option
