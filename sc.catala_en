@@ -1,0 +1,33 @@
+```catala
+declaration scope SubFoo:
+  input x content integer
+  input y content integer
+  output z1 content integer
+  output z2 content integer
+
+declaration scope Foo:
+  output example content integer
+
+scope SubFoo:
+  definition z1 equals x + y
+  definition z2 equals x - y
+
+scope Foo:
+  definition example equals
+    if true or false then
+      let results_foo equals SubFoo of { -- x: 0 -- y: 1 } in
+      results_foo.z1 + 1 * (SubFoo of { -- x: 0 -- y: 1 }).z2
+    else 0
+```
+
+```catala-test-inline
+$ catala Interpret -s Foo
+[ERROR] Unknown subscope or struct field name
+
+  --> /home/lg/inria/catala/sc.catala_en
+   |
+19 |       results_foo.z1 + 1 * (SubFoo of { -- x: 0 -- y: 1 }).z2
+   |                                                            ^^
+   +
+#return code 255#
+```

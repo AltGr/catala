@@ -1,0 +1,28 @@
+```catala
+declaration scope A:
+  input x content integer
+  output a content integer
+
+declaration scope B:
+  a scope A
+  output b content integer
+  
+scope A:
+  definition a equals x
+  
+scope B:
+  definition a.x equals 1
+  definition b equals let y equals a in a.a
+```
+
+```catala-test-inline
+$ catala Interpret -s B
+[ERROR] "a": unknown identifier for a local or scope-wide variable
+
+  --> /home/lg/inria/catala/foo.catala_en
+   |
+15 |   definition b equals let y equals a in a.a
+   |                                    ^
+   +
+#return code 255#
+```

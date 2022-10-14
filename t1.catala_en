@@ -1,0 +1,45 @@
+```catala
+
+declaration enumeration Foo:
+  -- Bla content integer
+
+declaration structure Foo:
+  data bla content integer
+
+declaration scope A:
+  output a content Foo
+  output b content Foo
+
+scope A:
+  definition a equals Foo {--bla: 12}
+  definition b equals Bla content 12
+```
+
+```catala-test-inline
+$ catala Interpret -s A
+[ERROR] Error during typechecking, incompatible types:
+--> Foo
+--> Foo
+
+Error coming from typechecking the following expression:
+  --> /home/lg/inria/catala-gadt/t1.catala_en
+   |
+15 |   definition b equals Bla content 12
+   |                       ^^^^^^^^^^^^^^
+   +
+
+Type Foo coming from expression:
+  --> /home/lg/inria/catala-gadt/t1.catala_en
+   |
+15 |   definition b equals Bla content 12
+   |                       ^^^^^^^^^^^^^^
+   +
+
+Type Foo coming from expression:
+  --> /home/lg/inria/catala-gadt/t1.catala_en
+   |
+11 |   output b content Foo
+   |                    ^^^
+   +
+#return code 255#
+```

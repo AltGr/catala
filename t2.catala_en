@@ -1,0 +1,26 @@
+```catala
+
+declaration structure Foo:
+  data bla content integer
+
+declaration scope Foo:
+  output bla content decimal
+
+scope Foo:
+  definition bla equals 0.
+
+declaration scope A:
+  foo scope Foo
+  internal foo content Foo
+  output a content decimal
+
+scope A:
+  definition foo equals Foo {--bla: 1}
+  definition a equals foo.bla
+```
+
+```catala-test-inline
+$ catala Interpret -s A
+[RESULT] Computation successful! Results:
+[RESULT] a = 0.
+```
