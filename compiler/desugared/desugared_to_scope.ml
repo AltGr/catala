@@ -74,8 +74,8 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr) :
   | EVar v -> Expr.evar (Var.Map.find v ctx.var_mapping) m
   | EStruct (s_name, fields) ->
     Expr.estruct s_name (StructFieldMap.map (translate_expr ctx) fields) m
-  | EStructAccess (e1, s_name, f_name) ->
-    Expr.estructaccess (translate_expr ctx e1) s_name f_name m
+  | EStructAccess (e1, f_name, s_name) ->
+    Expr.estructaccess (translate_expr ctx e1) f_name s_name m
   | EEnumInj (e1, cons, e_name) ->
     Expr.eenuminj (translate_expr ctx e1) cons e_name m
   | EMatchS (e1, e_name, arms) ->
@@ -83,7 +83,7 @@ let rec translate_expr (ctx : ctx) (e : Ast.expr) :
       (EnumConstructorMap.map (translate_expr ctx) arms)
       m
   | EScopeCall (sc_name, fields) ->
-    Expr.esubscopecall sc_name (ScopeVarMap.map (translate_expr ctx) fields)
+    Expr.escopecall sc_name (ScopeVarMap.map (translate_expr ctx) fields)
       m
   | ELit
       (( LBool _ | LEmptyError | LInt _ | LRat _ | LMoney _ | LUnit | LDate _

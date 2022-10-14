@@ -266,7 +266,6 @@ let rec translate_expr
       (* the whole box thing is to accomodate for this case *))
   | Dotted (e, c, x) -> (
     match Marked.unmark e with
-      (* FIXME this is superficial and doesn't handle subscopes aliased through let-bindings *)
     | Ident y when Name_resolution.is_subscope_uid scope ctxt y ->
       (* In this case, y.x is a subscope variable *)
       let subscope_uid : SubScopeName.t =

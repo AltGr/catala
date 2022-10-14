@@ -150,7 +150,7 @@ val ematchs :
   't ->
   ('a, 't) boxed_gexpr
 
-val esubscopecall :
+val escopecall :
   ScopeName.t ->
   (([< desugared | scopelang ] as 'a), 't) boxed_gexpr ScopeVarMap.t ->
   't ->

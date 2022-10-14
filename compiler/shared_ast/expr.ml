@@ -123,7 +123,7 @@ let ematchs e1 enum cases mark =
     (Box.lift e1)
     (Box.lift_enum (EnumConstructorMap.map Box.lift cases))
 
-let esubscopecall scope_name fields mark =
+let escopecall scope_name fields mark =
   Marked.mark mark
   @@ Bindlib.box_apply
        (fun fields -> EScopeCall (scope_name, fields))
@@ -240,7 +240,7 @@ let map
     ematchs (f ctx e1) enum cases m
   | EScopeCall (scope_name, fields) ->
     let fields = ScopeVarMap.map (f ctx) fields in
-    esubscopecall scope_name fields m
+    escopecall scope_name fields m
 
 let rec map_top_down ~f e = map () ~f:(fun () -> map_top_down ~f) (f e)
 

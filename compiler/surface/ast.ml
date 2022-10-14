@@ -423,7 +423,7 @@ and expression =
   | MemCollection of expression Marked.pos * expression Marked.pos
   | TestMatchCase of expression Marked.pos * match_case_pattern Marked.pos
   | FunCall of expression Marked.pos * expression Marked.pos
-  | SubScopeCall of constructor Marked.pos * (ident Marked.pos * expression Marked.pos) list
+  | ScopeCall of constructor Marked.pos * (ident Marked.pos * expression Marked.pos) list
   | LetIn of ident Marked.pos * expression Marked.pos * expression Marked.pos
   | Builtin of builtin_expression
   | Literal of literal

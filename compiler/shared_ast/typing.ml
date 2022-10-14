@@ -42,7 +42,6 @@ and naked_typ =
   | TArrow of unionfind_typ * unionfind_typ
   | TTuple of unionfind_typ list
   | TStruct of A.StructName.t
-  (* | TScopeReturn of A.ScopeName.t TODO *)
   | TEnum of A.EnumName.t
   | TOption of unionfind_typ
   | TArray of unionfind_typ
@@ -426,7 +425,7 @@ and typecheck_expr_top_down :
             (ast_to_typ (A.ScopeVarMap.find name vars_in)))
         fields
     in
-    Expr.esubscopecall scope_name fields' mark
+    Expr.escopecall scope_name fields' mark
   | A.ERaise ex -> Expr.eraise ex context_mark
   | A.ECatch (e1, ex, e2) ->
     let e1' = typecheck_expr_top_down ctx env tau e1 in

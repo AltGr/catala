@@ -26,6 +26,8 @@ module Runtime = Runtime_ocaml.Runtime
 module ScopeName : Uid.Id with type info = Uid.MarkedString.info =
   Uid.Make (Uid.MarkedString) ()
 
+module ScopeSet : Set.S with type elt = ScopeName.t = Set.Make (ScopeName)
+
 module ScopeMap : Map.S with type key = ScopeName.t = Map.Make (ScopeName)
 
 module StructName : Uid.Id with type info = Uid.MarkedString.info =
