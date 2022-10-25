@@ -1383,11 +1383,11 @@ et D. 842-6 à D. 842-13 .
 champ d'application CalculAllocationLogement:
   définition catégorie_calcul_apl égal à
     selon mode_occupation sous forme
-    -- Locataire: Location
-    -- SousLocataire: Location
-    -- RésidentLogementFoyer: CatégorieCalculAPL.LogementFoyer
-    -- AccessionPropriétéLocalUsageExclusifHabitation: AccessionPropriété
-    -- LocationAccession: AccessionPropriété
+    -- Locataire de location: Location contenu location
+    -- SousLocataire de location: Location contenu location
+    -- RésidentLogementFoyer de logementfoyer: CatégorieCalculAPL.LogementFoyer contenu logementfoyer
+    -- AccessionPropriétéLocalUsageExclusifHabitation de propriétaire: AccessionPropriété contenu propriétaire
+    -- LocationAccession de propriétaire: AccessionPropriété contenu propriétaire
 
   définition aide_finale_formule égal à sous_calcul_traitement.Traitement_formule_aide_finale.aide_finale_formule
   définition traitement_aide_finale de arg égal à (sous_calcul_traitement.Traitement_formule_aide_finale.traitement_aide_finale de arg)
@@ -1395,11 +1395,11 @@ champ d'application CalculAllocationLogement:
 champ d'application CalculAidePersonnaliséeLogement:
   définition catégorie_calcul_apl égal à
     selon mode_occupation sous forme
-    -- Locataire: Location
-    -- SousLocataire: Location
-    -- RésidentLogementFoyer: CatégorieCalculAPL.LogementFoyer
-    -- AccessionPropriétéLocalUsageExclusifHabitation: AccessionPropriété
-    -- LocationAccession: AccessionPropriété
+    -- Locataire de location: Location contenu location
+    -- SousLocataire de location: Location contenu location
+    -- RésidentLogementFoyer de logementfoyer: CatégorieCalculAPL.LogementFoyer contenu logementfoyer
+    -- AccessionPropriétéLocalUsageExclusifHabitation de propriétaire: AccessionPropriété contenu propriétaire
+    -- LocationAccession de propriétaire: AccessionPropriété contenu propriétaire
 
   définition aide_finale_formule égal à sous_calcul_traitement.Traitement_formule_aide_finale.aide_finale_formule
   définition traitement_aide_finale de arg égal à (sous_calcul_traitement.Traitement_formule_aide_finale.traitement_aide_finale de arg)
@@ -1411,8 +1411,8 @@ champ d'application CalculAidePersonnaliséeLogement:
   # de calcul les paramètres qu'il attend.
 champ d'application CalculAidePersonnaliséeLogement:
   définition sous_calcul_traitement égal à
-    selon mode_occupation sous forme
-    -- Locataire de location:
+    selon catégorie_calcul_apl sous forme
+    -- Location de location:
       (soit traitement_formule égal à
         CalculAidePersonnaliséeLogementLocatif de {
           -- ressources_ménage_arrondies: ressources_ménage
@@ -1439,34 +1439,7 @@ champ d'application CalculAidePersonnaliséeLogement:
         -- aide_finale_formule: traitement_formule.CalculAidePersonnaliséeLogementLocatif.aide_finale_formule
         -- traitement_aide_finale: traitement_formule.CalculAidePersonnaliséeLogementLocatif.traitement_aide_finale
       })
-    -- SousLocataire de location: # Identique à Locataire
-      (soit traitement_formule égal à
-        CalculAidePersonnaliséeLogementLocatif de {
-          -- ressources_ménage_arrondies: ressources_ménage
-          -- nombre_personnes_à_charge: nombre_personnes_à_charge
-          -- zone: zone
-          -- date_courante: date_courante
-          -- situation_familiale_calcul_apl: situation_familiale_calcul_apl
-          -- loyer_principal: location.loyer_principal
-          -- bénéficiaire_aide_adulte_ou_enfant_handicapés:
-              location.bénéficiaire_aide_adulte_ou_enfant_handicapés
-          -- logement_est_chambre: location.logement_est_chambre
-          -- colocation: location.colocation
-          -- âgées_ou_handicap_adultes_hébergées_onéreux_particuliers:
-              location.âgées_ou_handicap_adultes_hébergées_onéreux_particuliers
-          -- type_aide: type_aide
-          -- réduction_loyer_solidarité:
-              (selon location.Location.bailleur sous forme
-                 -- BailleurSocial de bailleur:
-                     bailleur.réduction_loyer_solidarité_perçue
-                 -- n'importe quel: 0€)
-          -- logement_meublé_d842_2: location.logement_meublé_d842_2
-        }
-      dans Traitement_formule_aide_finale {
-        -- aide_finale_formule: traitement_formule.CalculAidePersonnaliséeLogementLocatif.aide_finale_formule
-        -- traitement_aide_finale: traitement_formule.CalculAidePersonnaliséeLogementLocatif.traitement_aide_finale
-      })
-    -- RésidentLogementFoyer de logement_foyer_:
+    -- LogementFoyer de logement_foyer_:
       (soit traitement_formule égal à
         CalculAidePersonnaliséeLogementFoyer de {
           -- ressources_ménage_arrondies: ressources_ménage
@@ -1482,29 +1455,7 @@ champ d'application CalculAidePersonnaliséeLogement:
         -- aide_finale_formule: traitement_formule.CalculAidePersonnaliséeLogementFoyer.aide_finale_formule
         -- traitement_aide_finale: traitement_formule.CalculAidePersonnaliséeLogementFoyer.traitement_aide_finale
       })
-    -- AccessionPropriétéLocalUsageExclusifHabitation de propriétaire:
-      (soit traitement_formule égal à
-         CalculAidePersonnaliséeLogementAccessionPropriété de {
-           -- ressources_ménage_arrondies: ressources_ménage
-           -- nombre_personnes_à_charge: nombre_personnes_à_charge
-           -- zone: zone
-           -- date_courante: date_courante
-           -- situation_familiale_calcul_apl: situation_familiale_calcul_apl
-           -- mensualité_principale: propriétaire.mensualité_principale
-           -- type_travaux_logement: propriétaire.type_travaux_logement_d832_15
-           -- date_signature_prêt: propriétaire.prêt.date_signature
-           -- local_habité_première_fois_bénéficiaire: propriétaire.local_habité_première_fois_bénéficiaire
-           -- date_entrée_logement: propriétaire.date_entrée_logement
-           -- copropriété: propriétaire.copropriété
-           -- situation_r822_11_13_17: propriétaire.situation_r822_11_13_17
-           -- type_prêt: propriétaire.prêt.type_prêt
-           -- ancienneté_logement: propriétaire.ancienneté_logement
-         }
-      dans Traitement_formule_aide_finale {
-        -- aide_finale_formule: traitement_formule.CalculAidePersonnaliséeLogementAccessionPropriété.aide_finale_formule
-        -- traitement_aide_finale: traitement_formule.CalculAidePersonnaliséeLogementAccessionPropriété.traitement_aide_finale
-      })
-    -- LocationAccession de propriétaire: # Identique à AccessionPropriétéLocalUsageExclusifHabitation
+    -- AccessionPropriété de propriétaire:
       (soit traitement_formule égal à
          CalculAidePersonnaliséeLogementAccessionPropriété de {
            -- ressources_ménage_arrondies: ressources_ménage

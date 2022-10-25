@@ -242,9 +242,9 @@ déclaration énumération ZoneDHabitation:
   -- Zone3
 
 déclaration énumération CatégorieCalculAPL:
-  -- Location
-  -- AccessionPropriété
-  -- LogementFoyer
+  -- Location contenu Location
+  -- AccessionPropriété contenu Propriétaire
+  -- LogementFoyer contenu LogementFoyer
 ```
 
 ### Informations concernant l'évaluation des ressources du ménage
