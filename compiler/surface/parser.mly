@@ -33,33 +33,31 @@ end>
 %right top_expr
 %right ALT
 %right let_expr IS
-%right AND OR XOR
+%right AND OR XOR (* Desugaring enforces proper parens later on *)
 %nonassoc GREATER GREATER_EQUAL LESSER LESSER_EQUAL EQUAL NOT_EQUAL
 %left PLUS MINUS PLUSPLUS
 %left MULT DIV
 %right apply OF CONTAINS FOR SUCH WITH
 %right unop_expr
 %right CONTENT
-%left LIDENT
-%left DOT UIDENT
+%nonassoc UIDENT
+%left DOT
 
+(* Types of all rules, in order. Without this, Menhir type errors are nearly
+   impossible to debug because of inlining *)
 
-(* Types of all rules, in order. Without this, Menhir type errors are nearly impossible to debug *)
-
-%type<string Marked.pos> addpos(UIDENT)
+%type<Ast.uident Marked.pos> addpos(UIDENT)
 %type<Pos.t> pos(CONDITION)
 %type<Ast.primitive_typ> typ_base
 %type<Ast.base_typ_data> typ
-%type<Ast.scope_var> scope_var
-%type<Ast.path> path
 %type<Ast.uident Marked.pos> uident
 %type<Ast.lident Marked.pos> lident
-%type<Ast.path * Ast.lident Marked.pos> qlident
+%type<Ast.scope_var> scope_var
 %type<Ast.path * Ast.uident Marked.pos> quident
+%type<Ast.path * Ast.lident Marked.pos> qlident
 %type<Ast.expression> expression
 %type<Ast.naked_expression> naked_expression
 %type<Ast.lident Marked.pos * expression> struct_content_field
-%type<Ast.expression option> enum_content_opt
 %type<Ast.naked_expression> struct_or_enum_inject
 %type<Ast.literal_number> num_literal
 %type<Ast.literal_unit> unit_literal
@@ -122,16 +120,7 @@ let typ :=
 | t = typ_base ; <Primitive>
 | COLLECTION ; t = addpos(typ) ; <Collection>
 
-let scope_var ==
-| b = separated_nonempty_list(DOT, addpos(LIDENT)) ; <>
-
-let path :=
-| { [] } %prec DOT
-| uid = addpos(UIDENT) ; DOT ; ~=path ; {
-  uid :: path
-}
-
-let uident :=
+let uident ==
 | ~ = addpos(UIDENT) ; <>
 
 let lident :=
@@ -145,18 +134,32 @@ let lident :=
       (i, Pos.from_lpos $sloc)
 }
 
-let qlident ==
-| ~ = path ; id = lident ; <>
+let scope_var ==
+| b = separated_nonempty_list(DOT, addpos(LIDENT)) ; <>
 
-let quident ==
-| ~ = path ; id = uident ; <>
+let quident :=
+| uid = uident ; DOT ; quid = quident ; {
+  let path, quid = quid in uid :: path, quid
+}
+| id = uident ; { [], id }
+
+let qlident :=
+| uid = uident ; DOT ; qlid = qlident ; {
+  let path, lid = qlid in uid :: path, lid
+}
+| id = lident ; { [], id }
 
 let expression :=
 | e = addpos(naked_expression) ; <>
 
 let naked_expression ==
-| id = qlident ; {
-  let path, id = id in Ident (path, id)
+| id = addpos(LIDENT) ; {
+  match Localisation.lex_builtin (Marked.unmark id) with
+  | Some b -> Builtin b
+  | None -> Ident ([], id)
+}
+| uid = uident ; DOT ; qlid = qlident ; {
+  let path, lid = qlid in Ident (uid :: path, lid)
 }
 | l = literal ; {
   Literal l
@@ -267,13 +270,9 @@ let naked_expression ==
 let struct_content_field :=
 | field = lident ; COLON ; e = expression ; <>
 
-let enum_content_opt :=
-| {None}
-| CONTENT ; ~ = expression ; <Some> %prec CONTENT
-
 let struct_or_enum_inject ==
 | uid = addpos(quident) ;
-  data = enum_content_opt ; {
+  data = option(preceded(CONTENT,expression)) ; {
   EnumInject(uid, data)
 }
 | c = addpos(quident) ;
@@ -569,7 +568,7 @@ let scope_decl_item :=
 }
 | attr = scope_decl_item_attribute ;
   i = lident ;
-  _condition = CONDITION ;
+  pos_condition = pos(CONDITION) ;
   func_typ = option(struct_scope_func) ;
   states = list(state) ; {
   ContextData {
@@ -577,11 +576,11 @@ let scope_decl_item :=
     scope_decl_context_item_attribute = attr;
     scope_decl_context_item_typ =
       (match func_typ with
-      | None -> (Base (Condition), Pos.from_lpos $loc(_condition))
+      | None -> (Base (Condition), pos_condition)
       | Some (arg_typ, arg_pos) ->
         Func {
           arg_typ = (Data arg_typ, arg_pos);
-          return_typ = (Condition, Pos.from_lpos $loc(_condition));
+          return_typ = (Condition, pos_condition);
         }, Pos.from_lpos $sloc);
     scope_decl_context_item_states = states;
   }
