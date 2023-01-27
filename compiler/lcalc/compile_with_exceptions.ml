@@ -145,51 +145,31 @@ let rec translate_scope_lets
 let rec translate_scopes
     (decl_ctx : decl_ctx)
     (ctx : 'm ctx)
-    (scopes : 'm D.expr scopes) : 'm A.expr scopes Bindlib.box =
-  match scopes with
-  | Nil -> Bindlib.box Nil
-  | ScopeDef scope_def ->
-    let old_scope_var, scope_next = Bindlib.unbind scope_def.scope_next in
-    let new_scope_var =
-      Var.make (Marked.unmark (ScopeName.get_info scope_def.scope_name))
-    in
-    let old_scope_input_var, scope_body_expr =
-      Bindlib.unbind scope_def.scope_body.scope_body_expr
-    in
-    let new_scope_input_var = Var.make (Bindlib.name_of old_scope_input_var) in
-    let new_ctx = Var.Map.add old_scope_input_var new_scope_input_var ctx in
-    let new_scope_body_expr =
-      translate_scope_lets decl_ctx new_ctx scope_body_expr
-    in
-    let new_scope_body_expr =
-      Bindlib.bind_var new_scope_input_var new_scope_body_expr
-    in
-    let new_scope : 'm A.expr scope_body Bindlib.box =
-      Bindlib.box_apply
-        (fun new_scope_body_expr ->
+    (scopes : 'm D.expr code_item_list) : 'm A.expr code_item_list Bindlib.box =
+  Scope.map
+    ~f:(function
+      | Topdef (name, ty, e) ->
+        Bindlib.box_apply (fun e -> Topdef (name, ty, e))
+          (Expr.Box.lift (translate_expr ctx e))
+      | ScopeDef (name, body) ->
+        let scope_input_var, body_expr =
+          Bindlib.unbind body.scope_body_expr
+        in
+        let new_scope_body_expr = translate_scope_lets decl_ctx ctx body_expr in
+        let new_body =
+          Bindlib.bind_var (Var.translate scope_input_var) new_scope_body_expr
+        in
+        Bindlib.box_apply (fun scope_body_expr -> ScopeDef (name,
           {
             scope_body_input_struct =
-              scope_def.scope_body.scope_body_input_struct;
+              body.scope_body_input_struct;
             scope_body_output_struct =
-              scope_def.scope_body.scope_body_output_struct;
-            scope_body_expr = new_scope_body_expr;
-          })
-        new_scope_body_expr
-    in
-    let new_ctx = Var.Map.add old_scope_var new_scope_var new_ctx in
-    let scope_next =
-      Bindlib.bind_var new_scope_var
-        (translate_scopes decl_ctx new_ctx scope_next)
-    in
-    Bindlib.box_apply2
-      (fun new_scope scope_next ->
-        ScopeDef
-          {
-            scope_name = scope_def.scope_name;
-            scope_body = new_scope;
-            scope_next;
-          })
-      new_scope scope_next
+              body.scope_body_output_struct;
+            scope_body_expr;
+          }
+            )) new_body)
+    ~varf:(fun v -> Var.Map.find v ctx)
+    scopes
 
 let translate_program (prgm : 'm D.program) : 'm A.program =
   {

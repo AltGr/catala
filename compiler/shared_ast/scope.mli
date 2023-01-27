@@ -70,7 +70,14 @@ val fold_right :
 
 val map :
   f:('e1 code_item -> 'e2 code_item Bindlib.box) ->
-  varf:('e1 Var.t -> 'e2 Var.t) ->  
+  varf:('e1 Var.t -> 'e2 Var.t) ->
+  'e1 code_item_list ->
+  'e2 code_item_list Bindlib.box
+
+val fold_left_map :
+  f:('ctx -> 'e1 code_item -> 'ctx * 'e2 code_item Bindlib.box) ->
+  varf:('e1 Var.t -> 'e2 Var.t) ->
+  'ctx ->
   'e1 code_item_list ->
   'e2 code_item_list Bindlib.box
 

@@ -68,8 +68,19 @@ let rec map ~f ~varf = function
   | Cons (item, next_bind) ->
     let item = f item in
     let next_bind =
-      let var, next = Bindlib. unbind next_bind in
+      let var, next = Bindlib.unbind next_bind in
       Bindlib.bind_var (varf var) (map ~f ~varf next)
+    in
+    Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
+      item next_bind
+
+let rec map_ctx ~f ~varf ctx = function
+  | Nil -> Bindlib.box Nil
+  | Cons (item, next_bind) ->
+    let ctx, item = f ctx item in
+    let next_bind =
+      let var, next = Bindlib.unbind next_bind in
+      Bindlib.bind_var (varf var) (map ~f ~varf ctx next)
     in
     Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
       item next_bind

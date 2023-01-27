@@ -670,6 +670,7 @@ let translate_scope (ctx : ctx) (scope : Desugared.Ast.scope) :
     Ast.scope_mark = Untyped { pos };
   }
 
+
 (** {1 API} *)
 
 let translate_program (pgrm : Desugared.Ast.program) : untyped Ast.program =
@@ -728,6 +729,10 @@ let translate_program (pgrm : Desugared.Ast.program) : untyped Ast.program =
       pgrm.Desugared.Ast.program_ctx.ctx_scopes
   in
   {
+    Ast.program_globals =
+      TopdefName.Map.map
+        (fun (e, ty) -> Expr.unbox (translate_expr ctx e), ty)
+        pgrm.program_globals;
     Ast.program_scopes =
       ScopeName.Map.map (translate_scope ctx) pgrm.program_scopes;
     program_ctx = { pgrm.program_ctx with ctx_scopes };
