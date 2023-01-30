@@ -80,8 +80,19 @@ let rec map_ctx ~f ~varf ctx = function
     let ctx, item = f ctx item in
     let next_bind =
       let var, next = Bindlib.unbind next_bind in
-      Bindlib.bind_var (varf var) (map ~f ~varf ctx next)
+      Bindlib.bind_var (varf var) (map_ctx ~f ~varf ctx next)
     in
+    Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
+      item next_bind
+
+let rec fold_map ~f ~varf ctx = function
+  | Nil -> ctx, Bindlib.box Nil
+  | Cons (item, next_bind) ->
+    let var, next = Bindlib.unbind next_bind in
+    let ctx, item = f ctx var item in
+    let ctx, next = fold_map ~f ~varf ctx next in
+    let next_bind = Bindlib.bind_var (varf var) next in
+    ctx,
     Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
       item next_bind
 

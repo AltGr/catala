@@ -329,43 +329,46 @@ let rec generate_verification_conditions_scope_body_expr
 
 let rec generate_verification_conditions_scopes
     (decl_ctx : decl_ctx)
-    (scopes : 'm expr scopes)
+    (scopes : 'm expr code_item_list)
     (s : ScopeName.t option) : verification_condition list =
-  match scopes with
-  | Nil -> []
-  | ScopeDef scope_def ->
-    let is_selected_scope =
-      match s with
-      | Some s when ScopeName.compare s scope_def.scope_name = 0 -> true
-      | None -> true
-      | _ -> false
-    in
-    let vcs =
-      if is_selected_scope then
-        let _scope_input_var, scope_body_expr =
-          Bindlib.unbind scope_def.scope_body.scope_body_expr
-        in
-        let ctx =
-          {
-            current_scope_name = scope_def.scope_name;
-            decl = decl_ctx;
-            input_vars = [];
-            scope_variables_typs =
-              Var.Map.empty
-              (* We don't need to add the typ of the scope input var here
-                 because it will never appear in an expression for which we
-                 generate a verification conditions (the big struct is
-                 destructured with a series of let bindings just after. )*);
-          }
-        in
-        let _, vcs =
-          generate_verification_conditions_scope_body_expr ctx scope_body_expr
-        in
-        vcs
-      else []
-    in
-    let _scope_var, next = Bindlib.unbind scope_def.scope_next in
-    generate_verification_conditions_scopes decl_ctx next s @ vcs
+  Scope.fold_left
+    ~f:(fun vcs item var ->
+        match item with
+        | Topdef _ -> []
+        | ScopeDef (name, body) ->
+          let is_selected_scope =
+            match s with
+            | Some s when ScopeName.equal s name -> true
+            | None -> true
+            | _ -> false
+          in
+          let new_vcs =
+            if is_selected_scope then
+              let _scope_input_var, scope_body_expr =
+                Bindlib.unbind body.scope_body_expr
+              in
+              let ctx =
+                {
+                  current_scope_name = name;
+                  decl = decl_ctx;
+                  input_vars = [];
+                  scope_variables_typs =
+                    Var.Map.empty
+                  (* We don't need to add the typ of the scope input var here
+                     because it will never appear in an expression for which we
+                     generate a verification conditions (the big struct is
+                     destructured with a series of let bindings just after. )*);
+                }
+              in
+              let _, vcs =
+                generate_verification_conditions_scope_body_expr ctx scope_body_expr
+              in
+              vcs
+            else []
+          in
+          new_vcs @ vcs)
+    ~init:[]
+    scopes
 
 let generate_verification_conditions (p : 'm program) (s : ScopeName.t option) :
     verification_condition list =

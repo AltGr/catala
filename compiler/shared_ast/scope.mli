@@ -74,12 +74,21 @@ val map :
   'e1 code_item_list ->
   'e2 code_item_list Bindlib.box
 
-val fold_left_map :
+val map_ctx :
   f:('ctx -> 'e1 code_item -> 'ctx * 'e2 code_item Bindlib.box) ->
   varf:('e1 Var.t -> 'e2 Var.t) ->
   'ctx ->
   'e1 code_item_list ->
   'e2 code_item_list Bindlib.box
+(** Similar to [map], but a context is passed left-to-right through the given function *)
+
+val fold_map :
+  f:('ctx -> 'e1 Var.t -> 'e1 code_item -> 'ctx * 'e2 code_item Bindlib.box) ->
+  varf:('e1 Var.t -> 'e2 Var.t) ->
+  'ctx ->
+  'e1 code_item_list ->
+  'ctx * 'e2 code_item_list Bindlib.box
+
 
 val map_exprs :
   f:('expr1 -> 'expr2 boxed) ->
