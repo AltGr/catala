@@ -192,14 +192,15 @@ let rec check_formula (op, pos_op) e =
 (** Usage: [translate_expr scope ctxt naked_expr]
 
     Translates [expr] into its desugared equivalent. [scope] is used to
-    disambiguate the scope and subscopes variables than occur in the
-    expression, [None] is assumed to mean a toplevel definition *)
+    disambiguate the scope and subscopes variables than occur in the expression,
+    [None] is assumed to mean a toplevel definition *)
 let rec translate_expr
     (scope : ScopeName.t option)
     (inside_definition_of : Ast.ScopeDef.t Marked.pos option)
     (ctxt : Name_resolution.context)
     (expr : Surface.Ast.expression) : Ast.expr boxed =
-  let scope_vars = match scope with
+  let scope_vars =
+    match scope with
     | None -> IdentName.Map.empty
     | Some s -> (ScopeName.Map.find s ctxt.scopes).var_idmap
   in
@@ -354,19 +355,21 @@ let rec translate_expr
       (* Note: allowing access to a global variable with the same name as a
          subscope is disputable, but I see no good reason to forbid it either *)
       | None -> (
-          match IdentName.Map.find_opt x ctxt.topdefs with
-          | Some v ->
-            Expr.elocation (GlobalVar (v, Marked.get_mark (TopdefName.get_info v))) emark
-          | None ->
-            Name_resolution.raise_unknown_identifier
-              "for a local, scope-wide or global variable" (x, pos))
-    ))
+        match IdentName.Map.find_opt x ctxt.topdefs with
+        | Some v ->
+          Expr.elocation
+            (GlobalVar (v, Marked.get_mark (TopdefName.get_info v)))
+            emark
+        | None ->
+          Name_resolution.raise_unknown_identifier
+            "for a local, scope-wide or global variable" (x, pos))))
   | Ident (_path, _x) ->
     Errors.raise_spanned_error pos "Qualified paths are not supported yet"
   | Dotted (e, ((path, x), _ppos)) -> (
     match path, Marked.unmark e with
-      | [], Ident ([], (y, _)) when Option.fold scope ~none:false ~some:(fun s -> Name_resolution.is_subscope_uid s ctxt y)
-      ->
+    | [], Ident ([], (y, _))
+      when Option.fold scope ~none:false ~some:(fun s ->
+               Name_resolution.is_subscope_uid s ctxt y) ->
       (* In this case, y.x is a subscope variable *)
       let subscope_uid, subscope_real_uid =
         match IdentName.Map.find y scope_vars with
@@ -398,7 +401,8 @@ let rec translate_expr
   | FunCall (f, arg) -> Expr.eapp (rec_helper f) [rec_helper arg] emark
   | ScopeCall ((([], sc_name), _), fields) ->
     if scope = None then
-      Errors.raise_spanned_error pos "Scope calls are not allowed outside of a scope";
+      Errors.raise_spanned_error pos
+        "Scope calls are not allowed outside of a scope";
     let called_scope = Name_resolution.get_scope ctxt sc_name in
     let scope_def = ScopeName.Map.find called_scope ctxt.scopes in
     let in_struct =
@@ -1161,34 +1165,51 @@ let process_scope_use
     prgm use.scope_use_items
 
 let process_topdef ctxt prgm def =
-  let id = IdentName.Map.find (Marked.unmark def.S.topdef_name) ctxt.Name_resolution.topdefs in
+  let id =
+    IdentName.Map.find
+      (Marked.unmark def.S.topdef_name)
+      ctxt.Name_resolution.topdefs
+  in
   let ty_pos = Marked.get_mark def.S.topdef_type in
   let translate_typ t =
     (* Todo: better helper function from a more appropriate place *)
-    Name_resolution.process_base_typ ctxt (S.Data (Marked.unmark t), Marked.get_mark t)
+    Name_resolution.process_base_typ ctxt
+      (S.Data (Marked.unmark t), Marked.get_mark t)
   in
   let body_type = translate_typ def.S.topdef_type in
-  let arg_types = List.map (fun (_, ty) -> translate_typ ty) def.S.topdef_args in
+  let arg_types =
+    List.map (fun (_, ty) -> translate_typ ty) def.S.topdef_args
+  in
   let expr =
     let ctxt, rv_args =
-      List.fold_left (fun (ctxt, rv_args) (v, _ty) ->
-          let ctxt, a = Name_resolution.add_def_local_var ctxt (Marked.unmark v) in
+      List.fold_left
+        (fun (ctxt, rv_args) (v, _ty) ->
+          let ctxt, a =
+            Name_resolution.add_def_local_var ctxt (Marked.unmark v)
+          in
           ctxt, a :: rv_args)
         (ctxt, []) def.S.topdef_args
     in
     let body = translate_expr None None ctxt def.S.topdef_expr in
     match def.S.topdef_args with
     | [] -> body
-    | args -> (* FIXME: hmm where do we stand on arg tuplification ? *)
-      Expr.make_abs (Array.of_list (List.rev rv_args)) body arg_types (Marked.get_mark def.S.topdef_name)
+    | args ->
+      (* FIXME: hmm where do we stand on arg tuplification ? *)
+      Expr.make_abs
+        (Array.of_list (List.rev rv_args))
+        body arg_types
+        (Marked.get_mark def.S.topdef_name)
   in
   let typ =
-    List.fold_right (fun argty retty -> TArrow (argty, retty), ty_pos) arg_types body_type
+    List.fold_right
+      (fun argty retty -> TArrow (argty, retty), ty_pos)
+      arg_types body_type
   in
-  { prgm with Ast.program_globals =
-                TopdefName.Map.add id (Expr.unbox expr, typ)
-                  prgm.Ast.program_globals }
-
+  {
+    prgm with
+    Ast.program_globals =
+      TopdefName.Map.add id (Expr.unbox expr, typ) prgm.Ast.program_globals;
+  }
 
 let attribute_to_io (attr : Surface.Ast.scope_decl_context_io) : Ast.io =
   {
@@ -1282,7 +1303,8 @@ let init_scope_defs
               scope_def_map)
         sub_scope_def.Name_resolution.var_idmap scope_def_map
   in
-  IdentName.Map.fold add_def scope_idmap Ast.ScopeDefMap.empty (* TODO: add topdefs too *)
+  IdentName.Map.fold add_def scope_idmap
+    Ast.ScopeDefMap.empty (* TODO: add topdefs too *)
 
 (** Main function of this module *)
 let translate_program
@@ -1356,7 +1378,9 @@ let translate_program
           match Marked.unmark item with
           | Surface.Ast.ScopeUse use -> process_scope_use ctxt prgm use
           | Surface.Ast.Topdef def -> process_topdef ctxt prgm def
-          | Surface.Ast.ScopeDecl _ | Surface.Ast.StructDecl _ | Surface.Ast.EnumDecl _ -> prgm)
+          | Surface.Ast.ScopeDecl _ | Surface.Ast.StructDecl _
+          | Surface.Ast.EnumDecl _ ->
+            prgm)
         prgm block
     | LawInclude _ | LawText _ -> prgm
   in

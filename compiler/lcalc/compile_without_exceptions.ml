@@ -515,19 +515,20 @@ let rec translate_scopes (ctx : 'm ctx) (scopes : 'm D.expr code_item_list) :
     'm A.expr code_item_list Bindlib.box =
   let _ctx, scopes =
     Scope.fold_map
-      ~f:(fun ctx var -> function
+      ~f:
+        (fun ctx var -> function
           | Topdef (name, ty, e) ->
-            add_var (Marked.get_mark e) var true ctx,
-            Bindlib.box_apply (fun e -> Topdef (name, ty, e))
-              (Expr.Box.lift (translate_expr ~append_esome:false ctx e))
+            ( add_var (Marked.get_mark e) var true ctx,
+              Bindlib.box_apply
+                (fun e -> Topdef (name, ty, e))
+                (Expr.Box.lift (translate_expr ~append_esome:false ctx e)) )
           | ScopeDef (scope_name, scope_body) ->
-            ctx,
-            let scope_pos = Marked.get_mark (ScopeName.get_info scope_name) in
-            Bindlib.box_apply (fun body -> ScopeDef (scope_name, body))
-              (translate_scope_body scope_pos ctx scope_body))
-      ~varf:Var.translate
-      ctx
-      scopes
+            ( ctx,
+              let scope_pos = Marked.get_mark (ScopeName.get_info scope_name) in
+              Bindlib.box_apply
+                (fun body -> ScopeDef (scope_name, body))
+                (translate_scope_body scope_pos ctx scope_body) ))
+      ~varf:Var.translate ctx scopes
   in
   scopes
 
@@ -535,8 +536,7 @@ let translate_program (prgm : 'm D.program) : 'm A.program =
   let inputs_structs =
     Scope.fold_left prgm.scopes ~init:[] ~f:(fun acc def _ ->
         match def with
-        | ScopeDef (name, body) ->
-          body.scope_body_input_struct :: acc
+        | ScopeDef (name, body) -> body.scope_body_input_struct :: acc
         | Topdef _ -> acc)
   in
   (* Cli.debug_print @@ Format.asprintf "List of structs to modify: [%a]"

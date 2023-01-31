@@ -49,8 +49,7 @@ val map_exprs_in_lets :
   'expr2 scope_body_expr Bindlib.box
 
 val fold_left :
-  f:('a -> 'expr1 code_item
-     -> 'expr1 Var.t -> 'a) ->
+  f:('a -> 'expr1 code_item -> 'expr1 Var.t -> 'a) ->
   init:'a ->
   'expr1 code_item_list ->
   'a
@@ -80,7 +79,8 @@ val map_ctx :
   'ctx ->
   'e1 code_item_list ->
   'e2 code_item_list Bindlib.box
-(** Similar to [map], but a context is passed left-to-right through the given function *)
+(** Similar to [map], but a context is passed left-to-right through the given
+    function *)
 
 val fold_map :
   f:('ctx -> 'e1 Var.t -> 'e1 code_item -> 'ctx * 'e2 code_item Bindlib.box) ->
@@ -88,7 +88,6 @@ val fold_map :
   'ctx ->
   'e1 code_item_list ->
   'ctx * 'e2 code_item_list Bindlib.box
-
 
 val map_exprs :
   f:('expr1 -> 'expr2 boxed) ->

@@ -441,12 +441,11 @@ type 'e code_item =
   | ScopeDef of ScopeName.t * 'e scope_body
   | Topdef of TopdefName.t * typ * 'e
 
-(* A chained list, but with a binder for each element into the next:
-   [x := let a = e1 in e2] is thus
-   [Cons (e1, {a. Cons (e2, {x. Nil})})] *)
- type 'e code_item_list =
-   | Nil
-   | Cons of 'e code_item * ('e, 'e code_item_list) binder
+(* A chained list, but with a binder for each element into the next: [x := let a
+   = e1 in e2] is thus [Cons (e1, {a. Cons (e2, {x. Nil})})] *)
+type 'e code_item_list =
+  | Nil
+  | Cons of 'e code_item * ('e, 'e code_item_list) binder
 
 type struct_ctx = typ StructField.Map.t StructName.Map.t
 type enum_ctx = typ EnumConstructor.Map.t EnumName.Map.t

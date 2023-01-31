@@ -26,9 +26,9 @@ let get_scope_body { scopes; _ } scope =
   match
     Scope.fold_left ~init:None
       ~f:(fun acc item _ ->
-          match item with
-          | ScopeDef (name, body) when ScopeName.equal scope name -> Some body
-          | _ -> acc)
+        match item with
+        | ScopeDef (name, body) when ScopeName.equal scope name -> Some body
+        | _ -> acc)
       scopes
   with
   | None -> raise Not_found
@@ -40,7 +40,8 @@ let untype : 'm. ('a, 'm mark) gexpr program -> ('a, untyped mark) gexpr program
 
 let rec find_scope name vars = function
   | Nil -> raise Not_found
-  | Cons (ScopeDef (n, body), _) when ScopeName.equal name n -> List.rev vars, body
+  | Cons (ScopeDef (n, body), _) when ScopeName.equal name n ->
+    List.rev vars, body
   | Cons (_, next_bind) ->
     let var, next = Bindlib.unbind next_bind in
     find_scope name (var :: vars) next

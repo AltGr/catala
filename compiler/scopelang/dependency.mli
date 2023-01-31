@@ -27,8 +27,7 @@ type vertex = Scope of ScopeName.t | Global of TopdefName.t
 (** On the edges, the label is the expression responsible for the use of the
     function *)
 module SDependencies :
-  Graph.Sig.P with type V.t = vertex
-               and type E.label = Pos.t
+  Graph.Sig.P with type V.t = vertex and type E.label = Pos.t
 
 val build_program_dep_graph : 'm Ast.program -> SDependencies.t
 val check_for_cycle_in_scope : SDependencies.t -> unit

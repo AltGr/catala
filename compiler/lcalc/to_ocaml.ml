@@ -508,21 +508,19 @@ let rec format_scopes
     (ctx : decl_ctx)
     (fmt : Format.formatter)
     (scopes : 'm Ast.expr code_item_list) : unit =
-  Scope.fold_left ~f:(fun () item var ->
+  Scope.fold_left
+    ~f:(fun () item var ->
       match item with
       | Topdef (name, typ, e) ->
-        Format.fprintf fmt "@\n@\n@[<hov 2>let %a : %a =@\n%a@]"
-          format_var var
-          format_typ typ
-          (format_expr ctx) e
+        Format.fprintf fmt "@\n@\n@[<hov 2>let %a : %a =@\n%a@]" format_var var
+          format_typ typ (format_expr ctx) e
       | ScopeDef (name, body) ->
         let scope_input_var, scope_body_expr =
           Bindlib.unbind body.scope_body_expr
         in
         Format.fprintf fmt "@\n@\n@[<hov 2>let %a (%a: %a.t) : %a.t =@\n%a@]"
           format_var var format_var scope_input_var format_to_module_name
-          (`Sname body.scope_body_input_struct)
-          format_to_module_name
+          (`Sname body.scope_body_input_struct) format_to_module_name
           (`Sname body.scope_body_output_struct)
           (format_scope_body_expr ctx)
           scope_body_expr)

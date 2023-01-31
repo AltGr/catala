@@ -469,8 +469,7 @@ let compare_location
       SubScopeVar (_, (ysubindex, _), (ysubvar, _)) ) ->
     let c = SubScopeName.compare xsubindex ysubindex in
     if c = 0 then ScopeVar.compare xsubvar ysubvar else c
-  | GlobalVar (vx, _), GlobalVar (vy, _) ->
-    TopdefName.compare vx vy
+  | GlobalVar (vx, _), GlobalVar (vy, _) -> TopdefName.compare vx vy
   | DesugaredScopeVar _, _ -> -1
   | _, DesugaredScopeVar _ -> 1
   | ScopelangScopeVar _, _ -> -1

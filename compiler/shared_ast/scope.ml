@@ -71,7 +71,8 @@ let rec map ~f ~varf = function
       let var, next = Bindlib.unbind next_bind in
       Bindlib.bind_var (varf var) (map ~f ~varf next)
     in
-    Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
+    Bindlib.box_apply2
+      (fun item next_bind -> Cons (item, next_bind))
       item next_bind
 
 let rec map_ctx ~f ~varf ctx = function
@@ -82,7 +83,8 @@ let rec map_ctx ~f ~varf ctx = function
       let var, next = Bindlib.unbind next_bind in
       Bindlib.bind_var (varf var) (map_ctx ~f ~varf ctx next)
     in
-    Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
+    Bindlib.box_apply2
+      (fun item next_bind -> Cons (item, next_bind))
       item next_bind
 
 let rec fold_map ~f ~varf ctx = function
@@ -92,16 +94,15 @@ let rec fold_map ~f ~varf ctx = function
     let ctx, item = f ctx var item in
     let ctx, next = fold_map ~f ~varf ctx next in
     let next_bind = Bindlib.bind_var (varf var) next in
-    ctx,
-    Bindlib.box_apply2 (fun item next_bind -> Cons (item, next_bind))
-      item next_bind
+    ( ctx,
+      Bindlib.box_apply2
+        (fun item next_bind -> Cons (item, next_bind))
+        item next_bind )
 
 let map_exprs ~f ~varf scopes =
   let f = function
     | ScopeDef (name, body) ->
-      let scope_input_var, scope_lets =
-        Bindlib.unbind body.scope_body_expr
-      in
+      let scope_input_var, scope_lets = Bindlib.unbind body.scope_body_expr in
       let new_body_expr = map_exprs_in_lets ~f ~varf scope_lets in
       let new_body_expr =
         Bindlib.bind_var (varf scope_input_var) new_body_expr
@@ -110,7 +111,9 @@ let map_exprs ~f ~varf scopes =
         (fun scope_body_expr -> ScopeDef (name, { body with scope_body_expr }))
         new_body_expr
     | Topdef (name, typ, expr) ->
-      Bindlib.box_apply (fun e -> Topdef (name, typ, e)) (Expr.Box.lift (f expr))
+      Bindlib.box_apply
+        (fun e -> Topdef (name, typ, e))
+        (Expr.Box.lift (f expr))
   in
   map ~f ~varf scopes
 
@@ -202,7 +205,7 @@ let rec unfold
         in
         let typ =
           build_typ_from_sig ctx body.scope_body_input_struct
-             body.scope_body_output_struct pos
+            body.scope_body_output_struct pos
         in
         let expr = to_expr ctx body body_mark in
         typ, expr, pos, is_main
@@ -226,13 +229,11 @@ let free_vars_item = function
   | ScopeDef (_, { scope_body_expr; _ }) ->
     let v, body = Bindlib.unbind scope_body_expr in
     Var.Set.remove v (free_vars_body_expr body)
-  | Topdef (_, _, expr) ->
-    Expr.free_vars expr
+  | Topdef (_, _, expr) -> Expr.free_vars expr
 
 let rec free_vars scopes =
   match scopes with
   | Nil -> Var.Set.empty
   | Cons (item, next_bind) ->
     let v, next = Bindlib.unbind next_bind in
-    Var.Set.union (Var.Set.remove v (free_vars next))
-      (free_vars_item item)
+    Var.Set.union (Var.Set.remove v (free_vars next)) (free_vars_item item)

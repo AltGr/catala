@@ -784,7 +784,8 @@ let scope_body ctx env body =
   let var, e = Bindlib.unbind body.A.scope_body_expr in
   let env = Env.add var ty_in env in
   let e' = scope_body_expr ctx env ty_out e in
-  ( Bindlib.box_apply (fun scope_body_expr -> {body with scope_body_expr})
+  ( Bindlib.box_apply
+      (fun scope_body_expr -> { body with scope_body_expr })
       (Bindlib.bind_var (Var.translate var) e'),
     UnionFind.make
       (Marked.mark
@@ -799,21 +800,20 @@ let rec scopes ctx env = function
       match item with
       | A.ScopeDef (name, body) ->
         let body_e, ty_scope = scope_body ctx env body in
-        Env.add var ty_scope env,
-        Bindlib.box_apply (fun body -> A.ScopeDef (name, body)) body_e
+        ( Env.add var ty_scope env,
+          Bindlib.box_apply (fun body -> A.ScopeDef (name, body)) body_e )
       | A.Topdef (name, typ, e) ->
         let e' = expr_raw ctx ~env ~typ e in
         let uf = (Marked.get_mark e').uf in
         let e' = Expr.map_marks ~f:get_ty_mark e' in
-        Env.add var uf env,
-        Bindlib.box_apply (fun e -> A.Topdef (name, typ, e))
-          (Expr.Box.lift e')
+        ( Env.add var uf env,
+          Bindlib.box_apply
+            (fun e -> A.Topdef (name, typ, e))
+            (Expr.Box.lift e') )
     in
     let next' = scopes ctx env next in
     let next_bind' = Bindlib.bind_var (Var.translate var) next' in
-    Bindlib.box_apply2
-      (fun item next -> A.Cons (item, next))
-      def next_bind'
+    Bindlib.box_apply2 (fun item next -> A.Cons (item, next)) def next_bind'
 
 let program prg =
   let scopes = Bindlib.unbox (scopes prg.A.decl_ctx Env.empty prg.A.scopes) in

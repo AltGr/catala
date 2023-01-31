@@ -33,9 +33,7 @@ open Shared_ast
 
     Indeed, during interpretation, subscopes are executed atomically. *)
 module Vertex = struct
-  type t =
-    | Var of ScopeVar.t * StateName.t option
-    | SubScope of SubScopeName.t
+  type t = Var of ScopeVar.t * StateName.t option | SubScope of SubScopeName.t
 
   let hash x =
     match x with
@@ -44,21 +42,23 @@ module Vertex = struct
     | SubScope x -> SubScopeName.hash x
 
   let compare x y =
-  match x, y with
-  | Var (x, xst), Var (y, yst) ->
-    (match ScopeVar.compare x y with
-     | 0 ->  Option.compare StateName.compare xst yst
-     | n -> n)
-  | SubScope x, SubScope y -> SubScopeName.compare x y
-  | Var _, _ -> -1 | _, Var _ -> 1
-  | SubScope _, _ -> . | _, SubScope _ -> .
+    match x, y with
+    | Var (x, xst), Var (y, yst) -> (
+      match ScopeVar.compare x y with
+      | 0 -> Option.compare StateName.compare xst yst
+      | n -> n)
+    | SubScope x, SubScope y -> SubScopeName.compare x y
+    | Var _, _ -> -1
+    | _, Var _ -> 1
+    | SubScope _, _ -> .
+    | _, SubScope _ -> .
 
   let equal x y =
     match x, y with
     | Var (x, sx), Var (y, sy) ->
       ScopeVar.equal x y && Option.equal StateName.equal sx sy
     | SubScope x, SubScope y -> SubScopeName.equal x y
-    | (Var _ | SubScope _ ), _ -> false
+    | (Var _ | SubScope _), _ -> false
 
   let format_t (fmt : Format.formatter) (x : t) : unit =
     match x with
@@ -166,8 +166,10 @@ let build_scope_dependencies (scope : Ast.scope) : ScopeDependencies.t =
             | ( Ast.ScopeDef.Var (v_defined, s_defined),
                 Ast.ScopeDef.Var (v_used, s_used) ) ->
               (* simple case *)
-              if ScopeVar.equal v_used v_defined &&
-                 Option.equal StateName.equal s_used s_defined then
+              if
+                ScopeVar.equal v_used v_defined
+                && Option.equal StateName.equal s_used s_defined
+              then
                 (* variable definitions cannot be recursive *)
                 Errors.raise_spanned_error fv_def_pos
                   "The variable %a is used in one of its definitions, but \

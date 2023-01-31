@@ -670,7 +670,6 @@ let translate_scope (ctx : ctx) (scope : Desugared.Ast.scope) :
     Ast.scope_mark = Untyped { pos };
   }
 
-
 (** {1 API} *)
 
 let translate_program (pgrm : Desugared.Ast.program) : untyped Ast.program =

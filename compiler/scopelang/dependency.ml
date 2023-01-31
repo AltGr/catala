@@ -24,29 +24,38 @@ type vertex = Scope of ScopeName.t | Global of TopdefName.t
 
 module SVertex = struct
   type t = vertex
-  (* While we enforce that globals don't depend on scopes, and could therefore compute two separate dependency graphs and traverse them one after the other, code-wise it's simpler to have a single graph including both *)
+  (* While we enforce that globals don't depend on scopes, and could therefore
+     compute two separate dependency graphs and traverse them one after the
+     other, code-wise it's simpler to have a single graph including both *)
 
-  let compare v1 v2 = match v1, v2 with
+  let compare v1 v2 =
+    match v1, v2 with
     | Scope s1, Scope s2 -> ScopeName.compare s1 s2
     | Global g1, Global g2 -> TopdefName.compare g1 g2
-    | Scope _, _ -> -1 | _, Scope _ -> 1
+    | Scope _, _ -> -1
+    | _, Scope _ -> 1
     | Global _, _ | _, Global _ -> .
+
   let equal v1 v2 =
     match v1, v2 with
     | Scope s1, Scope s2 -> ScopeName.equal s1 s2
     | Global g1, Global g2 -> TopdefName.equal g1 g2
-    | (Scope _ | Global _),  _ -> false
+    | (Scope _ | Global _), _ -> false
+
   let hash = function
     | Scope s -> ScopeName.hash s
     | Global g -> TopdefName.hash g
+
   let to_string v =
-    Format.asprintf "%a" (fun ppf -> function
+    Format.asprintf "%a"
+      (fun ppf -> function
         | Scope s -> ScopeName.format_t ppf s
-        | Global g -> TopdefName.format_t ppf g) v
+        | Global g -> TopdefName.format_t ppf g)
+      v
+
   let info = function
     | Scope s -> ScopeName.get_info s
     | Global g -> TopdefName.get_info g
-
 end
 
 module VMap = Map.Make (SVertex)
@@ -75,7 +84,7 @@ let rec expr_used_defs e =
       e VMap.empty
   in
   match e with
-  | ELocation (GlobalVar (v,pos)), _ -> VMap.singleton (Global v) pos
+  | ELocation (GlobalVar (v, pos)), _ -> VMap.singleton (Global v) pos
   | (EScopeCall { scope; _ }, m) as e ->
     VMap.add (Scope scope) (Expr.mark_pos m) (recurse_subterms e)
   | EAbs { binder; _ }, _ ->
@@ -95,7 +104,8 @@ let rule_used_defs = function
 let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
   let g = SDependencies.empty in
   let g =
-    TopdefName.Map.fold (fun v _ g -> SDependencies.add_vertex g (Global v))
+    TopdefName.Map.fold
+      (fun v _ g -> SDependencies.add_vertex g (Global v))
       prgm.program_globals g
   in
   let g =
@@ -106,17 +116,18 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
   let g =
     TopdefName.Map.fold
       (fun glo_name (expr, _) g ->
-         let used_defs = expr_used_defs expr in
-         if VMap.mem (Global glo_name) used_defs then
-           Errors.raise_spanned_error
-             (Marked.get_mark (TopdefName.get_info glo_name))
-             "The global %a has a definition that refers to itself, which is \
-              forbidden since Catala does not provide recursion"
-             TopdefName.format_t glo_name;
-         VMap.fold (fun def pos g ->
-             let edge = SDependencies.E.create def pos (Global glo_name) in
-             SDependencies.add_edge_e g edge)
-           used_defs g)
+        let used_defs = expr_used_defs expr in
+        if VMap.mem (Global glo_name) used_defs then
+          Errors.raise_spanned_error
+            (Marked.get_mark (TopdefName.get_info glo_name))
+            "The global %a has a definition that refers to itself, which is \
+             forbidden since Catala does not provide recursion"
+            TopdefName.format_t glo_name;
+        VMap.fold
+          (fun def pos g ->
+            let edge = SDependencies.E.create def pos (Global glo_name) in
+            SDependencies.add_edge_e g edge)
+          used_defs g)
       prgm.program_globals g
   in
   ScopeName.Map.fold
@@ -132,7 +143,9 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
               ScopeName.format_t scope.Ast.scope_decl_name;
           VMap.fold
             (fun used_def pos g ->
-              let edge = SDependencies.E.create used_def pos (Scope scope_name) in
+              let edge =
+                SDependencies.E.create used_def pos (Scope scope_name)
+              in
               SDependencies.add_edge_e g edge)
             used_defs g)
         g scope.Ast.scope_decl_rules)

@@ -78,8 +78,7 @@ let type_program (prg : 'm program) : typed program =
   let program_globals =
     TopdefName.Map.map
       (fun (expr, typ) ->
-         Expr.unbox (Typing.expr prg.program_ctx ~env:typing_env ~typ expr),
-         typ)
+        Expr.unbox (Typing.expr prg.program_ctx ~env:typing_env ~typ expr), typ)
       prg.program_globals
   in
   let typing_env =

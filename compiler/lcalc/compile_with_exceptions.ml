@@ -29,7 +29,7 @@ let thunk_expr (type m) (e : m A.expr boxed) : m A.expr boxed =
   let arg_t = Marked.mark pos (TLit TUnit) in
   Expr.make_abs [| dummy_var |] e [arg_t] pos
 
-let translate_var: 'm D.expr Var.t -> 'm A.expr Var.t = Var.translate
+let translate_var : 'm D.expr Var.t -> 'm A.expr Var.t = Var.translate
 
 let rec translate_default
     (ctx : 'm ctx)
@@ -120,7 +120,9 @@ let rec translate_scope_lets
     in
     let new_scope_let_expr = translate_expr ctx scope_let.scope_let_expr in
     let new_scope_next = translate_scope_lets decl_ctx ctx scope_let_next in
-    let new_scope_next = Bindlib.bind_var (translate_var scope_let_var) new_scope_next in
+    let new_scope_next =
+      Bindlib.bind_var (translate_var scope_let_var) new_scope_next
+    in
     Bindlib.box_apply2
       (fun new_scope_next new_scope_let_expr ->
         ScopeLet
@@ -139,32 +141,32 @@ let rec translate_scopes
     (ctx : 'm ctx)
     (scopes : 'm D.expr code_item_list) : 'm A.expr code_item_list Bindlib.box =
   Scope.map_ctx
-    ~f:(fun ctx -> function
-      | Topdef (name, ty, e) ->
-        ctx,
-        Bindlib.box_apply (fun e -> Topdef (name, ty, e))
-          (Expr.Box.lift (translate_expr ctx e))
-      | ScopeDef (name, body) ->
-        let scope_input_var, body_expr =
-          Bindlib.unbind body.scope_body_expr
-        in
-        let new_scope_body_expr = translate_scope_lets decl_ctx ctx body_expr in
-        let new_body =
-          Bindlib.bind_var (translate_var scope_input_var) new_scope_body_expr
-        in
-        ctx,
-        Bindlib.box_apply (fun scope_body_expr -> ScopeDef (name,
-          {
-            body with
-            scope_body_expr;
-          }
-            )) new_body)
-    ~varf:translate_var
-    ctx scopes
+    ~f:
+      (fun ctx -> function
+        | Topdef (name, ty, e) ->
+          ( ctx,
+            Bindlib.box_apply
+              (fun e -> Topdef (name, ty, e))
+              (Expr.Box.lift (translate_expr ctx e)) )
+        | ScopeDef (name, body) ->
+          let scope_input_var, body_expr =
+            Bindlib.unbind body.scope_body_expr
+          in
+          let new_scope_body_expr =
+            translate_scope_lets decl_ctx ctx body_expr
+          in
+          let new_body =
+            Bindlib.bind_var (translate_var scope_input_var) new_scope_body_expr
+          in
+          ( ctx,
+            Bindlib.box_apply
+              (fun scope_body_expr ->
+                ScopeDef (name, { body with scope_body_expr }))
+              new_body ))
+    ~varf:translate_var ctx scopes
 
 let translate_program (prgm : 'm D.program) : 'm A.program =
   {
-    scopes =
-      Bindlib.unbox (translate_scopes prgm.decl_ctx () prgm.scopes);
+    scopes = Bindlib.unbox (translate_scopes prgm.decl_ctx () prgm.scopes);
     decl_ctx = prgm.decl_ctx;
   }

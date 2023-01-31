@@ -216,6 +216,8 @@ let optimize_expr (decl_ctx : decl_ctx) (e : 'm expr) =
 let optimize_program (p : 'm program) : 'm program =
   Bindlib.unbox
     (Program.map_exprs
-       ~f:(partial_evaluation { var_values = Var.Map.empty; decl_ctx = p.decl_ctx })
+       ~f:
+         (partial_evaluation
+            { var_values = Var.Map.empty; decl_ctx = p.decl_ctx })
        ~varf:(fun v -> v)
        p)

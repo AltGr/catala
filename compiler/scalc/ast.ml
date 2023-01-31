@@ -67,10 +67,10 @@ type scope_body = {
   scope_body_func : func;
 }
 
-type global =
-  | GlobalVar of block
-  | GlobalFunc of func
+type global = GlobalVar of block | GlobalFunc of func
 
-type program = { decl_ctx : decl_ctx;
-                 globals : (TopLevelName.t * global) list;
-                 scopes : scope_body list }
+type program = {
+  decl_ctx : decl_ctx;
+  globals : (TopLevelName.t * global) list;
+  scopes : scope_body list;
+}

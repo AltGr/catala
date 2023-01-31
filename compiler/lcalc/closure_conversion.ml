@@ -169,7 +169,7 @@ let closure_conversion (p : 'm program) : 'm program Bindlib.box =
   let _, new_scopes =
     Scope.fold_map
       ~f:(fun global_vars var code_item ->
-          Var.Set.add var global_vars,
+        ( Var.Set.add var global_vars,
           match code_item with
           | ScopeDef (name, body) ->
             let scope_input_var, scope_body_expr =
@@ -190,10 +190,9 @@ let closure_conversion (p : 'm program) : 'm program Bindlib.box =
             let new_scope_body_expr =
               Bindlib.bind_var scope_input_var new_scope_lets
             in
-            Bindlib.box_apply (fun scope_body_expr ->
-                ScopeDef
-                  (name,
-                   { body with scope_body_expr }))
+            Bindlib.box_apply
+              (fun scope_body_expr ->
+                ScopeDef (name, { body with scope_body_expr }))
               new_scope_body_expr
           | Topdef (name, ty, expr) ->
             let ctx =
@@ -202,10 +201,12 @@ let closure_conversion (p : 'm program) : 'm program Bindlib.box =
                 globally_bound_vars = global_vars;
               }
             in
-            Bindlib.box_apply (fun e -> Topdef (name, ty, e)) (Expr.Box.lift (closure_conversion_expr ctx expr)))
+            Bindlib.box_apply
+              (fun e -> Topdef (name, ty, e))
+              (Expr.Box.lift (closure_conversion_expr ctx expr)) ))
       ~varf:(fun v -> v)
       (Var.Set.of_list
-         (List.map Var.translate [handle_default; handle_default_opt]) )
+         (List.map Var.translate [handle_default; handle_default_opt]))
       p.scopes
   in
   Bindlib.box_apply
