@@ -69,20 +69,88 @@ champ d'application Test4:
 
 ```catala-test-inline
 $ catala Interpret -s Test1
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "entier"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.41-47:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                          ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.31-40:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test2
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "entier"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.41-47:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                          ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.31-40:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test3
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "entier"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.41-47:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                          ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.31-40:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test4
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "entier"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.41-47:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                          ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/droit_successions/tests/tests_droit_succession.catala_fr:7.31-40:
+└─┐
+7 │   résultat base contenu Enfant dépend de entier
+  │                                ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

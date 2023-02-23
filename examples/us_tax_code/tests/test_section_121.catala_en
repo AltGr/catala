@@ -147,30 +147,132 @@ scope Test6:
 
 ```catala-test-inline
 $ catala Interpret -s Test1
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test2
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test3
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test4
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test5
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Test6
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "collection"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.15-25:
+└──┐
+43 │     depends on collection Period
+   │                ‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/us_tax_code/tests/../section_121.catala_en:43.4-14:
+└──┐
+43 │     depends on collection Period
+   │     ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

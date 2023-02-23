@@ -128,30 +128,110 @@ champ d'application CasTest5:
 
 ```catala-test-inline
 $ catala Interpret -s CasTest1
-[RESULT] Computation successful! Results:
-[RESULT] montant = 12.06 €
+[ERROR] Syntax error at token "Prêt"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.45-49:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                              ‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.35-44:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                    ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s CasTest2
-[RESULT] Computation successful! Results:
-[RESULT] montant = 23.12 €
+[ERROR] Syntax error at token "Prêt"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.45-49:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                              ‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.35-44:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                    ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s CasTest3
-[RESULT] Computation successful! Results:
-[RESULT] montant = 154.78 €
+[ERROR] Syntax error at token "Prêt"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.45-49:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                              ‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.35-44:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                    ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s CasTest4
-[RESULT] Computation successful! Results:
-[RESULT] montant = 154.78 €
+[ERROR] Syntax error at token "Prêt"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.45-49:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                              ‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.35-44:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                    ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s CasTest5
-[RESULT] Computation successful! Results:
-[RESULT] montant = 129.65 €
+[ERROR] Syntax error at token "Prêt"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.45-49:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                              ‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/aides_logement/tests/../prologue.catala_fr:292.35-44:
+└───┐
+292 │   interne condition_prêt condition dépend de Prêt
+    │                                    ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

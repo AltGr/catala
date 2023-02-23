@@ -14,7 +14,24 @@ scope S:
 
 ```catala-test-inline
 $ catala typecheck
-[RESULT] Typechecking successful!
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/param_consistency.catala_en:4.41-48:
+└─┐
+4 │   internal f1 content decimal depends on integer
+  │                                          ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/param_consistency.catala_en:4.30-40:
+└─┐
+4 │   internal f1 content decimal depends on integer
+  │                               ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala
@@ -33,7 +50,22 @@ scope T1:
 
 ```catala-test-inline
 $ catala Interpret -s T1
-[RESULT] Computation successful! Results:
-[RESULT] o1 = 20.
-[RESULT] o2 = 5.
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/param_consistency.catala_en:4.41-48:
+└─┐
+4 │   internal f1 content decimal depends on integer
+  │                                          ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/param_consistency.catala_en:4.30-40:
+└─┐
+4 │   internal f1 content decimal depends on integer
+  │                               ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

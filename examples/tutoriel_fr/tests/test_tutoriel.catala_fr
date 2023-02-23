@@ -30,10 +30,44 @@ champ d'application TestUnitaire2:
 
 ```catala-test-inline
 $ catala Interpret -s TestUnitaire1
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "argent"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/tutoriel_fr/tests/../tutoriel_fr.catala_fr:223.55-61:
+└───┐
+223 │   résultat formule_imposition contenu argent dépend de argent
+    │                                                        ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/tutoriel_fr/tests/../tutoriel_fr.catala_fr:223.45-54:
+└───┐
+223 │   résultat formule_imposition contenu argent dépend de argent
+    │                                              ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s TestUnitaire2
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "argent"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/tutoriel_fr/tests/../tutoriel_fr.catala_fr:223.55-61:
+└───┐
+223 │   résultat formule_imposition contenu argent dépend de argent
+    │                                                        ‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/tutoriel_fr/tests/../tutoriel_fr.catala_fr:223.45-54:
+└───┐
+223 │   résultat formule_imposition contenu argent dépend de argent
+    │                                              ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

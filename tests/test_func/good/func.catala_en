@@ -23,6 +23,22 @@ scope R:
 
 ```catala-test-inline
 $ catala Interpret -s R
-[RESULT] Computation successful! Results:
-[RESULT] r = 30
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

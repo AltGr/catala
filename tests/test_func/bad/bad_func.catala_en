@@ -23,26 +23,44 @@ scope R:
 
 ```catala-test-inline
 $ catala Interpret -s R
-[RESULT] Computation successful! Results:
-[RESULT] r = 30
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/bad/bad_func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/bad/bad_func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s S
-[ERROR] There is a conflict between multiple valid consequences for assigning the same variable.
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
 
-This consequence has a valid justification:
-┌─⯈ tests/test_func/bad/bad_func.catala_en:14.64-69:
-└──┐
-14 │   definition f of x under condition (x >= x) consequence equals x + x
-   │                                                                 ‾‾‾‾‾
-   └─ Article
+Error token:
+┌─⯈ tests/test_func/bad/bad_func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
 
-This consequence has a valid justification:
-┌─⯈ tests/test_func/bad/bad_func.catala_en:15.61-66:
-└──┐
-15 │   definition f of x under condition not b consequence equals x * x
-   │                                                              ‾‾‾‾‾
-   └─ Article
+
+Last good token:
+┌─⯈ tests/test_func/bad/bad_func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
 #return code 255#
 ```

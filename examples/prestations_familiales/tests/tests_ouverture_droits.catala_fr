@@ -63,5 +63,22 @@ champ d'application Test1:
 
 ```catala-test-inline
 $ catala Interpret -s Test1
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "EnfantPrestationsFamiliales"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/prestations_familiales/tests/../prologue.catala_fr:40.44-71:
+└──┐
+40 │   résultat droit_ouvert condition dépend de EnfantPrestationsFamiliales
+   │                                             ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/prestations_familiales/tests/../prologue.catala_fr:40.34-43:
+└──┐
+40 │   résultat droit_ouvert condition dépend de EnfantPrestationsFamiliales
+   │                                   ‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

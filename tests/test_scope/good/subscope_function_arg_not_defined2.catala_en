@@ -21,5 +21,22 @@ scope Caller:
 
 ```catala-test-inline
 $ catala Interpret -s Caller
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "integer"
+Message: expected the form 'depends on <ident> content <type> [, <ident> content <type> ...]'
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_scope/good/subscope_function_arg_not_defined2.catala_en:5.40-47:
+└─┐
+5 │   context function condition depends on integer
+  │                                         ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_scope/good/subscope_function_arg_not_defined2.catala_en:5.29-39:
+└─┐
+5 │   context function condition depends on integer
+  │                              ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

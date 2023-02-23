@@ -30,10 +30,44 @@ scope UnitTest2:
 
 ```catala-test-inline
 $ catala Interpret -s UnitTest1
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "money"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/tutorial_en/tests/../tutorial_en.catala_en:295.46-51:
+└───┐
+295 │   output tax_formula content money depends on money
+    │                                               ‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/tutorial_en/tests/../tutorial_en.catala_en:295.35-45:
+└───┐
+295 │   output tax_formula content money depends on money
+    │                                    ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Interpret -s UnitTest2
-[RESULT] Computation successful!
+[ERROR] Syntax error at token "money"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ examples/tutorial_en/tests/../tutorial_en.catala_en:295.46-51:
+└───┐
+295 │   output tax_formula content money depends on money
+    │                                               ‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ examples/tutorial_en/tests/../tutorial_en.catala_en:295.35-45:
+└───┐
+295 │   output tax_formula content money depends on money
+    │                                    ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

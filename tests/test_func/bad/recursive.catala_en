@@ -10,12 +10,22 @@ scope RecursiveFunc:
 
 ```catala-test-inline
 $ catala Interpret -s RecursiveFunc
-[ERROR] The variable f is used in one of its definitions, but recursion is forbidden in Catala
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
 
-┌─⯈ tests/test_func/bad/recursive.catala_en:8.27-28:
+Error token:
+┌─⯈ tests/test_func/bad/recursive.catala_en:5.39-46:
 └─┐
-8 │   definition f of x equals f of x + 1
-  │                            ‾
-  └─ Article
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/bad/recursive.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
 #return code 255#
 ```

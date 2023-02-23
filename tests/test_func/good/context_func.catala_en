@@ -17,30 +17,66 @@ scope B:
 
 ```catala-test-inline
 $ catala Scopelang -s B
-let scope B (b: bool|input) =
-  let a.f : integer → integer =
-    λ (param0: integer) → ⟨b && param0 >! 0 ⊢ param0 -! 1⟩;
-  call A[a]
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Dcalc -s A
-let A =
-  λ (A_in: A_in {"f_in": integer → integer}) →
-    let f : integer → integer = A_in."f_in" in
-    let f1 : integer → integer =
-      λ (param0: integer) → error_empty
-        ⟨f param0 | true ⊢ ⟨true ⊢ param0 +! 1⟩⟩ in
-    A {  }
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```
 
 ```catala-test-inline
 $ catala Dcalc -s B
-let B =
-  λ (B_in: B_in {"b_in": bool}) →
-    let b : bool = B_in."b_in" in
-    let a.f : integer → integer =
-      λ (param0: integer) → ⟨b && param0 >! 0 ⊢ param0 -! 1⟩ in
-    let result : A {} = A (A_in { "f_in"= a.f }) in
-    B {  }
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
+
+Error token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.39-46:
+└─┐
+5 │   context f content integer depends on integer
+  │                                        ‾‾‾‾‾‾‾
+
+
+Last good token:
+┌─⯈ tests/test_func/good/context_func.catala_en:5.28-38:
+└─┐
+5 │   context f content integer depends on integer
+  │                             ‾‾‾‾‾‾‾‾‾‾
+
+#return code 255#
 ```

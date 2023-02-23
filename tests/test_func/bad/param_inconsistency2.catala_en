@@ -13,21 +13,22 @@ scope S:
 
 ```catala-test-inline
 $ catala typecheck
-[ERROR] Inconsistent function definition for f1, the arguments differ
+[ERROR] Syntax error at token "integer"
+Message: unexpected token
+Autosuggestion: did you mean "("?
 
-First definition here
-┌─⯈ tests/test_func/bad/param_inconsistency2.catala_en:8.2-46:
+Error token:
+┌─⯈ tests/test_func/bad/param_inconsistency2.catala_en:4.41-48:
 └─┐
-8 │   definition f1 of x equals decimal of (x * 2)
-  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+4 │   internal f1 content decimal depends on integer
+  │                                          ‾‾‾‾‾‾‾
 
 
-┌─⯈ tests/test_func/bad/param_inconsistency2.catala_en:9.2-10.28:
-└──┐
- 9 │   exception definition f1 of y under condition not cond
-   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-10 │     consequence equals y / 2
-   │     ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+Last good token:
+┌─⯈ tests/test_func/bad/param_inconsistency2.catala_en:4.30-40:
+└─┐
+4 │   internal f1 content decimal depends on integer
+  │                               ‾‾‾‾‾‾‾‾‾‾
 
 #return code 255#
 ```
