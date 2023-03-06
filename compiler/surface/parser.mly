@@ -385,7 +385,7 @@ let rule_consequence :=
 
 let rule :=
 | label = option(label) ;
-  except = option(exception_to) ;
+  except = option(addpos(exception_to)) ;
   pos_rule = pos(RULE) ;
   name_and_param = rule_expr ;
   state = option(state) ;
@@ -395,11 +395,11 @@ let rule :=
   let cons : bool Marked.pos = consequence in
   let rule_exception = match except with
     | None -> NotAnException
-    | Some x -> x
+    | Some x -> Marked.unmark x
   in
   let pos_start =
-    match label with Some _ -> Pos.from_lpos $loc(label)
-    | None -> match except with Some _ -> Pos.from_lpos $loc(except)
+    match label with Some l -> Marked.get_mark l
+    | None -> match except with Some e -> Marked.get_mark e
     | None -> pos_rule
   in
   {
