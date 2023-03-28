@@ -26,6 +26,8 @@
 
 \setlist[itemize]{noitemsep, topsep=0pt}
 
+\renewcommand{\MintedPygmentize}{../../_build/default/compiler/catala.exe pygmentize}
+
 % backquote dejavu fix
 \makeatletter
 \chardef\straightquote@code=\catcode`'
@@ -480,6 +482,14 @@
     ```
   \end{catala}
   & State transitions declaration
+  \\
+  \begin{catala}
+    ```catala
+      date round increasing
+            # or decreasing
+    ```
+  \end{catala}
+  & Define date rounding mode
   \\
   \begin{catala}
     ```catala

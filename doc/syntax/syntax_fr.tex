@@ -26,6 +26,8 @@
 
 \setlist[itemize]{noitemsep, topsep=0pt}
 
+\renewcommand{\MintedPygmentize}{../../_build/default/compiler/catala.exe pygmentize}
+
 % backquote dejavu fix
 \makeatletter
 \chardef\straightquote@code=\catcode`'
@@ -467,7 +469,6 @@
       entrée var4 contenu ...
       entrée résultat var5 contenu ...
       contexte var6 contenu ...
-      contexte résultat var7 contenu ...
     ```
   \end{catala}
   & Qualificateurs d'entrée-sortie
@@ -480,6 +481,14 @@
     ```
   \end{catala}
   & Transitions d'état
+  \\
+  \begin{catala}
+    ```catala
+      date arrondi croissant
+            # ou décroissant
+    ```
+  \end{catala}
+  & Mode arrondi dates
   \\
   \begin{catala}
     ```catala
