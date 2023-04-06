@@ -146,7 +146,13 @@ let driver source_file (options : Cli.options) : int =
       let scope_uid =
         match options.ex_scope, backend with
         | None, `Interpret ->
-          Errors.raise_error "No scope was provided for execution."
+          Errors.raise_error
+            "You have invoked the \"Interpret\" command of the Catala compiler \
+             on a file containing a Catala program. This command will execute \
+             the code of the file but to do that it needs an entry point. The \
+             entry point it needs is a scope of the Catala program. So, \
+             provide the name of the scope you want to execute with the \"-s\" \
+             or \"--scope\" option, for instance \"--scope=Foo\"."
         | None, _ ->
           let _, scope =
             try
