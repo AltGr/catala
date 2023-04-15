@@ -450,12 +450,13 @@ let rec expr_aux :
     Format.fprintf fmt "@[<hov 2>%a@ %a@ %a@]" operator op (lhs expr) arg1
       (rhs expr) arg2
   | EApp { f = EOp { op = (And | Or) as op; _ }, _; args = [arg1; arg2] } ->
-    Format.fprintf fmt "%a@ %a %a" (lhs expr) arg1 operator op (rhs expr) arg2
+    Format.fprintf fmt "@[<hv 0>%a@ %a %a@]" (lhs expr) arg1 operator op
+      (rhs expr) arg2
   | EApp { f = EOp { op; _ }, _; args = [arg1; arg2] } ->
     Format.fprintf fmt "@[<hv 0>%a@ %a %a@]" (lhs expr) arg1 operator op
       (rhs expr) arg2
   | EApp { f = EOp { op; _ }, _; args = [arg1] } ->
-    Format.fprintf fmt "%a %a" operator op (rhs expr) arg1
+    Format.fprintf fmt "@[<hv 2>%a@ %a@]" operator op (rhs expr) arg1
   | EApp { f; args } ->
     Format.fprintf fmt "@[<hv 2>%a@ %a@]" (lhs expr) f
       (Format.pp_print_list
@@ -492,8 +493,8 @@ let rec expr_aux :
     Format.fprintf fmt "@[<hov 2>%a@ %a@]" keyword "raise" except exn
   | ELocation loc -> location fmt loc
   | EDStructAccess { e; field; _ } ->
-    Format.fprintf fmt "%a%a%a%a%a" (lhs expr) e punctuation "." punctuation
-      "\"" IdentName.format_t field punctuation "\""
+    Format.fprintf fmt "@[<hv 2>%a%a@,%a%a%a@]" (lhs expr) e punctuation "."
+      punctuation "\"" IdentName.format_t field punctuation "\""
   | EStruct { name; fields } ->
     Format.fprintf fmt "@[<hv 0>@[<hv 2>%a%a@,@[<hv 0>%a@]@]@,%a@]" punctuation
       "{" StructName.format_t name
@@ -506,10 +507,11 @@ let rec expr_aux :
       (StructField.Map.bindings fields)
       punctuation "}"
   | EStructAccess { e; field; _ } ->
-    Format.fprintf fmt "%a%a%a%a%a" (lhs expr) e punctuation "." punctuation
-      "\"" StructField.format_t field punctuation "\""
+    Format.fprintf fmt "@[<hv 2>%a%a@,%a%a%a@]" (lhs expr) e punctuation "."
+      punctuation "\"" StructField.format_t field punctuation "\""
   | EInj { e; cons; _ } ->
-    Format.fprintf fmt "%a@ %a" EnumConstructor.format_t cons (rhs expr) e
+    Format.fprintf fmt "@[<hv 2>%a@ %a@]" EnumConstructor.format_t cons
+      (rhs expr) e
   | EMatch { e; cases; _ } ->
     Format.fprintf fmt "@[<v 0>@[<hov 2>%a@ %a@]@ %a@ %a@]" keyword "match"
       (lhs expr) e keyword "with"
