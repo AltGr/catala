@@ -411,7 +411,7 @@ let rec expr_aux :
          (fun fmt e -> lhs expr fmt e))
       es punctuation ")"
   | EArray es ->
-    Format.fprintf fmt "@[<hv 2>%a %a@] %a" punctuation "["
+    Format.fprintf fmt "@[<hov 2>%a %a@] %a" punctuation "["
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ";@ ")
          (fun fmt e -> lhs expr fmt e))
@@ -455,6 +455,8 @@ let rec expr_aux :
   | EApp { f = EOp { op; _ }, _; args = [arg1; arg2] } ->
     Format.fprintf fmt "@[<hv 0>%a@ %a %a@]" (lhs expr) arg1 operator op
       (rhs expr) arg2
+  | EApp { f = EOp { op = Log _ as op; _ }, _; args = [arg1] } ->
+    Format.fprintf fmt "@[<hv 0>%a@ %a@]" operator op (rhs expr) arg1
   | EApp { f = EOp { op; _ }, _; args = [arg1] } ->
     Format.fprintf fmt "@[<hv 2>%a@ %a@]" operator op (rhs expr) arg1
   | EApp { f; args } ->
