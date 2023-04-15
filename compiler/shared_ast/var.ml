@@ -76,6 +76,7 @@ module Set = struct
   let of_list l = of_list (List.map t l)
   let elements s = elements s |> List.map get
   let diff s1 s2 = diff s1 s2
+  let iter f s = iter (fun x -> f (get x)) s
 
   (* Add more as needed *)
 end

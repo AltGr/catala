@@ -29,11 +29,13 @@ type laziness_level = {
   eval_op : bool;
       (* if false, evaluate the operands but keep e.g. `3 + 4` as is *)
   eval_default : bool;
-      (* if false, stop evaluating as soon as you can discriminate with
+  (* if false, stop evaluating as soon as you can discriminate with
          `EEmptyError` *)
+  eval_vars : bool;
+  (* if false, variables are only resolved when they point to another unchanged variable *)
 }
 
-let value_level = { eval_struct = false; eval_op = true; eval_default = true }
+let value_level = { eval_struct = false; eval_op = true; eval_default = true; eval_vars = true }
 
 module Env = struct
   type 'm t =
@@ -87,8 +89,10 @@ let rec lazy_eval :
           e
           (Print.expr ~debug:true ())
           r;
-        v_env := r, env1);
-      r, Env.join env env1
+        (* v_env := r, env1 *));
+      (match llevel.eval_vars, Expr.skip_wrappers r with
+       | true, _ | false, (EVar _, _) -> r, Env.join env env1
+       | false, _ -> e0, env)
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
@@ -212,8 +216,12 @@ let rec lazy_eval :
   | EExternal _, _ -> assert false (* todo *)
   | _ -> .
 
+let result_level =
+    { value_level with eval_struct = true; eval_op = false; eval_vars = false }
+
 let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
     ('t, 'm) gexpr * 'm Env.t =
+
   let ctx = prg.decl_ctx in
   let all_env, scopes =
     Scope.fold_left prg.code_items ~init:(Env.empty, ScopeName.Map.empty)
@@ -221,13 +229,13 @@ let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
         match item with
         | ScopeDef (name, body) ->
           let e = Scope.to_expr ctx body (Scope.get_body_mark body) in
+          let e = Expr.remove_logging_calls (Expr.unbox e) in
           ( Env.add v (Expr.unbox e) env env,
             ScopeName.Map.add name (v, body.scope_body_input_struct) scopes )
         | Topdef (_, _, e) -> Env.add v e env env, scopes)
   in
   let scope_v, scope_arg_struct = ScopeName.Map.find scope scopes in
   let { contents = e, env } = Env.find scope_v all_env in
-  let e = Expr.unbox (Expr.remove_logging_calls e) in
   log "=====================";
   log "%a" (Print.expr ~debug:true ()) e;
   log "=====================";
@@ -246,11 +254,31 @@ let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
       m
   in
   let e_app = Expr.eapp (Expr.box e) [application_arg] m in
-  lazy_eval ctx env
-    { value_level with eval_struct = true; eval_op = false }
+  lazy_eval ctx env result_level
     (Expr.unbox e_app)
 
 (* -- Plugin registration -- *)
+
+let print_value_with_env ctx ppf env expr =
+  let already_printed = ref Var.Set.empty in
+  let rec aux env ppf expr =
+    Print.expr ~debug:true () ppf expr;
+    Format.pp_print_cut ppf ();
+    let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
+    Var.Set.iter (fun v ->
+        let {contents = e, env} = Env.find v env in
+        let e, env = lazy_eval ctx env result_level e in
+        Format.fprintf ppf "@[<hov 2>%a %a =@ %a@]@,@,"
+          Print.punctuation "»"
+          Print.var_debug v
+          (aux env) e)
+        vars;
+    already_printed := Var.Set.union !already_printed vars;
+    Format.pp_print_cut ppf ();
+  in
+  Format.pp_open_vbox ppf 2;
+  aux env ppf expr;
+  Format.pp_close_box ppf ()
 
 let run link_modules optimize check_invariants ex_scope options =
   Interpreter.load_runtime_modules link_modules;
@@ -258,9 +286,9 @@ let run link_modules optimize check_invariants ex_scope options =
     Driver.Passes.dcalc options ~link_modules ~optimize ~check_invariants
   in
   let scope = Driver.Commands.get_scope_uid ctx ex_scope in
-  let result_expr, _env = interpret_program prg scope in
-  let fmt = Format.std_formatter in
-  Expr.format fmt result_expr
+  let result_expr, env = interpret_program prg scope in
+  let ppf = Format.std_formatter in
+  print_value_with_env prg.decl_ctx ppf env result_expr
 
 let term =
   let open Cmdliner.Term in
