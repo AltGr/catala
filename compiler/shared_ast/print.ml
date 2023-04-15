@@ -420,7 +420,7 @@ let rec expr_aux :
          (fun fmt e -> lhs exprc fmt e))
       es punctuation ")"
   | EArray es ->
-    Format.fprintf fmt "@[<hv 2>%a %a@] %a" punctuation "["
+    Format.fprintf fmt "@[<hov 2>%a %a@] %a" punctuation "["
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ";@ ")
          (fun fmt e -> lhs exprc fmt e))
@@ -470,6 +470,8 @@ let rec expr_aux :
   | EApp { f = EOp { op = (Map | Filter) as op; _ }, _; args = [arg1; arg2] } ->
     Format.fprintf fmt "@[<hv 2>%a %a@ %a@]" operator op (lhs exprc) arg1
       (rhs exprc) arg2
+  | EApp { f = EOp { op = Log _ as op; _ }, _; args = [arg1] } ->
+    Format.fprintf fmt "@[<hv 0>%a@ %a@]" operator op (rhs expr) arg1
   | EApp { f = EOp { op = op0; _ }, _; args = [_; _] } ->
     let prec = Precedence.expr e in
     let rec pr colors fmt = function

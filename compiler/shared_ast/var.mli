@@ -49,6 +49,7 @@ module Set : sig
   val of_list : 'e var list -> 'e t
   val elements : 'e t -> 'e var list
   val diff : 'e t -> 'e t -> 'e t
+  val iter : ('e var -> unit) -> 'e t -> unit
 end
 
 (** Wrapper over [Map.S] but with a type variable for the AST type parameters.
