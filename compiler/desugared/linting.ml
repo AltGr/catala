@@ -22,7 +22,7 @@ open Catala_utils
 let detect_empty_definitions (p : program) : unit =
   ScopeName.Map.iter
     (fun (scope_name : ScopeName.t) scope ->
-      ScopeDefMap.iter
+      ScopeDef.Map.iter
         (fun scope_def_key scope_def ->
           if
             (match scope_def_key with ScopeDef.Var _ -> true | _ -> false)
@@ -71,7 +71,7 @@ end)
 let detect_identical_rules (p : program) : unit =
   ScopeName.Map.iter
     (fun _ scope ->
-      ScopeDefMap.iter
+      ScopeDef.Map.iter
         (fun _ scope_def ->
           let rules_seen =
             RuleName.Map.fold
@@ -115,7 +115,7 @@ let detect_unused_scope_vars (p : program) : unit =
   in
   ScopeName.Map.iter
     (fun (scope_name : ScopeName.t) scope ->
-      ScopeDefMap.iter
+      ScopeDef.Map.iter
         (fun scope_def_key scope_def ->
           match scope_def_key with
           | ScopeDef.Var (v, _)
