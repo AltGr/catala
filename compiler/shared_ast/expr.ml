@@ -703,6 +703,8 @@ let rec free_vars : ('a, 't) gexpr -> ('a, 't) gexpr Var.Set.t = function
 let rec skip_wrappers : type a. (a, 'm) gexpr -> (a, 'm) gexpr = function
   | EApp { f = EOp { op = Log _; _ }, _; args = [e] }, _ -> skip_wrappers e
   | EErrorOnEmpty e, _ -> skip_wrappers e
+  | EDefault { excepts = []; just = ELit (LBool true), _; cons = e }, _ ->
+    skip_wrappers e
   | e -> e
 
 let remove_logging_calls e =
