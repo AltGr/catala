@@ -2294,8 +2294,6 @@ class type enfant_prestations_familiales =
     method dateDeNaissance: Js.js_string Js.t Js.readonly_prop
     method aDejaOuvertDroitAuxAllocationsFamiliales:
       bool Js.t Js.readonly_prop
-    method beneficieTitrePersonnelAidePersonnelleLogement:
-      bool Js.t Js.readonly_prop
   end
   let enfant_prestations_familiales_to_jsoo (enfant_prestations_familiales
     : EnfantPrestationsFamiliales.t) : enfant_prestations_familiales Js.t =
@@ -2310,8 +2308,6 @@ class type enfant_prestations_familiales =
         date_to_jsoo enfant_prestations_familiales.date_de_naissance
       val aDejaOuvertDroitAuxAllocationsFamiliales =
         Js.bool enfant_prestations_familiales.a_deja_ouvert_droit_aux_allocations_familiales
-      val beneficieTitrePersonnelAidePersonnelleLogement =
-        Js.bool enfant_prestations_familiales.beneficie_titre_personnel_aide_personnelle_logement
       end
   let enfant_prestations_familiales_of_jsoo
     (enfant_prestations_familiales : enfant_prestations_familiales Js.t) :
@@ -2329,11 +2325,7 @@ class type enfant_prestations_familiales =
       a_deja_ouvert_droit_aux_allocations_familiales =
         Js.to_bool
           enfant_prestations_familiales
-          ##.aDejaOuvertDroitAuxAllocationsFamiliales;
-      beneficie_titre_personnel_aide_personnelle_logement =
-        Js.to_bool
-          enfant_prestations_familiales
-          ##.beneficieTitrePersonnelAidePersonnelleLogement
+          ##.aDejaOuvertDroitAuxAllocationsFamiliales
     }
 
 class type type_bailleur =
@@ -2666,8 +2658,6 @@ class type enfant_a_charge =
   object
     method identifiant: int Js.readonly_prop
     method nationalite: nationalite Js.t Js.readonly_prop
-    method beneficieTitrePersonnelAidePersonnelleLogement:
-      bool Js.t Js.readonly_prop
     method aDejaOuvertDroitAuxAllocationsFamiliales:
       bool Js.t Js.readonly_prop
     method dateDeNaissance: Js.js_string Js.t Js.readonly_prop
@@ -2684,8 +2674,6 @@ class type enfant_a_charge =
     object%js
       val identifiant = integer_to_int enfant_a_charge.identifiant
       val nationalite = nationalite_to_jsoo enfant_a_charge.nationalite
-      val beneficieTitrePersonnelAidePersonnelleLogement =
-        Js.bool enfant_a_charge.beneficie_titre_personnel_aide_personnelle_logement
       val aDejaOuvertDroitAuxAllocationsFamiliales =
         Js.bool enfant_a_charge.a_deja_ouvert_droit_aux_allocations_familiales
       val dateDeNaissance = date_to_jsoo enfant_a_charge.date_de_naissance
@@ -2703,9 +2691,6 @@ class type enfant_a_charge =
     {
       identifiant = integer_of_int enfant_a_charge##.identifiant;
       nationalite = nationalite_of_jsoo enfant_a_charge##.nationalite;
-      beneficie_titre_personnel_aide_personnelle_logement =
-        Js.to_bool
-          enfant_a_charge##.beneficieTitrePersonnelAidePersonnelleLogement;
       a_deja_ouvert_droit_aux_allocations_familiales =
         Js.to_bool enfant_a_charge##.aDejaOuvertDroitAuxAllocationsFamiliales;
       date_de_naissance = date_of_jsoo enfant_a_charge##.dateDeNaissance;
