@@ -23,19 +23,26 @@ let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
 let error e = Errors.raise_spanned_error (Expr.pos e)
 let noassert = true
 
-type laziness_level = {
+type 'e laziness_level = {
   eval_struct : bool;
       (* if true, evaluate members of structures, tuples, etc. *)
   eval_op : bool;
       (* if false, evaluate the operands but keep e.g. `3 + 4` as is *)
   eval_default : bool;
   (* if false, stop evaluating as soon as you can discriminate with
-         `EEmptyError` *)
-  eval_vars : bool;
-  (* if false, variables are only resolved when they point to another unchanged variable *)
+     `EEmptyError` *)
+  eval_vars : 'e Var.t -> bool;
+      (* if false, variables are only resolved when they point to another
+         unchanged variable *)
 }
 
-let value_level = { eval_struct = false; eval_op = true; eval_default = true; eval_vars = true }
+let value_level =
+  {
+    eval_struct = false;
+    eval_op = true;
+    eval_default = true;
+    eval_vars = (fun _ -> true);
+  }
 
 module Env = struct
   type 'm t =
@@ -62,7 +69,7 @@ end
 let rec lazy_eval :
     decl_ctx ->
     'm Env.t ->
-    laziness_level ->
+    (dcalc, 'm mark) gexpr laziness_level ->
     (dcalc, 'm) gexpr ->
     (dcalc, 'm) gexpr * 'm Env.t =
  fun ctx env llevel e0 ->
@@ -70,7 +77,7 @@ let rec lazy_eval :
     lazy_eval ctx env { value_level with eval_default } e
   in
   match e0 with
-  | EVar v, _ ->
+  | EVar v, _ -> (
     if not llevel.eval_default then e0, env
     else
       (* Variables reducing to EEmpty should not propagate to parent EDefault
@@ -83,16 +90,15 @@ let rec lazy_eval :
       in
       let e, env1 = !v_env in
       let r, env1 = lazy_eval ctx env1 llevel e in
-      if not (Expr.equal e r) then (
+      if not (Expr.equal e r) then
         log "@[<hv 2>{{%a =@ [%a]@ ==> [%a]}}@]" Print.var_debug v
           (Print.expr ~debug:true ())
           e
           (Print.expr ~debug:true ())
-          r;
-        (* v_env := r, env1 *));
-      (match llevel.eval_vars, Expr.skip_wrappers r with
-       | true, _ | false, (EVar _, _) -> r, Env.join env env1
-       | false, _ -> e0, env)
+          r (* v_env := r, env1 *);
+      match llevel.eval_vars v, Expr.skip_wrappers r with
+      | true, _ | false, (EVar _, _) -> r, Env.join env env1
+      | false, _ -> e0, env)
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
@@ -215,8 +221,13 @@ let rec lazy_eval :
       | _ -> error e "Invalid assertion condition %a" Expr.format e)
   | _ -> .
 
-let result_level =
-    { value_level with eval_struct = true; eval_op = false; eval_vars = false }
+let result_level base_vars =
+  {
+    value_level with
+    eval_struct = true;
+    eval_op = false;
+    eval_vars = (fun v -> not (Var.Set.mem v base_vars));
+  }
 
 let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
     ('t, 'm) gexpr * 'm Env.t =
@@ -233,28 +244,44 @@ let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
             ScopeName.Map.add name (v, body.scope_body_input_struct) scopes )
         | Topdef (_, _, e) -> Env.add v e env env, scopes)
   in
-  let scope_v, scope_arg_struct = ScopeName.Map.find scope scopes in
+  let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
   let { contents = e, env } = Env.find scope_v all_env in
   log "=====================";
   log "%a" (Print.expr ~debug:true ()) e;
   log "=====================";
-  let m = Mark.get e in
-  let application_arg =
-    Expr.estruct scope_arg_struct
-      (StructField.Map.map
-         (function
-           | TArrow (ty_in, ty_out), _ ->
-             Expr.make_abs
-               [| Var.make "_" |]
-               (Bindlib.box EEmptyError, Expr.with_ty m ty_out)
-               ty_in (Expr.mark_pos m)
-           | ty -> Expr.evar (Var.make "undefined_input") (Expr.with_ty m ty))
-         (StructName.Map.find scope_arg_struct ctx.ctx_structs))
-      m
-  in
-  let e_app = Expr.eapp (Expr.box e) [application_arg] m in
-  lazy_eval ctx env result_level
-    (Expr.unbox e_app)
+  (* let m = Mark.get e in *)
+  (* let application_arg =
+   *   Expr.estruct scope_arg_struct
+   *     (StructField.Map.map
+   *        (function
+   *          | TArrow (ty_in, ty_out), _ ->
+   *            Expr.make_abs
+   *              [| Var.make "_" |]
+   *              (Bindlib.box EEmptyError, Expr.with_ty m ty_out)
+   *              ty_in (Expr.mark_pos m)
+   *          | ty -> Expr.evar (Var.make "undefined_input") (Expr.with_ty m ty))
+   *        (StructName.Map.find scope_arg_struct ctx.ctx_structs))
+   *     m
+   * in *)
+  match e with
+  | EAbs { binder; _ }, _ ->
+    let _vars, e = Bindlib.unmbind binder in
+    let rec get_vars base_vars env = function
+      | EApp { f = EAbs { binder; _ }, _; args = [arg] }, _ ->
+        let vars, e = Bindlib.unmbind binder in
+        let var = vars.(0) in
+        let base_vars =
+          match Expr.skip_wrappers arg with
+          | ELit _, _ -> Var.Set.add var base_vars
+          | _ -> base_vars
+        in
+        let env = Env.add var arg env env in
+        get_vars base_vars env e
+      | e -> base_vars, env, e
+    in
+    let base_vars, env, e = get_vars Var.Set.empty env e in
+    lazy_eval ctx env (result_level base_vars) e
+  | _ -> assert false
 
 (* -- Plugin registration -- *)
 
@@ -267,16 +294,40 @@ let print_value_with_env ctx ppf env expr =
     Print.expr ~debug:true ctx ppf expr;
     Format.pp_print_cut ppf ();
     let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
-    Var.Set.iter (fun v ->
-        let {contents = e, env} = Env.find v env in
-        let e, env = lazy_eval ctx env result_level e in
-        Format.fprintf ppf "@[<hov 2>%a %a =@ %a@]@,@,"
-          Print.punctuation "»"
-          Print.var_debug v
+    Var.Set.iter
+      (fun v ->
+        let { contents = e, env } = Env.find v env in
+        let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
+        Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
+          "»" Print.var_debug v (Print.expr ctx)
+          (fst (lazy_eval ctx env value_level e))
           (aux env) e)
-        vars;
+      vars;
     already_printed := Var.Set.union !already_printed vars;
+    Format.pp_print_cut ppf ()
+  in
+  Format.pp_open_vbox ppf 2;
+  aux env ppf expr;
+  Format.pp_close_box ppf ()
+
+module G = Graph.
+
+let to_graph ctx env expr =
+  let rec aux env ppf expr =
+    Print.expr ~debug:true ctx ppf expr;
     Format.pp_print_cut ppf ();
+    let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
+    Var.Set.iter
+      (fun v ->
+        let { contents = e, env } = Env.find v env in
+        let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
+        Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
+          "»" Print.var_debug v (Print.expr ctx)
+          (fst (lazy_eval ctx env value_level e))
+          (aux env) e)
+      vars;
+    already_printed := Var.Set.union !already_printed vars;
+    Format.pp_print_cut ppf ()
   in
   Format.pp_open_vbox ppf 2;
   aux env ppf expr;
