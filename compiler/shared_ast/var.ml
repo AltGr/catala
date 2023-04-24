@@ -26,7 +26,8 @@ type 'e vars = ('a, 't) naked_gexpr Bindlib.mvar constraint 'e = ('a, 't) gexpr
 
 let make (name : string) : 'e t = Bindlib.new_var (fun x -> EVar x) name
 let compare = Bindlib.compare_vars
-let eq = Bindlib.eq_vars
+let equal = Bindlib.eq_vars
+let hash = Bindlib.hash_var
 
 let translate (v : 'e1 t) : 'e2 t =
   Bindlib.copy_var v (fun x -> EVar x) (Bindlib.name_of v)

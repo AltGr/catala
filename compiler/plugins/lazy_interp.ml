@@ -17,13 +17,15 @@
 open Catala_utils
 open Shared_ast
 
+type expr = (dcalc, untyped mark) gexpr
+
 (* -- Definition of the lazy interpreter -- *)
 
 let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
 let error e = Message.raise_spanned_error (Expr.pos e)
 let noassert = true
 
-type 'e laziness_level = {
+type laziness_level = {
   eval_struct : bool;
       (* if true, evaluate members of structures, tuples, etc. *)
   eval_op : bool;
@@ -31,7 +33,7 @@ type 'e laziness_level = {
   eval_default : bool;
   (* if false, stop evaluating as soon as you can discriminate with
      `EEmptyError` *)
-  eval_vars : 'e Var.t -> bool;
+  eval_vars : expr Var.t -> bool;
       (* if false, variables are only resolved when they point to another
          unchanged variable *)
 }
@@ -45,60 +47,58 @@ let value_level =
   }
 
 module Env = struct
-  type 'm t =
-    | Env of ((dcalc, 'm) gexpr, ((dcalc, 'm) gexpr * 'm t) ref) Var.Map.t
+  type t =
+    | Env of (expr, elt) Var.Map.t
+  and elt = { base: expr * t; mutable reduced: expr * t }
 
   let find v (Env t) = Var.Map.find v t
-  let add v e e_env (Env t) = Env (Var.Map.add v (ref (e, e_env)) t)
+  (* let get_bas v t = let v, env = find v t in v, !env *)
+  let add v e e_env (Env t) =
+    Env (Var.Map.add v { base = e, e_env; reduced = e, e_env } t)
   let empty = Env Var.Map.empty
 
   let join (Env t1) (Env t2) =
     Env
       (Var.Map.union
          (fun _ x1 x2 ->
-           assert (x1 == x2);
-           Some x1)
+           (* assert (x1 == x2); *)
+           Some x2)
          t1 t2)
 
   let print ppf (Env t) =
     Format.pp_print_list ~pp_sep:Format.pp_print_space
-      (fun ppf (v, { contents = _e, _env }) -> Print.var_debug ppf v)
+      (fun ppf (v, _) -> Print.var_debug ppf v)
       ppf (Var.Map.bindings t)
 end
 
 let rec lazy_eval :
     decl_ctx ->
-    'm Env.t ->
-    (dcalc, 'm mark) gexpr laziness_level ->
-    (dcalc, 'm) gexpr ->
-    (dcalc, 'm) gexpr * 'm Env.t =
+    Env.t ->
+    laziness_level ->
+    expr ->
+    expr * Env.t =
  fun ctx env llevel e0 ->
   let eval_to_value ?(eval_default = true) env e =
     lazy_eval ctx env { value_level with eval_default } e
   in
   match e0 with
   | EVar v, _ -> (
-    if not llevel.eval_default then e0, env
-    else
+      if not llevel.eval_default
+      || not (llevel.eval_vars v)
+      then e0, env
+      else
       (* Variables reducing to EEmpty should not propagate to parent EDefault
          (?) *)
-      let v_env =
+      let env_elt =
         try Env.find v env
         with Not_found ->
           error e0 "Variable %a undefined [@[<hv>%a@]]" Print.var_debug v
             Env.print env
       in
-      let e, env1 = !v_env in
+      let e, env1 = env_elt.reduced in
       let r, env1 = lazy_eval ctx env1 llevel e in
-      if not (Expr.equal e r) then
-        log "@[<hv 2>{{%a =@ [%a]@ ==> [%a]}}@]" Print.var_debug v
-          (Print.expr ~debug:true ())
-          e
-          (Print.expr ~debug:true ())
-          r (* v_env := r, env1 *);
-      match llevel.eval_vars v, Expr.skip_wrappers r with
-      | true, _ | false, (EVar _, _) -> r, Env.join env env1
-      | false, _ -> e0, env)
+      env_elt.reduced <- r, env1;
+      r, Env.join env env1)
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
@@ -232,7 +232,7 @@ let result_level base_vars =
 
 let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
     ('t, 'm) gexpr * 'm Env.t =
-
+    (scope : ScopeName.t) : ('t, 'm) gexpr * Env.t =
   let ctx = prg.decl_ctx in
   let all_env, scopes =
     Scope.fold_left prg.code_items ~init:(Env.empty, ScopeName.Map.empty)
@@ -246,7 +246,7 @@ let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
         | Topdef (_, _, e) -> Env.add v e env env, scopes)
   in
   let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
-  let { contents = e, env } = Env.find scope_v all_env in
+  let e, env = (Env.find scope_v all_env).base in
   log "=====================";
   log "%a" (Print.expr ~debug:true ()) e;
   log "=====================";
@@ -284,8 +284,6 @@ let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
     lazy_eval ctx env (result_level base_vars) e
   | _ -> assert false
 
-(* -- Plugin registration -- *)
-
 let print_value_with_env ctx ppf env expr =
   let already_printed = ref Var.Set.empty in
   let rec aux env ppf expr =
@@ -294,7 +292,7 @@ let print_value_with_env ctx ppf env expr =
     let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
     Var.Set.iter
       (fun v ->
-        let { contents = e, env } = Env.find v env in
+        let e, env = (Env.find v env).reduced in
         let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
         Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
           "»" Print.var_debug v (Print.expr ctx)
@@ -308,28 +306,348 @@ let print_value_with_env ctx ppf env expr =
   aux env ppf expr;
   Format.pp_close_box ppf ()
 
-module G = Graph.
+module V = struct
+  type t = expr
+
+  let compare a b = Expr.compare a b
+  let hash = function
+    | EVar v, _ -> Var.hash v
+    | EAbs { tys; _ }, _ -> Hashtbl.hash tys
+    | e, _ -> Hashtbl.hash e
+  let equal a b = Expr.equal a b
+end
+
+module E = struct
+  type t = string option
+  let compare = Option.compare String.compare
+  let default = None
+end
+
+module G = Graph.Persistent.Digraph.AbstractLabeled(V)(E)
+
+
+let op_kind = function
+    Op.Add_int_int |
+    Add_rat_rat |
+    Add_mon_mon |
+    Add_dat_dur _ |
+    Add_dur_dur
+    | Sub_int_int
+    | Sub_rat_rat
+    | Sub_mon_mon
+    | Sub_dat_dat
+    | Sub_dat_dur
+    | Sub_dur_dur -> `Sum
+  | Mult_int_int
+  | Mult_rat_rat
+  | Mult_mon_rat
+  | Mult_dur_int
+  | Div_int_int
+  | Div_rat_rat
+  | Div_mon_rat
+  | Div_mon_mon
+  | Div_dur_dur
+    -> `Product
+  | _ -> `Other
 
 let to_graph ctx env expr =
-  let rec aux env ppf expr =
-    Print.expr ~debug:true ctx ppf expr;
-    Format.pp_print_cut ppf ();
-    let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
-    Var.Set.iter
-      (fun v ->
-        let { contents = e, env } = Env.find v env in
-        let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
-        Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
-          "»" Print.var_debug v (Print.expr ctx)
-          (fst (lazy_eval ctx env value_level e))
-          (aux env) e)
-      vars;
-    already_printed := Var.Set.union !already_printed vars;
-    Format.pp_print_cut ppf ()
+  let rec aux env g e =
+    (* lazy_eval ctx env (result_level base_vars) e *)
+    match Expr.skip_wrappers e with
+    | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _; args = [arg] }, _ -> aux env g arg
+    (* we skip conversions *)
+    | ELit l, _ ->
+      let v = G.V.create e in
+      G.add_vertex g v, v
+    | EVar var, _ as e ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let child, env = (Env.find var env).base in
+      let g, child_v = aux env g child in
+      G.add_edge g v child_v, v
+    | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let g, children = List.fold_left_map (aux env) g args in
+      List.fold_left (fun g -> G.add_edge g v) g children, v
+    | EInj { e; _ }, _ -> aux env g e
+    | EStruct { fields; _ }, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let args = List.map snd (StructField.Map.bindings fields) in
+      let g, children = List.fold_left_map (aux env) g args in
+      List.fold_left (fun g -> G.add_edge g v) g children, v
+    | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
   in
-  Format.pp_open_vbox ppf 2;
-  aux env ppf expr;
-  Format.pp_close_box ppf ()
+  let base_g, _ = aux env G.empty expr in
+  (* GPr.output_graph stdout base_g *) ()
+
+let program_to_graph
+    (prg : ('dcalc, 'm mark) gexpr program)
+    (scope : ScopeName.t) : G.t =
+  let ctx = prg.decl_ctx in
+  let all_env, scopes =
+    Scope.fold_left prg.code_items ~init:(Env.empty, ScopeName.Map.empty)
+      ~f:(fun (env, scopes) item v ->
+        match item with
+        | ScopeDef (name, body) ->
+          let e = Scope.to_expr ctx body (Scope.get_body_mark body) in
+          let e = Expr.remove_logging_calls (Expr.unbox e) in
+          ( Env.add v (Expr.unbox e) env env,
+            ScopeName.Map.add name (v, body.scope_body_input_struct) scopes )
+        | Topdef (_, _, e) -> Env.add v e env env, scopes)
+  in
+  let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
+  let e, env = (Env.find scope_v all_env).base in
+  match e with
+  | EAbs { binder; _ }, _ ->
+    let _vars, e = Bindlib.unmbind binder in
+
+
+    let level =
+      {
+        value_level with
+        eval_struct = true;
+        eval_op = false;
+        eval_vars = (fun v -> false);
+      }
+    in
+    let rec aux env (g, var_vertices) e =
+      let e, env = lazy_eval ctx env level e in
+      match Expr.skip_wrappers e with
+      | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _; args = [arg] }, _ ->
+        aux env (g, var_vertices) arg
+      (* we skip conversions *)
+      | ELit l, _ ->
+        let v = G.V.create e in
+        (G.add_vertex g v, var_vertices), v
+      | EVar var, _ as e ->
+        (try (g, var_vertices), Var.Map.find var var_vertices with Not_found ->
+           let v = G.V.create e in
+           let var_vertices = Var.Map.add var v var_vertices in
+           let g = G.add_vertex g v in
+           let child, env = (Env.find var env).base in
+           let (g, var_vertices), child_v = aux env (g, var_vertices) child in
+           (G.add_edge g v child_v, var_vertices), v)
+      | EApp { f = EOp { op; _ }, _; args = [lhs; rhs]}, _ ->
+        let v = G.V.create e in
+        let g = G.add_vertex g v in
+        let (g, var_vertices), lhs = aux env (g, var_vertices) lhs in
+        let (g, var_vertices), rhs = aux env (g, var_vertices) rhs in
+        let g = G.add_edge g v lhs in
+        let rhs_label = match op with
+          | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat
+          | Sub_dat_dur | Sub_dur_dur -> Some "(-)"
+          | Div_int_int | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur
+            -> Some "(1/)"
+          | _ -> None
+        in
+        let g = G.add_edge_e g (G.E.create v rhs_label rhs) in
+        (g, var_vertices), v
+      | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
+        let v = G.V.create e in
+        let g = G.add_vertex g v in
+        let (g, var_vertices), children =
+          List.fold_left_map (aux env) (g, var_vertices) args
+        in
+        (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices), v
+      | EInj { e; _ }, _ -> aux env (g, var_vertices) e
+      | EStruct { fields; _ }, _ ->
+        let v = G.V.create e in
+        let g = G.add_vertex g v in
+        let args = List.map snd (StructField.Map.bindings fields) in
+        let (g, var_vertices), children =
+          List.fold_left_map (aux env) (g, var_vertices) args
+        in
+        (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices), v
+      | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
+    in
+    let (g, _), _ = aux env (G.empty, Var.Map.empty) e in
+    g
+
+
+  | _ -> assert false
+
+
+(* let rec graph_cleanup g v =
+ *   let rec aux g parents v =
+ *     let chld = G.succ g v in
+ *     List.fold_left 
+ *     match parents with
+ *     | [] ->
+ *       let chld = G.succ g v in
+ *       let g = G.fold_succ_e v in
+ *     let g', chld = List.fold_left_map graph_cleanup g (G.succ g v) in
+ *     let g' = List.fold_left (G.add_edge g' v) g' chld in
+ *     g', v
+ * 
+ * 
+ *   
+ *   match List.map G.V.label (G.pred g v), G.V.label v with
+ *   | [], _ ->
+ *     let chld = G.succ g v in
+ *     let g = G.remove_edge g v in
+ *     let g', chld = List.fold_left_map graph_cleanup g (G.succ g v) in
+ *     let g' = List.fold_left (G.add_edge g' v) g' chld in
+ *     g', v
+ *   | [EVar _, _ as chld], (EVar _, _) ->
+ *     let out_e = G.succ_e g' v
+ *     let (g', chld) = graph_cleanup g' g chld
+ *     G.add_vertex g' v
+ * 
+ *   | (EVar _, _) as e, [EVar _, _ as chld] ->
+ *     let (g', chld) = graph_cleanup g' g chld
+ *     G.add_vertex g' v *)
+
+let rec graph_cleanup g =
+  let module GCtr = Graph.Contraction.Make(G) in
+  let g =
+    GCtr.contract (fun e ->
+        match G.V.label (G.E.src e), G.V.label (G.E.dst e) with
+        | (EVar _, _), (EVar _, _) -> true
+        | (EApp { f = EOp { op = op1; _}, _; args = [_; _] }, _),
+          (EApp { f = EOp { op = op2; _}, _; args = [_; _] }, _)
+          ->
+          (match op_kind op1, op_kind op2 with
+           | `Sum, `Sum -> true
+           | `Prod, `Prod -> true
+           | _ -> false)
+        | _ -> false)
+      g
+  in
+  g
+ (*  let g =
+  *    (\* Flatten multiplications and additions *\)
+  *    G.fold_edges_e (fun e g' ->
+  *        let src = G.E.src e and dst = G.E.dst e in
+  *        match G.V.label src, G.V.label dst with
+  *        | (EApp { f = EOp { op =
+  *                              (Sub
+  *                              | Sub_int_int
+  *                              | Sub_rat_rat
+  *                              | Sub_mon_mon
+  *                              | Sub_dat_dat
+  *                              | Sub_dat_dur
+  *                              | Sub_dur_dur) }
+  * 
+  * Plus, _; _ }, _; _}, _),
+  *          (EApp { op = EOp { op = Minus, _; _ }, _; _}; _) ->
+  *          G.add_edge_e (G.E.create src (Some "-") dst)
+  *          G.remove_edge_e e
+  *      )
+  *      g
+  *  in
+  *  let rec flatten g v =
+  *    
+  *    let module GTra = Graph.Traverse.Bfs(G) in
+  *    FTra.fold (fun v ->  *)
+
+(* module V = struct
+ *   type t = { var: expr Var.t option; expr: expr; label: string }
+ * 
+ *   let compare a b = match a.var, b.var with
+ *     | Some a, Some b -> Var.compare a b
+ *     | None, None -> Expr.compare a.expr b.expr
+ *     | None, _ -> -1
+ *     | _, None -> 1
+ *   let hash a =
+ *     match a.var with
+ *     | Some v -> Var.hash v
+ *     | None -> match a.expr with
+ *       | EVar v, _ -> Var.hash v
+ *       | EAbs { tys; _ }, _ -> Hashtbl.hash tys
+ *       | e, _ -> Hashtbl.hash e
+ *   let equal a b =
+ *     Option.equal Var.equal a.var b.var &&
+ *     Expr.equal a.expr b.expr
+ * end
+ * 
+ * module E = struct
+ *   type t = string option
+ *   let compare = Option.compare String.compare
+ *   let default = None
+ * end
+ * 
+ * module G = Graph.Persistent.Digraph.ConcreteLabeled(V)(E)
+ * 
+ * let to_graph ctx env expr =
+ *   let rec aux env g = function
+ *     | EApp { f = EOp { op = Log _ | ToRat_int | ToRat_mon | ToMoney_rat; _ }, _; args = [arg] }, _ -> aux env g arg
+ *       (* we skip conversions *)
+ *     | EVar var, _ ->
+ *       let expr, env = Env.get var env in
+ *       let v = { V.var = Some var; expr; label = Bindlib.name_of var } in
+ *       G.add_vertex g v, v;
+ *       let g, children = aux env expr
+ *     | EApp { f = EOp { op; _ }, _; args } ->
+ *       let v = {  } in
+ *       let g, children = List.fold_left_map (aux env) g args in
+ *       
+ * 
+ *     match expr with
+ * 
+ * 
+ *       aux env g 
+ *       (match op with
+ *        | Log _ | ToRat_int | ToRat_mon | ToMoney_rat -> arg
+ *     let g = G.add_vertex g v in
+ *     (* Var.Set.fold (fun 
+ *      * let children = Expr.free_vars expr in
+ *      * let term = *)
+ *     match e with
+ *     | EApp { f = EOp { op; _ }; [arg] }, _ ->
+ *       (match op with
+ *        | Log _ | ToRat_int | ToRat_mon | ToMoney_rat -> arg (* we skip conversions *)
+ *        | op -> 
+ *     
+ * 
+ * 
+ * 
+ *   let rec aux env g var =
+ *     let expr, env = Env.get var env in
+ *     match expr with
+ *     | EApp { f = EOp { op = Log _ | ToRat_int | ToRat_mon | ToMoney_rat; _ }; [arg] }, _ ->
+ *       (* we skip conversions *)
+ *       aux env g 
+ *       (match op with
+ *        | Log _ | ToRat_int | ToRat_mon | ToMoney_rat -> arg
+ *     let v = { V.var; expr; label = Bindlib.name_of var } in
+ *     let g = G.add_vertex g v in
+ *     (* Var.Set.fold (fun 
+ *      * let children = Expr.free_vars expr in
+ *      * let term = *)
+ *     match e with
+ *     | EApp { f = EOp { op; _ }; [arg] }, _ ->
+ *       (match op with
+ *        | Log _ | ToRat_int | ToRat_mon | ToMoney_rat -> arg (* we skip conversions *)
+ *        | op -> 
+ *     
+ * 
+ *     Print.expr ~debug:true ctx ppf expr;
+ *     Format.pp_print_cut ppf ();
+ *     let vars = Var.Set.diff (Expr.free_vars expr) !already_printed in
+ *     Var.Set.iter
+ *       (fun v ->
+ *         let { contents = e, env } = Env.find v env in
+ *         let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
+ *         Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
+ *           "»" Print.var_debug v (Print.expr ctx)
+ *           (fst (lazy_eval ctx env value_level e))
+ *           (aux env) e)
+ *       vars;
+ *     already_printed := Var.Set.union !already_printed vars;
+ *     Format.pp_print_cut ppf ()
+ *   in
+ *   Format.pp_open_vbox ppf 2;
+ *   aux env ppf expr;
+ *   Format.pp_close_box ppf () *)
+
+
+(* -- Plugin registration -- *)
+
+let name = "lazy"
+let extension = ".out" (* unused *)
+
 
 let run link_modules optimize check_invariants ex_scope options =
   Interpreter.load_runtime_modules link_modules;
@@ -337,9 +655,12 @@ let run link_modules optimize check_invariants ex_scope options =
     Driver.Passes.dcalc options ~link_modules ~optimize ~check_invariants
   in
   let scope = Driver.Commands.get_scope_uid ctx ex_scope in
-  let result_expr, env = interpret_program prg scope in
-  let ppf = Format.std_formatter in
-  print_value_with_env prg.decl_ctx ppf env result_expr
+  (* let result_expr, env = interpret_program prg scope in *)
+  let g = program_to_graph prg scope in
+  GPr.output_graph stdout (graph_cleanup g)
+
+(* ;
+   * print_value_with_env prg.decl_ctx ppf env result_expr *)
 
 let term =
   let open Cmdliner.Term in
