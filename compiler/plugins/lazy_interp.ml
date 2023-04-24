@@ -350,6 +350,36 @@ let op_kind = function
     -> `Product
   | _ -> `Other
 
+module GPr = Graph.Graphviz.Dot(struct
+    include G
+    let graph_attributes _ = []
+    let default_vertex_attributes _ = []
+    let vertex_label v = match Expr.skip_wrappers (G.V.label v) with
+      | EVar v, _ ->
+        Format.asprintf "%s\n=%a" (Bindlib.name_of v)
+          
+      | EApp { f = EOp { op; _}, _; _ }, _ ->
+        (match op_kind op with
+        | `Sum -> "(+)"
+        | `Product -> "(×)"
+        | `Other -> Format.asprintf "%a" Print.operator op)
+      | EApp { f; _ }, _ ->
+        Format.asprintf "%a" (Print.expr_debug ~debug:false) f
+      | ELit l, _ -> Format.asprintf "%a" Print.lit l
+      | EStruct {name; _}, _ -> Format.asprintf "{%a}" StructName.format_t name
+      | z -> Format.asprintf "<%a>" (Print.expr_debug ~debug:false) z
+    let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
+
+    let vertex_attributes v = [ `Label (vertex_label v) ]
+    let get_subgraph _ = None
+    let default_edge_attributes _ = []
+    let edge_attributes e = match E.label e with
+      | Some l -> [ `Label l; `Color 0xbb7700 ]
+      | None -> []
+end)
+
+module GTopo = Graph.Topological.Make(G)
+
 let to_graph ctx env expr =
   let rec aux env g e =
     (* lazy_eval ctx env (result_level base_vars) e *)
@@ -380,7 +410,7 @@ let to_graph ctx env expr =
     | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
   in
   let base_g, _ = aux env G.empty expr in
-  (* GPr.output_graph stdout base_g *) ()
+  GPr.output_graph stdout base_g
 
 let program_to_graph
     (prg : ('dcalc, 'm mark) gexpr program)
