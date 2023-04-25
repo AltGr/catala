@@ -962,9 +962,9 @@ def base_mensuelle_allocations_familiales(base_mensuelle_allocations_familiales_
             return False
         def temp_montant_2(_:Unit):
             def temp_montant_3(_:Unit):
-                return money_of_cents_string("42228")
+                return money_of_cents_string("44593")
             def temp_montant_4(_:Unit):
-                return (date_courante_3 >= date_of_numbers(2022,4,1))
+                return (date_courante_3 >= date_of_numbers(2023,4,1))
             return handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                   start_line=6, start_column=12,
                                   end_line=6, end_column=19,
@@ -972,10 +972,10 @@ def base_mensuelle_allocations_familiales(base_mensuelle_allocations_familiales_
                                   temp_montant_4, temp_montant_3)
         def temp_montant_5(_:Unit):
             def temp_montant_6(_:Unit):
-                return money_of_cents_string("41481")
+                return money_of_cents_string("42228")
             def temp_montant_7(_:Unit):
-                return ((date_courante_3 >= date_of_numbers(2021,4,1)) and
-                    (date_courante_3 < date_of_numbers(2022,4,1)))
+                return ((date_courante_3 >= date_of_numbers(2022,4,1)) and
+                    (date_courante_3 < date_of_numbers(2023,4,1)))
             return handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                   start_line=6, start_column=12,
                                   end_line=6, end_column=19,
@@ -983,10 +983,10 @@ def base_mensuelle_allocations_familiales(base_mensuelle_allocations_familiales_
                                   temp_montant_7, temp_montant_6)
         def temp_montant_8(_:Unit):
             def temp_montant_9(_:Unit):
-                return money_of_cents_string("41440")
+                return money_of_cents_string("41481")
             def temp_montant_10(_:Unit):
-                return ((date_courante_3 >= date_of_numbers(2020,4,1)) and
-                    (date_courante_3 < date_of_numbers(2021,4,1)))
+                return ((date_courante_3 >= date_of_numbers(2021,4,1)) and
+                    (date_courante_3 < date_of_numbers(2022,4,1)))
             return handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                   start_line=6, start_column=12,
                                   end_line=6, end_column=19,
@@ -994,29 +994,40 @@ def base_mensuelle_allocations_familiales(base_mensuelle_allocations_familiales_
                                   temp_montant_10, temp_montant_9)
         def temp_montant_11(_:Unit):
             def temp_montant_12(_:Unit):
-                return money_of_cents_string("41316")
+                return money_of_cents_string("41440")
             def temp_montant_13(_:Unit):
+                return ((date_courante_3 >= date_of_numbers(2020,4,1)) and
+                    (date_courante_3 < date_of_numbers(2021,4,1)))
+            return handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
+                                  start_line=6, start_column=12,
+                                  end_line=6, end_column=19,
+                                  law_headings=["Montant de la base mensuelle des allocations familiales"]), [],
+                                  temp_montant_13, temp_montant_12)
+        def temp_montant_14(_:Unit):
+            def temp_montant_15(_:Unit):
+                return money_of_cents_string("41316")
+            def temp_montant_16(_:Unit):
                 return ((date_courante_3 >= date_of_numbers(2019,4,1)) and
                     (date_courante_3 < date_of_numbers(2020,4,1)))
             return handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                   start_line=6, start_column=12,
                                   end_line=6, end_column=19,
                                   law_headings=["Montant de la base mensuelle des allocations familiales"]), [],
-                                  temp_montant_13, temp_montant_12)
-        temp_montant_14 = handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
+                                  temp_montant_16, temp_montant_15)
+        temp_montant_17 = handle_default(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                          start_line=6, start_column=12,
                                          end_line=6, end_column=19,
-                                         law_headings=["Montant de la base mensuelle des allocations familiales"]), [temp_montant_11,
-                                         temp_montant_8, temp_montant_5,
-                                         temp_montant_2], temp_montant_1,
-                                         temp_montant)
+                                         law_headings=["Montant de la base mensuelle des allocations familiales"]), [temp_montant_14,
+                                         temp_montant_11, temp_montant_8,
+                                         temp_montant_5, temp_montant_2],
+                                         temp_montant_1, temp_montant)
     except EmptyError:
-        temp_montant_14 = dead_value
+        temp_montant_17 = dead_value
         raise NoValueProvided(SourcePosition(filename="examples/allocations_familiales/../base_mensuelle_allocations_familiales/bmaf.catala_fr",
                                              start_line=6, start_column=12,
                                              end_line=6, end_column=19,
                                              law_headings=["Montant de la base mensuelle des allocations familiales"]))
-    montant = temp_montant_14
+    montant = temp_montant_17
     try:
         temp___1 = (date_courante_3 >= date_of_numbers(2019,4,1))
     except EmptyError:
@@ -3831,8 +3842,8 @@ def allocations_familiales(allocations_familiales_in:AllocationsFamilialesIn):
     except EmptyError:
         temp___2 = dead_value
         raise NoValueProvided(SourcePosition(filename="examples/allocations_familiales/securite_sociale_L.catala_fr",
-                                             start_line=231, start_column=5,
-                                             end_line=235, end_column=6,
+                                             start_line=249, start_column=5,
+                                             end_line=253, end_column=6,
                                              law_headings=["Article L521-2",
                                              "Chapitre 1er : Allocations familiales",
                                              "Titre 2 : Prestations générales d'entretien",
@@ -3841,8 +3852,8 @@ def allocations_familiales(allocations_familiales_in:AllocationsFamilialesIn):
                                              "Code de la sécurité sociale"]))
     if not (temp___2):
         raise AssertionFailure(SourcePosition(filename="examples/allocations_familiales/securite_sociale_L.catala_fr",
-                                              start_line=231, start_column=5,
-                                              end_line=235, end_column=6,
+                                              start_line=249, start_column=5,
+                                              end_line=253, end_column=6,
                                               law_headings=["Article L521-2",
                                                            "Chapitre 1er : Allocations familiales",
                                                            "Titre 2 : Prestations générales d'entretien",

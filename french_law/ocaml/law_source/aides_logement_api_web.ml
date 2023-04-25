@@ -851,7 +851,7 @@ class type type_logement_foyer =
       (** Expects one of:
         - "LogementPersonnesAgeesOuHandicapees"
         - "ResidenceSociale"
-        - "FoyerJeunesTrvailleursOuMigrantsConventionneL353_2Avant1995"
+        - "FoyerJeunesTravailleursOuMigrantsConventionneL353_2Avant1995"
         - "Autre" *)
     
     method payload : Js.Unsafe.any Js.t Js.readonly_prop
@@ -868,8 +868,8 @@ let type_logement_foyer_to_jsoo
       val kind = Js.string "ResidenceSociale"
       val payload = Js.Unsafe.coerce (Js.Unsafe.inject ( arg))
     end
-  | FoyerJeunesTrvailleursOuMigrantsConventionneL353_2Avant1995 arg -> object%js
-      val kind = Js.string "FoyerJeunesTrvailleursOuMigrantsConventionneL353_2Avant1995"
+  | FoyerJeunesTravailleursOuMigrantsConventionneL353_2Avant1995 arg -> object%js
+      val kind = Js.string "FoyerJeunesTravailleursOuMigrantsConventionneL353_2Avant1995"
       val payload = Js.Unsafe.coerce (Js.Unsafe.inject ( arg))
     end
   | Autre arg -> object%js
@@ -883,8 +883,8 @@ let type_logement_foyer_of_jsoo
   | "LogementPersonnesAgeesOuHandicapees" ->
     TypeLogementFoyer.LogementPersonnesAgeesOuHandicapees ()
   | "ResidenceSociale" -> TypeLogementFoyer.ResidenceSociale ()
-  | "FoyerJeunesTrvailleursOuMigrantsConventionneL353_2Avant1995" ->
-    TypeLogementFoyer.FoyerJeunesTrvailleursOuMigrantsConventionneL353_2Avant1995 ()
+  | "FoyerJeunesTravailleursOuMigrantsConventionneL353_2Avant1995" ->
+    TypeLogementFoyer.FoyerJeunesTravailleursOuMigrantsConventionneL353_2Avant1995 ()
   | "Autre" -> TypeLogementFoyer.Autre ()
   | cons ->
     failwith
@@ -2225,6 +2225,7 @@ class type pret =
 class type logement_foyer =
   object
     method typeUser: type_logement_foyer Js.t Js.readonly_prop
+    method logementFoyerJeunesTravailleurs: bool Js.t Js.readonly_prop
     method remplitConditionsR83221: bool Js.t Js.readonly_prop
     method conventionneLivreIIITitreVChapIII: bool Js.t Js.readonly_prop
     method conventionneSelonReglesDrom: bool Js.t Js.readonly_prop
@@ -2241,6 +2242,8 @@ class type logement_foyer =
     : logement_foyer Js.t =
     object%js
       val typeUser = type_logement_foyer_to_jsoo logement_foyer.type_user
+      val logementFoyerJeunesTravailleurs =
+        Js.bool logement_foyer.logement_foyer_jeunes_travailleurs
       val remplitConditionsR83221 =
         Js.bool logement_foyer.remplit_conditions_r832_21
       val conventionneLivreIIITitreVChapIII =
@@ -2263,6 +2266,8 @@ class type logement_foyer =
     LogementFoyer.t =
     {
       type_user = type_logement_foyer_of_jsoo logement_foyer##.typeUser;
+      logement_foyer_jeunes_travailleurs =
+        Js.to_bool logement_foyer##.logementFoyerJeunesTravailleurs;
       remplit_conditions_r832_21 =
         Js.to_bool logement_foyer##.remplitConditionsR83221;
       conventionne_livre_III_titre_V_chap_III =
@@ -3392,6 +3397,7 @@ class type calcul_equivalence_loyer_minimale_in =
 
 class type calcul_nombre_part_logement_foyer_in =
   object
+    method dateCouranteIn: Js.js_string Js.t Js.readonly_prop
     method condition2Du83225In: bool Js.t Js.readonly_prop
     method nombrePersonnesAChargeIn: int Js.readonly_prop
     method situationFamilialeCalculAplIn:
@@ -3404,6 +3410,8 @@ class type calcul_nombre_part_logement_foyer_in =
     : CalculNombrePartLogementFoyerIn.t)
     : calcul_nombre_part_logement_foyer_in Js.t =
     object%js
+      val dateCouranteIn =
+        date_to_jsoo calcul_nombre_part_logement_foyer_in.date_courante_in
       val condition2Du83225In =
         Js.bool calcul_nombre_part_logement_foyer_in.condition_2_du_832_25_in
       val nombrePersonnesAChargeIn =
@@ -3422,6 +3430,8 @@ class type calcul_nombre_part_logement_foyer_in =
       : calcul_nombre_part_logement_foyer_in Js.t) :
     CalculNombrePartLogementFoyerIn.t =
     {
+      date_courante_in =
+        date_of_jsoo calcul_nombre_part_logement_foyer_in##.dateCouranteIn;
       condition_2_du_832_25_in =
         Js.to_bool calcul_nombre_part_logement_foyer_in##.condition2Du83225In;
       nombre_personnes_a_charge_in =
@@ -3436,6 +3446,8 @@ class type calcul_nombre_part_logement_foyer_in =
 
 class type calcul_aide_personnalisee_logement_foyer_in =
   object
+    method residenceIn: collectivite Js.t Js.readonly_prop
+    method logementFoyerJeunesTravailleursIn: bool Js.t Js.readonly_prop
     method typeLogementFoyerIn: type_logement_foyer Js.t Js.readonly_prop
     method dateConventionnementIn: Js.js_string Js.t Js.readonly_prop
     method ressourcesMenageArrondiesIn: Js.number Js.t Js.readonly_prop
@@ -3457,6 +3469,10 @@ class type calcul_aide_personnalisee_logement_foyer_in =
     : CalculAidePersonnaliseeLogementFoyerIn.t)
     : calcul_aide_personnalisee_logement_foyer_in Js.t =
     object%js
+      val residenceIn =
+        collectivite_to_jsoo calcul_aide_personnalisee_logement_foyer_in.residence_in
+      val logementFoyerJeunesTravailleursIn =
+        Js.bool calcul_aide_personnalisee_logement_foyer_in.logement_foyer_jeunes_travailleurs_in
       val typeLogementFoyerIn =
         type_logement_foyer_to_jsoo calcul_aide_personnalisee_logement_foyer_in.type_logement_foyer_in
       val dateConventionnementIn =
@@ -3497,6 +3513,13 @@ class type calcul_aide_personnalisee_logement_foyer_in =
       : calcul_aide_personnalisee_logement_foyer_in Js.t) :
     CalculAidePersonnaliseeLogementFoyerIn.t =
     {
+      residence_in =
+        collectivite_of_jsoo
+          calcul_aide_personnalisee_logement_foyer_in##.residenceIn;
+      logement_foyer_jeunes_travailleurs_in =
+        Js.to_bool
+          calcul_aide_personnalisee_logement_foyer_in
+          ##.logementFoyerJeunesTravailleursIn;
       type_logement_foyer_in =
         type_logement_foyer_of_jsoo
           calcul_aide_personnalisee_logement_foyer_in##.typeLogementFoyerIn;
@@ -3974,6 +3997,7 @@ class type calcul_allocation_logement_accession_propriete_in =
 class type calcul_allocation_logement_foyer_in =
   object
     method typeLogementFoyerIn: type_logement_foyer Js.t Js.readonly_prop
+    method logementFoyerJeunesTravailleursIn: bool Js.t Js.readonly_prop
     method dateConventionnementIn: Js.js_string Js.t Js.readonly_prop
     method residenceIn: collectivite Js.t Js.readonly_prop
     method redevanceIn: Js.number Js.t Js.readonly_prop
@@ -3992,6 +4016,8 @@ class type calcul_allocation_logement_foyer_in =
     object%js
       val typeLogementFoyerIn =
         type_logement_foyer_to_jsoo calcul_allocation_logement_foyer_in.type_logement_foyer_in
+      val logementFoyerJeunesTravailleursIn =
+        Js.bool calcul_allocation_logement_foyer_in.logement_foyer_jeunes_travailleurs_in
       val dateConventionnementIn =
         date_to_jsoo calcul_allocation_logement_foyer_in.date_conventionnement_in
       val residenceIn =
@@ -4019,6 +4045,10 @@ class type calcul_allocation_logement_foyer_in =
       type_logement_foyer_in =
         type_logement_foyer_of_jsoo
           calcul_allocation_logement_foyer_in##.typeLogementFoyerIn;
+      logement_foyer_jeunes_travailleurs_in =
+        Js.to_bool
+          calcul_allocation_logement_foyer_in
+          ##.logementFoyerJeunesTravailleursIn;
       date_conventionnement_in =
         date_of_jsoo
           calcul_allocation_logement_foyer_in##.dateConventionnementIn;
