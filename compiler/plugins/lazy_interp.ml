@@ -350,34 +350,6 @@ let op_kind = function
     -> `Product
   | _ -> `Other
 
-module GPr = Graph.Graphviz.Dot(struct
-    include G
-    let graph_attributes _ = []
-    let default_vertex_attributes _ = []
-    let vertex_label v = match Expr.skip_wrappers (G.V.label v) with
-      | EVar v, _ ->
-        Format.asprintf "%s\n=%a" (Bindlib.name_of v)
-          
-      | EApp { f = EOp { op; _}, _; _ }, _ ->
-        (match op_kind op with
-        | `Sum -> "(+)"
-        | `Product -> "(×)"
-        | `Other -> Format.asprintf "%a" Print.operator op)
-      | EApp { f; _ }, _ ->
-        Format.asprintf "%a" (Print.expr_debug ~debug:false) f
-      | ELit l, _ -> Format.asprintf "%a" Print.lit l
-      | EStruct {name; _}, _ -> Format.asprintf "{%a}" StructName.format_t name
-      | z -> Format.asprintf "<%a>" (Print.expr_debug ~debug:false) z
-    let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
-
-    let vertex_attributes v = [ `Label (vertex_label v) ]
-    let get_subgraph _ = None
-    let default_edge_attributes _ = []
-    let edge_attributes e = match E.label e with
-      | Some l -> [ `Label l; `Color 0xbb7700 ]
-      | None -> []
-end)
-
 module GTopo = Graph.Topological.Make(G)
 
 let to_graph ctx env expr =
@@ -410,11 +382,11 @@ let to_graph ctx env expr =
     | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
   in
   let base_g, _ = aux env G.empty expr in
-  GPr.output_graph stdout base_g
+  base_g
 
 let program_to_graph
     (prg : ('dcalc, 'm mark) gexpr program)
-    (scope : ScopeName.t) : G.t =
+    (scope : ScopeName.t) : G.t * Env.t =
   let ctx = prg.decl_ctx in
   let all_env, scopes =
     Scope.fold_left prg.code_items ~init:(Env.empty, ScopeName.Map.empty)
@@ -429,74 +401,89 @@ let program_to_graph
   in
   let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
   let e, env = (Env.find scope_v all_env).base in
-  match e with
-  | EAbs { binder; _ }, _ ->
-    let _vars, e = Bindlib.unmbind binder in
-
-
-    let level =
-      {
-        value_level with
-        eval_struct = true;
-        eval_op = false;
-        eval_vars = (fun v -> false);
-      }
-    in
-    let rec aux env (g, var_vertices) e =
-      let e, env = lazy_eval ctx env level e in
-      match Expr.skip_wrappers e with
-      | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _; args = [arg] }, _ ->
-        aux env (g, var_vertices) arg
-      (* we skip conversions *)
-      | ELit l, _ ->
-        let v = G.V.create e in
-        (G.add_vertex g v, var_vertices), v
-      | EVar var, _ as e ->
-        (try (g, var_vertices), Var.Map.find var var_vertices with Not_found ->
-           let v = G.V.create e in
-           let var_vertices = Var.Map.add var v var_vertices in
-           let g = G.add_vertex g v in
-           let child, env = (Env.find var env).base in
-           let (g, var_vertices), child_v = aux env (g, var_vertices) child in
-           (G.add_edge g v child_v, var_vertices), v)
-      | EApp { f = EOp { op; _ }, _; args = [lhs; rhs]}, _ ->
-        let v = G.V.create e in
-        let g = G.add_vertex g v in
-        let (g, var_vertices), lhs = aux env (g, var_vertices) lhs in
-        let (g, var_vertices), rhs = aux env (g, var_vertices) rhs in
-        let g = G.add_edge g v lhs in
-        let rhs_label = match op with
-          | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat
-          | Sub_dat_dur | Sub_dur_dur -> Some "(-)"
-          | Div_int_int | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur
-            -> Some "(1/)"
-          | _ -> None
-        in
-        let g = G.add_edge_e g (G.E.create v rhs_label rhs) in
-        (g, var_vertices), v
-      | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
-        let v = G.V.create e in
-        let g = G.add_vertex g v in
-        let (g, var_vertices), children =
-          List.fold_left_map (aux env) (g, var_vertices) args
-        in
-        (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices), v
-      | EInj { e; _ }, _ -> aux env (g, var_vertices) e
-      | EStruct { fields; _ }, _ ->
-        let v = G.V.create e in
-        let g = G.add_vertex g v in
-        let args = List.map snd (StructField.Map.bindings fields) in
-        let (g, var_vertices), children =
-          List.fold_left_map (aux env) (g, var_vertices) args
-        in
-        (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices), v
-      | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
-    in
-    let (g, _), _ = aux env (G.empty, Var.Map.empty) e in
-    g
-
-
-  | _ -> assert false
+  let e = match e with
+    | EAbs { binder; _ }, _ ->
+      let _vars, e = Bindlib.unmbind binder in
+      e
+    | _ -> assert false
+  in
+  let rec get_vars base_vars env = function
+    | EApp { f = EAbs { binder; _ }, _; args = [arg] }, _ ->
+      let vars, e = Bindlib.unmbind binder in
+      let var = vars.(0) in
+      let base_vars =
+        match Expr.skip_wrappers arg with
+        | ELit _, _ -> Var.Set.add var base_vars
+        | _ -> base_vars
+      in
+      let env = Env.add var arg env env in
+      get_vars base_vars env e
+    | e -> base_vars, env, e
+  in
+  let base_vars, env, e = get_vars Var.Set.empty env e in
+  let e1, env = lazy_eval ctx env (result_level base_vars) e in
+  let level =
+    {
+      value_level with
+      eval_struct = true;
+      eval_op = false;
+      eval_vars = (fun v -> false);
+    }
+  in
+  let rec aux (g, var_vertices, env0) e =
+    let e, env0 = lazy_eval ctx env0 level e in
+    match Expr.skip_wrappers e with
+    | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
+             args = [arg] }, _ ->
+      aux (g, var_vertices, env0) arg
+    (* we skip conversions *)
+    | ELit l, _ ->
+      let v = G.V.create e in
+      (G.add_vertex g v, var_vertices, env0), v
+    | EVar var, _ as e ->
+      (try (g, var_vertices, env0), Var.Map.find var var_vertices with Not_found ->
+         let v = G.V.create e in
+         let var_vertices = Var.Map.add var v var_vertices in
+         let g = G.add_vertex g v in
+         let child, env = (Env.find var env0).base in
+         let (g, var_vertices, env), child_v =
+           aux (g, var_vertices, (Env.join env0 env)) child in
+         (G.add_edge g v child_v, var_vertices, env), v)
+    | EApp { f = EOp { op; _ }, _; args = [lhs; rhs]}, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let (g, var_vertices, env), lhs = aux (g, var_vertices, env0) lhs in
+      let (g, var_vertices, env), rhs = aux (g, var_vertices, env) rhs in
+      let g = G.add_edge g v lhs in
+      let rhs_label = match op with
+        | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat
+        | Sub_dat_dur | Sub_dur_dur -> Some "⊖"
+        | Div_int_int | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur
+          -> Some "⊘"
+        | _ -> None
+      in
+      let g = G.add_edge_e g (G.E.create v rhs_label rhs) in
+      (g, var_vertices, env), v
+    | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let (g, var_vertices, env), children =
+        List.fold_left_map aux (g, var_vertices, env0) args
+      in
+      (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env), v
+    | EInj { e; _ }, _ -> aux (g, var_vertices, env0) e
+    | EStruct { fields; _ }, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let args = List.map snd (StructField.Map.bindings fields) in
+      let (g, var_vertices, env), children =
+        List.fold_left_map aux (g, var_vertices, env0) args
+      in
+      (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env), v
+    | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
+  in
+  let (g, _, env), _ = aux (G.empty, Var.Map.empty, env) e in
+  g, env
 
 
 (* let rec graph_cleanup g v =
@@ -546,8 +533,44 @@ let rec graph_cleanup g =
       g
   in
   g
+
+let to_dot oc ctx env g =
+  let module GPr = Graph.Graphviz.Dot(struct
+      include G
+      let graph_attributes _ = []
+      let default_vertex_attributes _ = []
+      let vertex_label v = match Expr.skip_wrappers (G.V.label v) with
+        | EVar v, _ as e ->
+          (match lazy_eval ctx env value_level e with
+           | (ELit l, _), _ ->
+             Format.asprintf "%s\n=%a" (Bindlib.name_of v) Print.lit l
+           | _ ->
+             Format.asprintf "%s" (Bindlib.name_of v))
+        | EApp { f = EOp { op; _}, _; _ }, _ ->
+          (match op_kind op with
+           | `Sum -> "⊕"
+           | `Product -> "⊗"
+           | `Other -> Format.asprintf "%a" Print.operator op)
+        | EApp { f; _ }, _ ->
+          Format.asprintf "%a" (Print.expr_debug ~debug:false) f
+        | ELit l, _ -> Format.asprintf "%a" Print.lit l
+        | EStruct {name; _}, _ -> Format.asprintf "{%a}" StructName.format_t name
+        | z -> Format.asprintf "<%a>" (Print.expr_debug ~debug:false) z
+      let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
+
+      let vertex_attributes v = [ `Label (vertex_label v) ]
+      let get_subgraph _ = None
+      let default_edge_attributes _ = []
+      let edge_attributes e = match E.label e with
+        | Some l -> [ `Label l; `Color 0xbb7700 ]
+        | None -> []
+    end)
+  in
+  GPr.output_graph oc g
+
+
  (*  let g =
-  *    (\* Flatten multiplications and additions *\)
+  *    (* Flatten multiplications and additions *)
   *    G.fold_edges_e (fun e g' ->
   *        let src = G.E.src e and dst = G.E.dst e in
   *        match G.V.label src, G.V.label dst with
@@ -686,8 +709,8 @@ let run link_modules optimize check_invariants ex_scope options =
   in
   let scope = Driver.Commands.get_scope_uid ctx ex_scope in
   (* let result_expr, env = interpret_program prg scope in *)
-  let g = program_to_graph prg scope in
-  GPr.output_graph stdout (graph_cleanup g)
+  let g, env = program_to_graph prg scope in
+  to_dot stdout prg.decl_ctx env (graph_cleanup g)
 
 (* ;
    * print_value_with_env prg.decl_ctx ppf env result_expr *)
