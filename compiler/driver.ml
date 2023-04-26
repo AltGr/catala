@@ -27,7 +27,13 @@ let get_scope_uid
     (ctxt : Desugared.Name_resolution.context) =
   match options.ex_scope, backend with
   | None, `Interpret ->
-    Errors.raise_error "No scope was provided for execution."
+    Errors.raise_error
+      "You have invoked the \"Interpret\" command of the Catala compiler on a \
+       file containing a Catala program. This command will execute the code of \
+       the file but to do that it needs an entry point. The entry point it \
+       needs is a scope of the Catala program. So, provide the name of the \
+       scope you want to execute with the \"-s\" or \"--scope\" option, for \
+       instance \"--scope=Foo\"."
   | None, _ ->
     let _, scope =
       try
@@ -567,11 +573,13 @@ let driver source_file (options : Cli.options) : int =
                     prgm type_ordering)))))));
     0
   with
-  | Errors.StructuredError (msg, pos) ->
+  | Errors.StructuredError (msg, pos) -> (
     let bt = Printexc.get_raw_backtrace () in
     Cli.error_print "%s" (Errors.print_structured_error msg pos);
     if Printexc.backtrace_status () then Printexc.print_raw_backtrace stderr bt;
-    -1
+    match options.message_format with
+    | Human -> -1
+    | EditorParsable -> 0 (* editors don't suffer a non-zero return code *))
   | Sys_error msg ->
     let bt = Printexc.get_raw_backtrace () in
     Cli.error_print "System error: %s" msg;

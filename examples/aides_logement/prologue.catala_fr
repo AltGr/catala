@@ -116,6 +116,7 @@ déclaration structure TrancheRevenuDécimal:
 
 déclaration structure LogementFoyer:
   donnée type contenu TypeLogementFoyer
+  donnée logement_foyer_jeunes_travailleurs contenu booléen
   donnée remplit_conditions_r832_21 contenu booléen
   donnée conventionné_livre_III_titre_V_chap_III contenu booléen
   donnée conventionné_selon_règles_drom contenu booléen
@@ -177,8 +178,6 @@ déclaration énumération SituationGardeAlternée:
 déclaration structure EnfantÀCharge:
   donnée identifiant contenu entier
   donnée nationalité contenu Nationalité
-  donnée bénéficie_titre_personnel_aide_personnelle_logement
-    contenu booléen
   donnée a_déjà_ouvert_droit_aux_allocations_familiales contenu booléen
   donnée date_de_naissance contenu date
   donnée rémuneration_mensuelle contenu argent
@@ -246,6 +245,18 @@ déclaration énumération Nationalité:
   -- Française
   -- Étrangère contenu ConditionsÉtrangers
 
+# La répartition des communes par zones est donnée par l'arrêté du 17 mars
+# 1978 relatif au classement des communes par zones géographiques et
+# l'article 6 de l'arrêté du 5 mai 1995 relatif aux subventions de
+# l'Etat et aux prêts pour la construction, l'acquisition et
+# l'amélioration des logements locatifs aidés. Toutefois le phrasé de ces
+# articles laisse subsister une source d'incertitude quant au zonage de la
+# Guyane qui est un département d'outre mer mais qui n'est pas une île non
+# reliée au continent. D'après un mail du 21/04/2023 de DGALN/DHUP/FE4,
+# "La Guyane est bien comprise en zone II. Les territoires qui composent la zone
+# II doivent être entendus comme l’ensemble de ceux listés, auxquels s’ajoute la
+# Guyane puisque le dernier alinéa de l’article 6 exclut strictement les
+# départements d’outre-mer de la zone III."
 déclaration énumération ZoneDHabitation:
   -- Zone1
   -- Zone2
@@ -555,6 +566,15 @@ déclaration champ d'application CalculAidePersonnaliséeLogementLocatif:
     dépend de aide_finale contenu argent
     état diminué
     état minoration_forfaitaire
+    # Mail du 21/04/2023 de DGALN/DHUP/FE4:
+    # "Le calcul [de la montée en charge de Saint-Pierre et Miquelon] s’opère
+    # sur le montant final calculé de l’aide à verser à l’allocataire (qui
+    # comprend par exemple la minoration de 5 euros), comme précisé au 2° de
+    # l’article 7 du décret susvisé. J’attire toutefois votre attention sur le
+    # fait que la CRDS ne s’applique pas à Saint-Pierre-et-Miquelon."
+    état montée_en_charge_saint_pierre_miquelon
+    # TODO juridique et informatique: coder l'absence de CRDS à Saint-Pierre-et
+    # Miquelon et peut-être ailleurs.
     état contributions_sociales_arrondi
     état réduction_loyer_solidarité
     état montant_minimal
@@ -591,6 +611,7 @@ déclaration champ d'application CalculÉquivalenceLoyerMinimale:
   résultat montant contenu argent
 
 déclaration champ d'application CalculNombrePartLogementFoyer:
+  entrée date_courante contenu date
   entrée condition_2_du_832_25 contenu booléen
   entrée nombre_personnes_à_charge contenu entier
   entrée situation_familiale_calcul_apl contenu SituationFamilialeCalculAPL
@@ -603,6 +624,8 @@ déclaration champ d'application CalculNombrePartLogementFoyer:
   résultat n_nombre_parts_d832_25 contenu décimal
 
 déclaration champ d'application CalculAidePersonnaliséeLogementFoyer:
+  entrée résidence contenu Collectivité
+  entrée logement_foyer_jeunes_travailleurs contenu booléen
   entrée type_logement_foyer contenu TypeLogementFoyer
   entrée date_conventionnement contenu date
   entrée ressources_ménage_arrondies contenu argent
@@ -804,9 +827,25 @@ déclaration champ d'application CalculAllocationLogementLocatif:
   calcul_apl_locatif champ d'application CalculAidePersonnaliséeLogementLocatif
 
   résultat aide_finale_formule contenu argent
-
   résultat traitement_aide_finale contenu argent
     dépend de aide_finale contenu argent
+  résultat montant_forfaitaire_charges_d823_16 contenu argent
+  résultat plafond_loyer_d823_16_2 contenu argent
+  résultat participation_minimale contenu argent
+  résultat taux_composition_familiale contenu décimal
+  résultat participation_personnelle contenu argent
+
+champ d'application CalculAllocationLogementLocatif:
+  définition montant_forfaitaire_charges_d823_16 égal à
+    calcul_apl_locatif.montant_forfaitaire_charges_d823_16
+  définition plafond_loyer_d823_16_2 égal à
+    calcul_apl_locatif.plafond_loyer_d823_16_2
+  définition participation_minimale égal à
+    calcul_apl_locatif.participation_minimale
+  définition taux_composition_familiale égal à
+    calcul_apl_locatif.taux_composition_familiale
+  définition participation_personnelle égal à
+    calcul_apl_locatif.participation_personnelle
 ```
 
 ### Secteur accession à la propriété
@@ -873,6 +912,15 @@ déclaration champ d'application CalculAllocationLogementAccessionPropriété:
     dépend de aide_finale contenu argent
     état minoration_forfaitaire
     état dépense_nette_minimale
+    # Mail du 21/04/2023 de DGALN/DHUP/FE4:
+    # "Le calcul [de la montée en charge de Saint-Pierre et Miquelon] s’opère
+    # sur le montant final calculé de l’aide à verser à l’allocataire (qui
+    # comprend par exemple la minoration de 5 euros), comme précisé au 2° de
+    # l’article 7 du décret susvisé. J’attire toutefois votre attention sur le
+    # fait que la CRDS ne s’applique pas à Saint-Pierre-et-Miquelon."
+    état montée_en_charge_saint_pierre_miquelon
+    # TODO juridique et informatique: coder l'absence de CRDS à Saint-Pierre-et
+    # Miquelon et peut-être ailleurs.
     état contributions_sociales_arrondi
     état montant_minimal
 
@@ -883,8 +931,11 @@ champ d'application CalculAllocationLogementAccessionPropriété:
   # calculer des quantités comme si on était en logement foyer. Or il nous
   # faut donner un argument au sous-champ d'application donc on met ici une
   # valeur bidon.
+  définition calcul_apl_logement_foyer.résidence égal à résidence
   définition calcul_apl_logement_foyer.type_logement_foyer égal à
-    TypeLogementFoyer.Autre # Valeur par défaut
+    TypeLogementFoyer.RésidenceSociale # Valeur par défaut
+  définition calcul_apl_logement_foyer.logement_foyer_jeunes_travailleurs
+    égal à faux # Valeur par défaut
   définition calcul_apl_logement_foyer.date_conventionnement égal à
     |1970-01-01| # Valeur par défaut
   définition calcul_apl_logement_foyer.redevance égal à
@@ -913,6 +964,7 @@ champ d'application CalculAllocationLogementAccessionPropriété:
 ```catala-metadata
 déclaration champ d'application CalculAllocationLogementFoyer:
   entrée type_logement_foyer contenu TypeLogementFoyer
+  entrée logement_foyer_jeunes_travailleurs contenu booléen
   entrée date_conventionnement contenu date
   entrée résidence contenu Collectivité
   entrée redevance contenu argent
@@ -951,12 +1003,25 @@ déclaration champ d'application CalculAllocationLogementFoyer:
     état minoration_forfaitaire
     état dépense_nette_minimale
     état redevance
+    # Mail du 21/04/2023 de DGALN/DHUP/FE4:
+    # "Le calcul [de la montée en charge de Saint-Pierre et Miquelon] s’opère
+    # sur le montant final calculé de l’aide à verser à l’allocataire (qui
+    # comprend par exemple la minoration de 5 euros), comme précisé au 2° de
+    # l’article 7 du décret susvisé. J’attire toutefois votre attention sur le
+    # fait que la CRDS ne s’applique pas à Saint-Pierre-et-Miquelon."
+    état montée_en_charge_saint_pierre_miquelon
+    # TODO juridique et informatique: coder l'absence de CRDS à Saint-Pierre-et
+    # Miquelon et peut-être ailleurs.
     état contributions_sociales_arrondi
     état montant_minimal
 
 champ d'application CalculAllocationLogementFoyer:
+  définition calcul_apl_logement_foyer.résidence égal à
+    résidence
   définition calcul_apl_logement_foyer.type_logement_foyer égal à
     type_logement_foyer
+  définition calcul_apl_logement_foyer.logement_foyer_jeunes_travailleurs égal à
+    logement_foyer_jeunes_travailleurs
   définition calcul_apl_logement_foyer.date_conventionnement égal à
     date_conventionnement
   définition calcul_apl_logement_foyer.redevance égal à
@@ -1032,7 +1097,7 @@ déclaration champ d'application ImpayéDépenseLogement:
 
 ## Calcul de l'aide au logement effective
 
-## Calculette globale
+### Calculette globale
 
 Le but de ce champ d'application est de réaliser le calcul automatique
 de l'éligibilité et du montant de l'aide au logement pour un ménage, en fonction
@@ -1118,7 +1183,7 @@ champ d'application CalculetteAidesAuLogement:
       coefficents_enfants_garde_alternée_pris_en_compte
 ```
 
-## Calculette avec garde alternée
+### Calculette avec garde alternée
 
 Afin de calculer l'impact de la garde alternée sur les aides au logement,
 il est nécessaire de réaliser une double liquidation du calcul des aides

@@ -927,9 +927,6 @@ champ d'application ÉligibilitéAllocationLogement:
           -- date_de_naissance: enfant.date_de_naissance
           -- a_déjà_ouvert_droit_aux_allocations_familiales:
             enfant.a_déjà_ouvert_droit_aux_allocations_familiales
-          -- bénéficie_titre_personnel_aide_personnelle_logement:
-            enfant.
-              bénéficie_titre_personnel_aide_personnelle_logement
           }))
     = 1
   conséquence rempli
@@ -954,9 +951,6 @@ champ d'application ÉligibilitéAllocationLogement:
           -- date_de_naissance: enfant.date_de_naissance
           -- a_déjà_ouvert_droit_aux_allocations_familiales:
             enfant.a_déjà_ouvert_droit_aux_allocations_familiales
-          -- bénéficie_titre_personnel_aide_personnelle_logement:
-            enfant.
-              bénéficie_titre_personnel_aide_personnelle_logement
           })))
       = 0
     et
@@ -1419,9 +1413,9 @@ champ d'application ÉligibilitéAllocationLogement sous condition
   -- Mayotte: vrai
   -- n'importe quel: faux):
 
-  règle l_841_1_1_applicable non rempli
-  règle l_841_1_2_applicable non rempli
-  règle l_841_1_6_applicable non rempli
+  exception règle l_841_1_1_applicable non rempli
+  exception règle l_841_1_2_applicable non rempli
+  exception règle l_841_1_6_applicable non rempli
   # Nous désactivons seulement les 1°, 2° et 6° sans faire la renumérotation
   # qui semble ne concerner que les b) et c) suivants (à prendre en compte
   # dans le code correspondant).
@@ -1469,9 +1463,6 @@ champ d'application ÉligibilitéAllocationLogement sous condition
           -- date_de_naissance: enfant.date_de_naissance
           -- a_déjà_ouvert_droit_aux_allocations_familiales:
             enfant.a_déjà_ouvert_droit_aux_allocations_familiales
-          -- bénéficie_titre_personnel_aide_personnelle_logement:
-            enfant.
-              bénéficie_titre_personnel_aide_personnelle_logement
           }))
     >= 1
   conséquence rempli
@@ -1480,7 +1471,7 @@ champ d'application ÉligibilitéAllocationLogement sous condition
 " 5° Aux personnes mentionnées aux articles L. 781-8 et L. 781-46 du code rural
 et de la pêche maritime ;
 
-```catala
+```catala règle l_841_1_6_applicable
 # Les personnes mentionnées aux articles L. 781-8 et L. 781-46 du code rural
 # et de la pêche maritime sont les non-salariés agricoles.
 champ d'application ÉligibilitéAllocationLogement sous condition
@@ -1726,9 +1717,9 @@ champ d'application ÉligibilitéAllocationLogement sous condition
   -- SaintMartin: vrai
   -- n'importe quel: faux):
 
-  règle l_841_1_1_applicable non rempli
-  règle l_841_1_2_applicable non rempli
-  règle l_841_1_6_applicable non rempli
+  exception règle l_841_1_1_applicable non rempli
+  exception règle l_841_1_2_applicable non rempli
+  exception règle l_841_1_6_applicable non rempli
   # Nous désactivons seulement les 1°, 2° et 6° sans faire la renumérotation
   # qui semble ne concerner que les b) et c) suivants (à prendre en compte
   # dans le code correspondant).
@@ -1761,9 +1752,6 @@ champ d'application ÉligibilitéAllocationLogement sous condition
           -- date_de_naissance: enfant.date_de_naissance
           -- a_déjà_ouvert_droit_aux_allocations_familiales:
             enfant.a_déjà_ouvert_droit_aux_allocations_familiales
-          -- bénéficie_titre_personnel_aide_personnelle_logement:
-            enfant.
-              bénéficie_titre_personnel_aide_personnelle_logement
           }))
     >= 1
   conséquence rempli
