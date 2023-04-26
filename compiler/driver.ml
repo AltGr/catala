@@ -367,7 +367,7 @@ let driver source_file (options : Cli.options) : int =
               Shared_ast.Expr.unbox (Shared_ast.Program.to_expr prgm scope_uid)
             in
             Format.fprintf fmt "%a\n"
-              (Shared_ast.Expr.format ~debug:options.debug prgm.decl_ctx)
+              (Shared_ast.Expr.format ~debug:options.debug ())
               prgrm_dcalc_expr
         | ( `Interpret | `OCaml | `Python | `Scalc | `Lcalc | `Proof | `Plugin _
           | `Interpret_Lcalc ) as backend -> (
@@ -414,7 +414,7 @@ let driver source_file (options : Cli.options) : int =
             List.iter
               (fun ((var, _), result) ->
                 Cli.result_format "@[<hov 2>%s@ =@ %a@]" var
-                  (Shared_ast.Expr.format ~debug:options.debug prgm.decl_ctx)
+                  (Shared_ast.Expr.format ~debug:options.debug ())
                   result)
               results
           | `Plugin (Plugin.Dcalc p) ->
@@ -502,7 +502,7 @@ let driver source_file (options : Cli.options) : int =
               List.iter
                 (fun ((var, _), result) ->
                   Cli.result_format "@[<hov 2>%s@ =@ %a@]" var
-                    (Shared_ast.Expr.format ~debug:options.debug prgm.decl_ctx)
+                    (Shared_ast.Expr.format ~debug:options.debug ())
                     result)
                 results
             | (`OCaml | `Python | `Scalc | `Plugin _) as backend -> (
