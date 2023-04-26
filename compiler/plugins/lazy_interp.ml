@@ -47,14 +47,15 @@ let value_level =
   }
 
 module Env = struct
-  type t =
-    | Env of (expr, elt) Var.Map.t
-  and elt = { base: expr * t; mutable reduced: expr * t }
+  type t = Env of (expr, elt) Var.Map.t
+  and elt = { base : expr * t; mutable reduced : expr * t }
 
   let find v (Env t) = Var.Map.find v t
+
   (* let get_bas v t = let v, env = find v t in v, !env *)
   let add v e e_env (Env t) =
     Env (Var.Map.add v { base = e, e_env; reduced = e, e_env } t)
+
   let empty = Env Var.Map.empty
 
   let join (Env t1) (Env t2) =
@@ -71,22 +72,16 @@ module Env = struct
       ppf (Var.Map.bindings t)
 end
 
-let rec lazy_eval :
-    decl_ctx ->
-    Env.t ->
-    laziness_level ->
-    expr ->
-    expr * Env.t =
+let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
+    =
  fun ctx env llevel e0 ->
   let eval_to_value ?(eval_default = true) env e =
     lazy_eval ctx env { value_level with eval_default } e
   in
   match e0 with
-  | EVar v, _ -> (
-      if not llevel.eval_default
-      || not (llevel.eval_vars v)
-      then e0, env
-      else
+  | EVar v, _ ->
+    if (not llevel.eval_default) || not (llevel.eval_vars v) then e0, env
+    else
       (* Variables reducing to EEmpty should not propagate to parent EDefault
          (?) *)
       let env_elt =
@@ -98,7 +93,7 @@ let rec lazy_eval :
       let e, env1 = env_elt.reduced in
       let r, env1 = lazy_eval ctx env1 llevel e in
       env_elt.reduced <- r, env1;
-      r, Env.join env env1)
+      r, Env.join env env1
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
@@ -113,9 +108,7 @@ let rec lazy_eval :
         let env =
           Seq.fold_left2
             (fun env1 var e ->
-              log "@[<hov 2>LET %a = %a@]@ " Print.var_debug var
-                (Print.expr ~debug:true ())
-                e;
+              log "@[<hov 2>LET %a = %a@]@ " Print.var_debug var Expr.format e;
               Env.add var e env env1)
             env (Array.to_seq vars) (List.to_seq args)
         in
@@ -217,7 +210,8 @@ let rec lazy_eval :
       match eval_to_value env e with
       | (ELit (LBool true), m), env -> (ELit LUnit, m), env
       | (ELit (LBool false), _), _ ->
-        error e "Assert failure (%a)" Expr.format e
+        error e "Assert failure (%a)" Expr.format e error e "Assert failure (%a)"
+          Expr.format e
       | _ -> error e "Invalid assertion condition %a" Expr.format e)
   | EExternal _, _ -> assert false (* todo *)
   | _ -> .
@@ -295,7 +289,7 @@ let print_value_with_env ctx ppf env expr =
         let e, env = (Env.find v env).reduced in
         let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
         Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
-          "»" Print.var_debug v (Print.expr ctx)
+          "»" Print.var_debug v Expr.format
           (fst (lazy_eval ctx env value_level e))
           (aux env) e)
       vars;
@@ -310,73 +304,66 @@ module V = struct
   type t = expr
 
   let compare a b = Expr.compare a b
+
   let hash = function
     | EVar v, _ -> Var.hash v
     | EAbs { tys; _ }, _ -> Hashtbl.hash tys
     | e, _ -> Hashtbl.hash e
+
   let equal a b = Expr.equal a b
 end
 
 module E = struct
   type hand_side = Lhs of string | Rhs of string
   type t = hand_side option
-  let compare = Option.compare (fun x y -> match x, y with
-      | Lhs s, Lhs t | Rhs s, Rhs t -> String.compare s t
-      | Lhs _, Rhs _ -> -1
-      | Rhs _, Lhs _ -> 1)
+
+  let compare =
+    Option.compare (fun x y ->
+        match x, y with
+        | Lhs s, Lhs t | Rhs s, Rhs t -> String.compare s t
+        | Lhs _, Rhs _ -> -1
+        | Rhs _, Lhs _ -> 1)
+
   let default = None
 end
 
-module G = Graph.Persistent.Digraph.AbstractLabeled(V)(E)
-
+module G = Graph.Persistent.Digraph.AbstractLabeled (V) (E)
 
 let op_kind = function
-    Op.Add_int_int |
-    Add_rat_rat |
-    Add_mon_mon |
-    Add_dat_dur _ |
-    Add_dur_dur
-    | Sub_int_int
-    | Sub_rat_rat
-    | Sub_mon_mon
-    | Sub_dat_dat
-    | Sub_dat_dur
-    | Sub_dur_dur -> `Sum
-  | Mult_int_int
-  | Mult_rat_rat
-  | Mult_mon_rat
-  | Mult_dur_int
-  | Div_int_int
-  | Div_rat_rat
-  | Div_mon_rat
-  | Div_mon_mon
-  | Div_dur_dur
-    -> `Product
-  | Round_mon
-  | Round_rat
-    -> `Round
+  | Op.Add_int_int | Add_rat_rat | Add_mon_mon | Add_dat_dur _ | Add_dur_dur
+  | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat | Sub_dat_dur
+  | Sub_dur_dur ->
+    `Sum
+  | Mult_int_int | Mult_rat_rat | Mult_mon_rat | Mult_dur_int | Div_int_int
+  | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur ->
+    `Product
+  | Round_mon | Round_rat -> `Round
   | _ -> `Other
 
-module GTopo = Graph.Topological.Make(G)
+module GTopo = Graph.Topological.Make (G)
 
 let to_graph ctx env expr =
   let rec aux env g e =
     (* lazy_eval ctx env (result_level base_vars) e *)
     match Expr.skip_wrappers e with
-    | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
-             args = [arg] }, _ ->
+    | ( EApp
+          {
+            f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
+            args = [arg];
+          },
+        _ ) ->
       aux env g arg
     (* we skip conversions *)
     | ELit l, _ ->
       let v = G.V.create e in
       G.add_vertex g v, v
-    | EVar var, _ as e ->
+    | (EVar var, _) as e ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let child, env = (Env.find var env).base in
       let g, child_v = aux env g child in
       G.add_edge g v child_v, v
-    | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
+    | EApp { f = EOp { op = _; _ }, _; args }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let g, children = List.fold_left_map (aux env) g args in
@@ -388,7 +375,9 @@ let to_graph ctx env expr =
       let args = List.map snd (StructField.Map.bindings fields) in
       let g, children = List.fold_left_map (aux env) g args in
       List.fold_left (fun g -> G.add_edge g v) g children, v
-    | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
+    | _ ->
+      Format.eprintf "%a" Expr.format e;
+      assert false
   in
   let base_g, _ = aux env G.empty expr in
   base_g
@@ -410,7 +399,8 @@ let program_to_graph
   in
   let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
   let e, env = (Env.find scope_v all_env).base in
-  let e = match e with
+  let e =
+    match e with
     | EAbs { binder; _ }, _ ->
       let _vars, e = Bindlib.unmbind binder in
       e
@@ -442,65 +432,69 @@ let program_to_graph
   let rec aux (g, var_vertices, env0) e =
     let e, env0 = lazy_eval ctx env0 level e in
     match Expr.skip_wrappers e with
-    | EApp { f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
-             args = [arg] }, _ ->
+    | ( EApp
+          {
+            f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
+            args = [arg];
+          },
+        _ ) ->
       aux (g, var_vertices, env0) arg
     (* we skip conversions *)
     | ELit l, _ ->
       let v = G.V.create e in
       (G.add_vertex g v, var_vertices, env0), v
-    | EVar var, _ as e ->
-      (try (g, var_vertices, env0), Var.Map.find var var_vertices
-       with Not_found ->
-         let v = G.V.create e in
-         let g = G.add_vertex g v in
-         let child, env = (Env.find var env0).base in
-         let (g, var_vertices, env), child_v =
-           aux (g, var_vertices, (Env.join env0 env)) child in
-         let var_vertices =
-           let rec is_lit v =
-             match G.V.label v with
-             | ELit _, _ -> true
-             | EVar var, _ -> (match G.succ g v with [v] -> is_lit v | _ -> false)
-             | _ -> false
-           in
-           if is_lit child_v then var_vertices
-           else Var.Map.add var v var_vertices
-         in
-         (G.add_edge g v child_v, var_vertices, env), v)
-    | EApp { f = EOp { op; _ }, _; args = [lhs; rhs]}, _ ->
+    | (EVar var, _) as e -> (
+      try (g, var_vertices, env0), Var.Map.find var var_vertices
+      with Not_found ->
+        let v = G.V.create e in
+        let g = G.add_vertex g v in
+        let child, env = (Env.find var env0).base in
+        let (g, var_vertices, env), child_v =
+          aux (g, var_vertices, Env.join env0 env) child
+        in
+        let var_vertices =
+          let rec is_lit v =
+            match G.V.label v with
+            | ELit _, _ -> true
+            | EVar var, _ -> (
+              match G.succ g v with [v] -> is_lit v | _ -> false)
+            | _ -> false
+          in
+          if false && is_lit child_v then var_vertices
+            (* This duplicates constant var nodes *)
+          else Var.Map.add var v var_vertices
+        in
+        (G.add_edge g v child_v, var_vertices, env), v)
+    | EApp { f = EOp { op; _ }, _; args = [lhs; rhs] }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let (g, var_vertices, env), lhs = aux (g, var_vertices, env0) lhs in
       let (g, var_vertices, env), rhs = aux (g, var_vertices, env) rhs in
-      let lhs_label, rhs_label = match op with
-        | Add_int_int
-        | Add_rat_rat
-        | Add_mon_mon
-        | Add_dat_dur _
-        | Add_dur_dur
-          -> Some (E.Lhs "⊕"), Some (E.Rhs "⊕")
-        | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat
-        | Sub_dat_dur | Sub_dur_dur -> Some (E.Lhs "⊕"), Some (E.Rhs "⊖")
-        | Mult_int_int
-        | Mult_rat_rat
-        | Mult_mon_rat
-        | Mult_dur_int
-          -> Some (E.Lhs "⊗"), Some (E.Rhs "⊗")
-        | Div_int_int | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur
-          -> Some (E.Lhs "⊗"), Some (E.Rhs "⊘")
+      let lhs_label, rhs_label =
+        match op with
+        | Add_int_int | Add_rat_rat | Add_mon_mon | Add_dat_dur _ | Add_dur_dur
+          ->
+          Some (E.Lhs "⊕"), Some (E.Rhs "⊕")
+        | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat | Sub_dat_dur
+        | Sub_dur_dur ->
+          Some (E.Lhs "⊕"), Some (E.Rhs "⊖")
+        | Mult_int_int | Mult_rat_rat | Mult_mon_rat | Mult_dur_int ->
+          Some (E.Lhs "⊗"), Some (E.Rhs "⊗")
+        | Div_int_int | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur ->
+          Some (E.Lhs "⊗"), Some (E.Rhs "⊘")
         | _ -> None, None
       in
       let g = G.add_edge_e g (G.E.create v lhs_label lhs) in
       let g = G.add_edge_e g (G.E.create v rhs_label rhs) in
       (g, var_vertices, env), v
-    | EApp { f = EOp { op = _ ; _ }, _; args }, _ ->
+    | EApp { f = EOp { op = _; _ }, _; args }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let (g, var_vertices, env), children =
         List.fold_left_map aux (g, var_vertices, env0) args
       in
-      (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env), v
+      ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
+        v )
     | EInj { e; _ }, _ -> aux (g, var_vertices, env0) e
     | EStruct { fields; _ }, _ ->
       let v = G.V.create e in
@@ -509,13 +503,17 @@ let program_to_graph
       let (g, var_vertices, env), children =
         List.fold_left_map aux (g, var_vertices, env0) args
       in
-      (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env), v
-    | _ -> Format.eprintf "%a" (Print.expr ctx) e; assert false
+      ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
+        v )
+    | _ ->
+      Format.eprintf "%a" Expr.format e;
+      assert false
   in
   let (g, _, env), _ = aux (G.empty, Var.Map.empty, env) e in
-  Format.eprintf "BASE: @[<v>%a@]" (Format.pp_print_list Print.var) (Var.Set.elements base_vars);
+  Format.eprintf "BASE: @[<v>%a@]"
+    (Format.pp_print_list Print.var)
+    (Var.Set.elements base_vars);
   g, base_vars, env
-
 
 (* let rec graph_cleanup g v =
  *   let rec aux g parents v =
@@ -548,33 +546,73 @@ let program_to_graph
  *     G.add_vertex g' v *)
 
 let reverse_graph g =
-  G.fold_edges_e (fun e g ->
+  G.fold_edges_e
+    (fun e g ->
       G.add_edge_e (G.remove_edge_e g e)
         (G.E.create (G.E.dst e) (G.E.label e) (G.E.src e)))
     g g
 
 let rec graph_cleanup g =
+  (* let _g =
+   *   let module GCtr = Graph.Contraction.Make (G) in
+   *   GCtr.contract
+   *     (fun e ->
+   *       G.E.label e = None
+   *       &&
+   *       match G.V.label (G.E.src e), G.V.label (G.E.dst e) with
+   *       | (EVar _, _), (EVar _, _) -> true
+   *       | ( (EApp { f = EOp { op = op1; _ }, _; args = [_; _] }, _),
+   *           (EApp { f = EOp { op = op2; _ }, _; args = [_; _] }, _) ) -> (
+   *         match op_kind op1, op_kind op2 with
+   *         | `Sum, `Sum -> true
+   *         | `Prod, `Prod -> true
+   *         | _ -> false)
+   *       | _ -> false)
+   *     g
+   * in *)
+  let module GTop = Graph.Topological.Make (G) in
   let g =
-    let module GCtr = Graph.Contraction.Make(G) in
-    GCtr.contract (fun e ->
-      G.E.label e = None &&
-      match G.V.label (G.E.src e), G.V.label (G.E.dst e) with
-      | (EVar _, _), (EVar _, _) -> true
-      | (EApp { f = EOp { op = op1; _}, _; args = [_; _] }, _),
-        (EApp { f = EOp { op = op2; _}, _; args = [_; _] }, _)
-        ->
-        (match op_kind op1, op_kind op2 with
-         | `Sum, `Sum -> true
-         | `Prod, `Prod -> true
-         | _ -> false)
-      | _ -> false)
-    g
+    GTop.fold
+      (fun v g ->
+        let succ = G.succ g v in
+        match G.V.label v, succ, List.map G.V.label succ with
+        | (EVar _, _), [v2], [(EVar _, _)] ->
+          let g =
+            List.fold_left
+              (fun g e ->
+                G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
+              g (G.pred_e g v)
+          in
+          G.remove_vertex g v
+        | _ -> g)
+      g g
   in
   let g =
-    G.fold_vertex (fun v g ->
+    let g = reverse_graph g in
+    GTop.fold
+      (fun v g ->
+        let succ = G.succ g v in
+        match G.V.label v, succ, List.map G.V.label succ with
+        | (EApp { f = EOp _, _; _ }, _), [v2], [(EApp { f = EOp _, _; _ }, _)]
+          ->
+          let g =
+            List.fold_left
+              (fun g e ->
+                G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
+              g (G.pred_e g v)
+          in
+          G.remove_vertex g v
+        | _ -> g)
+      g g
+    |> reverse_graph
+  in
+  let g =
+    G.fold_vertex
+      (fun v g ->
         match G.V.label v, List.map G.V.label (G.pred g v) with
         (* | (ELit _, _), [EVar _, _] -> G.remove_vertex g v *)
-        | (ELit _, _), _ -> G.remove_vertex g v (* test with print full form. *)
+        | (ELit _, _), _ ->
+          G.remove_vertex g v (* <- test with print full form. *)
         | _, _ -> g)
       g g
   in
@@ -590,147 +628,199 @@ let rec graph_cleanup g =
    * in *)
   g
 
-let simplif_op = function
-  | Op.ToRat_int
-  | ToRat_mon -> Op.ToRat
-  | ToMoney_rat -> ToMoney
-  | Round_rat
-  | Round_mon -> Round
-  | Minus_int
-  | Minus_rat
-  | Minus_mon
-  | Minus_dur -> Minus
-  | Add_int_int
-  | Add_rat_rat
-  | Add_mon_mon
-  | Add_dat_dur _
-  | Add_dur_dur -> Add
-  | Sub_int_int
-  | Sub_rat_rat
-  | Sub_mon_mon
-  | Sub_dat_dat
-  | Sub_dat_dur
-  | Sub_dur_dur -> Sub
-  | Mult_int_int
-  | Mult_rat_rat
-  | Mult_mon_rat
-  | Mult_dur_int -> Mult
-  | Div_int_int
-  | Div_rat_rat
-  | Div_mon_mon
-  | Div_mon_rat
-  | Div_dur_dur -> Div
-  | Lt_int_int
-  | Lt_rat_rat
-  | Lt_mon_mon
-  | Lt_dur_dur
-  | Lt_dat_dat -> Lt
-  | Lte_int_int
-  | Lte_rat_rat
-  | Lte_mon_mon
-  | Lte_dur_dur
-  | Lte_dat_dat -> Lte
-  | Gt_int_int
-  | Gt_rat_rat
-  | Gt_mon_mon
-  | Gt_dur_dur
-  | Gt_dat_dat -> Gt
-  | Gte_int_int
-  | Gte_rat_rat
-  | Gte_mon_mon
-  | Gte_dur_dur
-  | Gte_dat_dat -> Gte
-  | Eq_int_int
-  | Eq_rat_rat
-  | Eq_mon_mon
-  | Eq_dur_dur
-  | Eq_dat_dat -> Eq
-  | op -> op
-
-let rec simplif_ops = function
-  | EOp { op; tys }, m ->
-    EOp { op = simplif_op op; tys }, m
-  | e -> Expr.map ~f:simplif_ops e
-
+(* let simplif_op: type a. a Op.t -> 'b = function
+ *   | Op.ToRat_int
+ *   | ToRat_mon -> Op.ToRat
+ *   | ToMoney_rat -> ToMoney
+ *   | Round_rat
+ *   | Round_mon -> Round
+ *   | Minus_int
+ *   | Minus_rat
+ *   | Minus_mon
+ *   | Minus_dur -> Minus
+ *   | Add_int_int
+ *   | Add_rat_rat
+ *   | Add_mon_mon
+ *   | Add_dat_dur _
+ *   | Add_dur_dur -> Add
+ *   | Sub_int_int
+ *   | Sub_rat_rat
+ *   | Sub_mon_mon
+ *   | Sub_dat_dat
+ *   | Sub_dat_dur
+ *   | Sub_dur_dur -> Sub
+ *   | Mult_int_int
+ *   | Mult_rat_rat
+ *   | Mult_mon_rat
+ *   | Mult_dur_int -> Mult
+ *   | Div_int_int
+ *   | Div_rat_rat
+ *   | Div_mon_mon
+ *   | Div_mon_rat
+ *   | Div_dur_dur -> Div
+ *   | Lt_int_int
+ *   | Lt_rat_rat
+ *   | Lt_mon_mon
+ *   | Lt_dur_dur
+ *   | Lt_dat_dat -> Lt
+ *   | Lte_int_int
+ *   | Lte_rat_rat
+ *   | Lte_mon_mon
+ *   | Lte_dur_dur
+ *   | Lte_dat_dat -> Lte
+ *   | Gt_int_int
+ *   | Gt_rat_rat
+ *   | Gt_mon_mon
+ *   | Gt_dur_dur
+ *   | Gt_dat_dat -> Gt
+ *   | Gte_int_int
+ *   | Gte_rat_rat
+ *   | Gte_mon_mon
+ *   | Gte_dur_dur
+ *   | Gte_dat_dat -> Gte
+ *   | Eq_int_int
+ *   | Eq_rat_rat
+ *   | Eq_mon_mon
+ *   | Eq_dur_dur
+ *   | Eq_dat_dat -> Eq
+ *   | ( Not | GetDay | GetMonth | GetYear | FirstDayOfMonth | LastDayOfMonth | And
+ *     | Or | Xor | HandleDefault | HandleDefaultOpt | Log _ | Length | Eq | Map
+ *     | Concat | Filter | Reduce | Fold
+ *     | Minus | ToRat | ToMoney | Round | Add | Sub | Mult | Div | Lt | Lte | Gt
+ *     | Gte ) as op ->
+ *     op
+ * 
+ * let rec simplif_ops:
+ *   type a. (<overloaded: a; ..>, 't) gexpr -> (<overloaded: yes; ..>, 't) gexpr boxed
+ *   =
+ *   function
+ *   | EOp { op; tys }, m ->
+ *     Expr.box (EOp { op = simplif_op op; tys }, m)
+ *   | (ELit _
+ *   | EApp _
+ *   | EArray _
+ *   | EVar _
+ *   | EAbs _
+ *   | EIfThenElse _
+ *   | ETuple _
+ *   | ETupleAccess _
+ *   | EInj _
+ *   | EAssert _
+ *   | EDefault _
+ *   | EEmptyError
+ *   | EErrorOnEmpty _
+ *   | ECatch _
+ *   | ERaise _
+ *   | ELocation _
+ *   | EStruct _
+ *   | EDStructAccess _
+ *   | EStructAccess _
+ *   | EMatch _
+ *   | EScopeCall _), _
+ *     as e -> Expr.map ~f:simplif_ops e *)
 
 let to_dot oc ctx env base_vars g =
-  let module GPr = Graph.Graphviz.Dot(struct
-      include G
-      let graph_attributes _ = [(* `Rankdir `LeftToRight *)]
-      let default_vertex_attributes _ = []
-      let vertex_label v = match Expr.skip_wrappers (G.V.label v) with
-        | EVar v, _ as e ->
-          (match lazy_eval ctx env value_level e with
-           | (ELit l, _), _ ->
-             Format.asprintf "%s\n%a" (Bindlib.name_of v) Print.lit l
-           | _ ->
-             Format.asprintf "%s" (Bindlib.name_of v))
-        | EApp { f = EOp { op; _}, _; _ }, _ as e ->
-          (match op_kind op with
-           | `Sum | `Product -> Format.asprintf "%a" (Print.expr ctx) e
-           (* | `Product -> "" *)
-           | `Round -> "<round>"
-           | `Other -> Format.asprintf "<%a>" Print.operator op)
-        | EApp { f; _ }, _ ->
-          Format.asprintf "%a" (Print.expr_debug ~debug:false) f
-        | ELit l, _ -> Format.asprintf "%a" Print.lit l
-        | EStruct {name; _}, _ -> Format.asprintf "{%a}" StructName.format_t name
-        | z -> Format.asprintf "[%a]" (Print.expr_debug ~debug:false) z
-      let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
+  let module GPr = Graph.Graphviz.Dot (struct
+    include G
 
-      let vertex_attributes v =
-        `Label (vertex_label v) ::
-        match G.V.label v with
-        | EVar v, _ when Var.Set.mem v base_vars ->
-          [ `Color 0x5588ff; `Shape `Box ]
-        | EApp { f = EOp { op; _}, _; _ }, _ ->
-          (match op_kind op with
-           | `Sum | `Product -> [ `Shape `Box ]
-           | _ -> [])
-        | _ -> []
-      let get_subgraph v =
-        match G.V.label v with
-        | EVar v, _ when Var.Set.mem v base_vars ->
-          Some {
-            Graph.Graphviz.DotAttributes.sg_name = "inputs";
-   	    sg_attributes = [`Shape `Box];
-            sg_parent = None;
-          }
-        | _ -> None
-      let default_edge_attributes _ = []
-      let edge_attributes e = match E.label e with
-        | Some (Lhs s | Rhs s) -> [ `Label s; `Color 0xbb7700 ]
-        | None -> []
-    end)
-  in
+    let graph_attributes _ = [ (* `Rankdir `LeftToRight *) ]
+    let default_vertex_attributes _ = []
+
+    let vertex_label v =
+      match Expr.skip_wrappers (G.V.label v) with
+      | (EVar v, _) as e -> (
+        match lazy_eval ctx env value_level e with
+        | (ELit l, _), _ ->
+          Format.asprintf "%s\n%a" (Bindlib.name_of v) Print.lit l
+        | _ -> Format.asprintf "%s" (Bindlib.name_of v))
+      | (EApp { f = EOp { op; _ }, _; _ }, _) as e ->
+        Format.asprintf "%a" Expr.format e
+        (*     (match op_kind op with
+         * | `Sum | `Product -> 
+         * | `Product -> ""
+         * | `Round -> "<round>"
+         * | `Other -> Format.asprintf "<%a>" (Print.operator ~debug:false) op) *)
+      | EApp { f; _ }, _ -> Format.asprintf "%a" Expr.format f
+      | ELit l, _ -> Format.asprintf "%a" Print.lit l
+      | EStruct { name; _ }, _ ->
+        Format.asprintf "{%a}" StructName.format_t name
+      | z -> Format.asprintf "[%a]" Expr.format z
+
+    let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
+
+    let vertex_attributes v =
+      let e = V.label v in
+      `Label (vertex_label v)
+      :: `Comment (Pos.retrieve_loc_text (Expr.pos e))
+      ::
+      (match G.V.label v with
+      | EVar var, _ -> (
+        if Var.Set.mem var base_vars then
+          [`Style `Filled; `Fillcolor 0xffaa55; `Shape `Box]
+        else
+          match List.map G.V.label (G.succ g v) with
+          | [] -> [`Style `Filled; `Fillcolor 0x77aaff] (* Constants *)
+          | _ -> [])
+      | EApp { f = EOp { op; _ }, _; _ }, _ -> (
+        match op_kind op with `Sum | `Product -> [`Shape `Box] | _ -> [])
+      | _ -> [])
+
+    let get_subgraph v =
+      match G.V.label v with
+      | EVar var, _ -> (
+        if Var.Set.mem var base_vars then
+          Some
+            {
+              Graph.Graphviz.DotAttributes.sg_name = "inputs";
+              sg_attributes = [];
+              sg_parent = None;
+            }
+        else
+          match List.map G.V.label (G.succ g v) with
+          (* | [] | [ELit _, _] ->
+           *   Some
+           *     {
+           *       Graph.Graphviz.DotAttributes.sg_name = "constants";
+           *       sg_attributes = [`Shape `Box];
+           *       sg_parent = None;
+           *     } *)
+          | _ -> None)
+      | _ -> None
+
+    let default_edge_attributes _ = []
+
+    let edge_attributes e =
+      match E.label e with
+      | Some (Lhs s | Rhs s) -> [ (* `Label s; `Color 0xbb7700 *) ]
+      | None -> []
+  end) in
   GPr.output_graph oc (reverse_graph g)
 
-
- (*  let g =
-  *    (* Flatten multiplications and additions *)
-  *    G.fold_edges_e (fun e g' ->
-  *        let src = G.E.src e and dst = G.E.dst e in
-  *        match G.V.label src, G.V.label dst with
-  *        | (EApp { f = EOp { op =
-  *                              (Sub
-  *                              | Sub_int_int
-  *                              | Sub_rat_rat
-  *                              | Sub_mon_mon
-  *                              | Sub_dat_dat
-  *                              | Sub_dat_dur
-  *                              | Sub_dur_dur) }
-  * 
-  * Plus, _; _ }, _; _}, _),
-  *          (EApp { op = EOp { op = Minus, _; _ }, _; _}; _) ->
-  *          G.add_edge_e (G.E.create src (Some "-") dst)
-  *          G.remove_edge_e e
-  *      )
-  *      g
-  *  in
-  *  let rec flatten g v =
-  *    
-  *    let module GTra = Graph.Traverse.Bfs(G) in
-  *    FTra.fold (fun v ->  *)
+(*  let g =
+ *    (* Flatten multiplications and additions *)
+ *    G.fold_edges_e (fun e g' ->
+ *        let src = G.E.src e and dst = G.E.dst e in
+ *        match G.V.label src, G.V.label dst with
+ *        | (EApp { f = EOp { op =
+ *                              (Sub
+ *                              | Sub_int_int
+ *                              | Sub_rat_rat
+ *                              | Sub_mon_mon
+ *                              | Sub_dat_dat
+ *                              | Sub_dat_dur
+ *                              | Sub_dur_dur) }
+ * 
+ * Plus, _; _ }, _; _}, _),
+ *          (EApp { op = EOp { op = Minus, _; _ }, _; _}; _) ->
+ *          G.add_edge_e (G.E.create src (Some "-") dst)
+ *          G.remove_edge_e e
+ *      )
+ *      g
+ *  in
+ *  let rec flatten g v =
+ *    
+ *    let module GTra = Graph.Traverse.Bfs(G) in
+ *    FTra.fold (fun v -> *)
 
 (* module V = struct
  *   type t = { var: expr Var.t option; expr: expr; label: string }
@@ -821,7 +911,7 @@ let to_dot oc ctx env base_vars g =
  *         let { contents = e, env } = Env.find v env in
  *         let e, env = lazy_eval ctx env (result_level Var.Set.empty) e in
  *         Format.fprintf ppf "@[<hov 2>%a %a =@ %a =@ %a@]@,@," Print.punctuation
- *           "»" Print.var_debug v (Print.expr ctx)
+ *           "»" Print.var_debug v Print.expr
  *           (fst (lazy_eval ctx env value_level e))
  *           (aux env) e)
  *       vars;
@@ -832,12 +922,10 @@ let to_dot oc ctx env base_vars g =
  *   aux env ppf expr;
  *   Format.pp_close_box ppf () *)
 
-
 (* -- Plugin registration -- *)
 
 let name = "lazy"
 let extension = ".out" (* unused *)
-
 
 let run link_modules optimize check_invariants ex_scope options =
   Interpreter.load_runtime_modules link_modules;
@@ -849,8 +937,7 @@ let run link_modules optimize check_invariants ex_scope options =
   let g, base_vars, env = program_to_graph prg scope in
   to_dot stdout prg.decl_ctx env base_vars (graph_cleanup g)
 
-(* ;
-   * print_value_with_env prg.decl_ctx ppf env result_expr *)
+(* ; * print_value_with_env prg.decl_ctx ppf env result_expr *)
 
 let term =
   let open Cmdliner.Term in
