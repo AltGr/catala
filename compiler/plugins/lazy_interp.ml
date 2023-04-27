@@ -446,21 +446,23 @@ let program_to_graph
     | (EVar var, _) as e -> (
       try (g, var_vertices, env0), Var.Map.find var var_vertices
       with Not_found ->
-        let v = G.V.create e in
-        let g = G.add_vertex g v in
         let child, env = (Env.find var env0).base in
         let (g, var_vertices, env), child_v =
           aux (g, var_vertices, Env.join env0 env) child
         in
+        let v = G.V.create e in
+        let g = G.add_vertex g v in
         let var_vertices =
+          (* Duplicates non-base constant var nodes *)
+          if Var.Set.mem var base_vars then var_vertices else
           let rec is_lit v =
             match G.V.label v with
             | ELit _, _ -> true
-            | EVar var, _ -> (
+            | EVar var, _ when not (Var.Set.mem var base_vars) -> (
               match G.succ g v with [v] -> is_lit v | _ -> false)
             | _ -> false
           in
-          if false && is_lit child_v then var_vertices
+          if is_lit child_v then var_vertices
             (* This duplicates constant var nodes *)
           else Var.Map.add var v var_vertices
         in
@@ -552,6 +554,30 @@ let reverse_graph g =
         (G.E.create (G.E.dst e) (G.E.label e) (G.E.src e)))
     g g
 
+let subst_by v1 v2 e =
+  let rec f = function
+    | EVar v, m when Var.equal v v1 -> Expr.box (EVar v2, m)
+    | e -> Expr.map ~f e
+  in
+  Expr.unbox (f e)
+
+let map_vertices f g =
+  G.fold_vertex (fun v g ->
+      let v' = G.V.create (f (G.V.label v)) in
+      let g =
+        G.fold_pred_e
+          (fun e g -> G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v'))
+          g v g
+      in
+      let g =
+        G.fold_succ_e
+          (fun e g -> G.add_edge_e g (G.E.create v' (G.E.label e) (G.E.dst e)))
+          g v g
+      in
+      G.remove_vertex g v
+    )
+    g g
+
 let rec graph_cleanup g =
   (* let _g =
    *   let module GCtr = Graph.Contraction.Make (G) in
@@ -571,38 +597,36 @@ let rec graph_cleanup g =
    *     g
    * in *)
   let module GTop = Graph.Topological.Make (G) in
-  let g =
-    GTop.fold
-      (fun v g ->
+  let g, substs =
+    GTop.fold (* Result -> variables order *)
+      (fun v (g, substs) ->
         let succ = G.succ g v in
         match G.V.label v, succ, List.map G.V.label succ with
-        | (EVar _, _), [v2], [(EVar _, _)] ->
-          let g =
-            List.fold_left
-              (fun g e ->
-                G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
-              g (G.pred_e g v)
-          in
-          G.remove_vertex g v
-        | _ -> g)
-      g g
+         | (EVar var1, _), [v2], [EVar var2, _] ->
+           let g =
+             List.fold_left (fun g e -> G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
+               g (G.pred_e g v)
+           in
+           (G.remove_vertex g v, fun e -> subst_by var1 var2 (substs e))
+         | _ -> g, substs)
+      g (g, Fun.id)
   in
+  let g = map_vertices substs g in
   let g =
     let g = reverse_graph g in
-    GTop.fold
+    GTop.fold (* Variables -> result order *)
       (fun v g ->
         let succ = G.succ g v in
         match G.V.label v, succ, List.map G.V.label succ with
         | (EApp { f = EOp _, _; _ }, _), [v2], [(EApp { f = EOp _, _; _ }, _)]
           ->
           let g =
-            List.fold_left
-              (fun g e ->
-                G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
-              g (G.pred_e g v)
-          in
-          G.remove_vertex g v
-        | _ -> g)
+             List.fold_left
+               (fun g e -> G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
+               g (G.pred_e g v)
+           in
+           G.remove_vertex g v
+         | _ -> g)
       g g
     |> reverse_graph
   in
