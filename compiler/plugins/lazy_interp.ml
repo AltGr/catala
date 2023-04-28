@@ -182,7 +182,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
     match excs with
     | [] -> (
       match eval_to_value env just with
-      | (ELit (LBool true), _), _ -> lazy_eval ctx env llevel cons
+      | (ELit (LBool true), _), _ ->
+        (* TODO: attach just to this node in the result *)
+        lazy_eval ctx env llevel cons
       | (ELit (LBool false), _), _ -> (EEmptyError, m), env
       | e, _ -> error e "Invalid exception justification %a" Print.expr e)
     | [(e, env)] ->
@@ -195,7 +197,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
         "Conflicting exceptions")
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
-    | (ELit (LBool true), _), _ -> lazy_eval ctx env llevel etrue
+    | (ELit (LBool true), _), _ ->
+      (* TODO: attach cond to this node in the result *)
+      lazy_eval ctx env llevel etrue
     | (ELit (LBool false), _), _ -> lazy_eval ctx env llevel efalse
     | e, _ -> error e "Invalid condition %a" Print.expr e)
   | EErrorOnEmpty e, _ -> (
@@ -335,6 +339,7 @@ let op_kind = function
   | Div_rat_rat | Div_mon_rat | Div_mon_mon | Div_dur_dur ->
     `Product
   | Round_mon | Round_rat -> `Round
+  | Map | Filter | Reduce | Fold -> `Fct
   | _ -> `Other
 
 module GTopo = Graph.Topological.Make (G)
@@ -379,6 +384,14 @@ let to_graph ctx env expr =
   let base_g, _ = aux env G.empty expr in
   base_g
 
+let rec is_const e =
+  match Expr.skip_wrappers e with
+  | ELit _, _ -> true
+  | EInj { e; _ }, _ -> is_const e
+  | EStruct { fields; _ }, _ -> StructField.Map.for_all (fun _ e -> is_const e) fields
+  | EArray el, _ -> List.for_all is_const el
+  | _ -> false
+
 let program_to_graph
     (prg : ('dcalc, 'm mark) gexpr program)
     (scope : ScopeName.t) : G.t * expr Var.Set.t * Env.t =
@@ -408,9 +421,7 @@ let program_to_graph
       let vars, e = Bindlib.unmbind binder in
       let var = vars.(0) in
       let base_vars =
-        match Expr.skip_wrappers arg with
-        | ELit _, _ -> Var.Set.add var base_vars
-        | _ -> base_vars
+        if is_const arg then Var.Set.add var base_vars else base_vars
       in
       let env = Env.add var arg env env in
       get_vars base_vars env e
@@ -443,26 +454,37 @@ let program_to_graph
     | (EVar var, _) as e -> (
       try (g, var_vertices, env0), Var.Map.find var var_vertices
       with Not_found ->
-        let child, env = (Env.find var env0).base in
-        let (g, var_vertices, env), child_v =
-          aux (g, var_vertices, Env.join env0 env) child
-        in
         let v = G.V.create e in
         let g = G.add_vertex g v in
-        let var_vertices =
-          (* Duplicates non-base constant var nodes *)
-          if Var.Set.mem var base_vars then var_vertices else
-          let rec is_lit v =
-            match G.V.label v with
-            | ELit _, _ -> true
-            | EVar var, _ when not (Var.Set.mem var base_vars) -> (
-              match G.succ g v with [v] -> is_lit v | _ -> false)
-            | _ -> false
+        try
+          let child, env = (Env.find var env0).base in
+          let (g, var_vertices, env), child_v =
+            aux (g, var_vertices, Env.join env0 env) child
           in
-          if is_lit child_v then var_vertices
-          else Var.Map.add var v var_vertices
-        in
-        (G.add_edge g v child_v, var_vertices, env), v)
+          let var_vertices =
+            (* Duplicates non-base constant var nodes *)
+            if Var.Set.mem var base_vars then var_vertices else
+              let rec is_lit v =
+                match G.V.label v with
+                | ELit _, _ -> true
+                | EVar var, _ when not (Var.Set.mem var base_vars) -> (
+                    match G.succ g v with [v] -> is_lit v | _ -> false)
+                | _ -> false
+              in
+              if is_lit child_v then var_vertices
+              else Var.Map.add var v var_vertices
+          in
+          (G.add_edge g v child_v, var_vertices, env), v
+        with Not_found -> (g, var_vertices, env), v)
+    | EApp { f = EOp { op = (Map | Filter | Reduce | Fold); _ }, _; args = _ :: args }, _ ->
+      (* First argument (which is a function) is ignored *)
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let (g, var_vertices, env), children =
+        List.fold_left_map aux (g, var_vertices, env0) args
+      in
+      ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
+        v )
     | EApp { f = EOp { op; _ }, _; args = [lhs; rhs] }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
@@ -503,12 +525,21 @@ let program_to_graph
       in
       ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
         v )
+    | EArray elts, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let (g, var_vertices, env), children =
+        List.fold_left_map aux (g, var_vertices, env0) elts
+      in
+      ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
+        v )
+    | EAbs _, _ -> (g, var_vertices, env), G.V.create e (* (testing -> ignored) *)
     | _ ->
-      Format.eprintf "%a" Print.expr e;
+      Format.eprintf "%a@," Print.expr e;
       assert false
   in
   let (g, _, env), _ = aux (G.empty, Var.Map.empty, env) e in
-  Format.eprintf "BASE: @[<v>%a@]"
+  log "BASE: @[<v>%a@]"
     (Format.pp_print_list Print.var)
     (Var.Set.elements base_vars);
   g, base_vars, env
@@ -594,6 +625,7 @@ let rec graph_cleanup g =
    * in *)
   let module GTop = Graph.Topological.Make(G) in
   let g, substs =
+    (* Remove intermediate variables *)
     GTop.fold (* Result -> variables order *)
       (fun v (g, substs) ->
          let succ = G.succ g v in
@@ -609,6 +641,7 @@ let rec graph_cleanup g =
   in
   let g = map_vertices substs g in
   let g =
+    (* Merge intermediate operations *)
     let g = reverse_graph g in
     GTop.fold (* Variables -> result order *)
       (fun v g ->
@@ -626,6 +659,7 @@ let rec graph_cleanup g =
     |> reverse_graph
   in
   let g =
+    (* Remove separate nodes for variable literal values *)
     G.fold_vertex
       (fun v g ->
         match G.V.label v, List.map G.V.label (G.pred g v) with
@@ -746,22 +780,23 @@ let to_dot oc ctx env base_vars g =
 
     let vertex_label v =
       match Expr.skip_wrappers (G.V.label v) with
-      | (EVar v, _) as e -> (
-        match lazy_eval ctx env value_level e with
-        | (ELit l, _), _ ->
-          Format.asprintf "%s\n%a" (Bindlib.name_of v) Print.lit l
-        | _ -> Format.asprintf "%s" (Bindlib.name_of v))
+      | (EVar v, _) -> (
+          match Env.find v env with
+          | { reduced = (ELit l, _), _; _ } ->
+            Format.asprintf "%s\n%a" (Bindlib.name_of v) Print.lit l
+          | _ -> Format.asprintf "%s" (Bindlib.name_of v)
+          | exception Not_found -> Format.asprintf "YY %s" (Bindlib.name_of v))
       | (EApp { f = EOp { op; _ }, _; _ }, _) as e ->
-          Format.asprintf "%a" Print.expr e
-        (*     (match op_kind op with
-         * | `Sum | `Product -> 
-         * | `Product -> ""
-         * | `Round -> "<round>"
-         * | `Other -> Format.asprintf "<%a>" (Print.operator ~debug:false) op) *)
+        (match op_kind op with
+         | `Sum | `Product | `Round -> Format.asprintf "%a" Print.expr e
+         | `Fct ->  Format.asprintf "<%a>" (Print.operator ~debug:false) op
+         | `Other ->
+           Format.asprintf "%a" Print.expr e)
       | EApp { f; _ }, _ -> Format.asprintf "%a" Print.expr f
       | ELit l, _ -> Format.asprintf "%a" Print.lit l
       | EStruct { name; _ }, _ ->
         Format.asprintf "{%a}" StructName.format_t name
+      | EArray elts, _ -> Format.asprintf "[collection] (length=%d)" (List.length elts)
       | z -> Format.asprintf "[%a]" Print.expr z
 
     let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
@@ -779,9 +814,9 @@ let to_dot oc ctx env base_vars g =
         else (match List.map G.V.label (G.succ g v) with
             | [] -> [`Style `Filled; `Fillcolor 0x77aaff]
               (* Constants *)
-            | _ -> [])
+            | _ -> [`Style `Filled; `Fillcolor 0xffee99; `Shape `Box])
       | EApp { f = EOp { op; _ }, _; _ }, _ -> (
-        match op_kind op with `Sum | `Product -> [`Shape `Box] | _ -> [])
+        match op_kind op with `Sum | `Product | _ -> [`Shape `Box] | _ -> [])
       | _ -> [])
 
     let get_subgraph v =
