@@ -17,15 +17,13 @@
 open Catala_utils
 open Shared_ast
 
-type mark = {pos: Pos.t; conditions: expr list}
-and expr = (dcalc, mark) gexpr
-
-let pos e = (Marked.get_mark e).pos
+type annot = {conditions: expr list}
+and expr = (dcalc, annot custom) gexpr
 
 (* -- Definition of the lazy interpreter -- *)
 
 let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
-let error e = Errors.raise_spanned_error (pos e)
+let error e = Errors.raise_spanned_error (Expr.pos e)
 let noassert = true
 
 type laziness_level = {
@@ -74,6 +72,13 @@ module Env = struct
       (fun ppf (v, _) -> Print.var_debug ppf v)
       ppf (Var.Map.bindings t)
 end
+
+let add_condition ~condition e =
+  Mark.map_mark
+    (fun (Custom { pos; custom = { conditions } }) ->
+       Custom {pos; custom = { conditions = condition::conditions } })
+    e
+
 
 let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
     =
@@ -186,8 +191,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
     | [] -> (
       match eval_to_value env just with
       | (ELit (LBool true), _), _ ->
-        (* TODO: attach just to this node in the result *)
-        lazy_eval ctx env llevel cons
+        let e, env = lazy_eval ctx env llevel cons in
+        add_condition ~condition:just e,
+        env
       | (ELit (LBool false), _), _ -> (EEmptyError, m), env
       | e, _ -> error e "Invalid exception justification %a" Expr.format e)
     | [(e, env)] ->
@@ -196,13 +202,14 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
     | _ :: _ :: _ ->
       Errors.raise_multispanned_error
         ((None, Expr.mark_pos m)
-        :: List.map (fun (e, _) -> None, pos e) excs)
+        :: List.map (fun (e, _) -> None, Expr.pos e) excs)
         "Conflicting exceptions")
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
     | (ELit (LBool true), _), _ ->
-      (* TODO: attach cond to this node in the result *)
-      lazy_eval ctx env llevel etrue
+      let e, env = lazy_eval ctx env llevel etrue in
+      add_condition ~condition:cond e,
+      env
     | (ELit (LBool false), _), _ -> lazy_eval ctx env llevel efalse
     | e, _ -> error e "Invalid condition %a" Expr.format e)
   | EErrorOnEmpty e, _ -> (
@@ -230,8 +237,7 @@ let result_level base_vars =
     eval_vars = (fun v -> not (Var.Set.mem v base_vars));
   }
 
-let interpret_program (prg : ('dcalc, 'm) gexpr program) (scope : ScopeName.t) :
-    ('t, 'm) gexpr * 'm Env.t =
+let interpret_program (prg : ('dcalc, 'm) gexpr program)
     (scope : ScopeName.t) : ('t, 'm) gexpr * Env.t =
   let ctx = prg.decl_ctx in
   let all_env, scopes =
@@ -399,22 +405,30 @@ let rec is_const e =
   | _ -> false
 
 let program_to_graph
-    (prg : ('dcalc, 'm mark) gexpr program)
+    (prg : (dcalc, 'm) gexpr program)
     (scope : ScopeName.t) : G.t * expr Var.Set.t * Env.t =
   let ctx = prg.decl_ctx in
+  let customize =
+    Expr.map_marks
+      ~f:(fun m -> Custom {
+          pos = Expr.mark_pos m;
+          custom = { conditions = [] }
+        })
+  in
   let all_env, scopes =
     Scope.fold_left prg.code_items ~init:(Env.empty, ScopeName.Map.empty)
       ~f:(fun (env, scopes) item v ->
         match item with
         | ScopeDef (name, body) ->
           let e = Scope.to_expr ctx body (Scope.get_body_mark body) in
+          let e = customize (Expr.unbox e) in
           let e = Expr.remove_logging_calls (Expr.unbox e) in
-          ( Env.add v (Expr.unbox e) env env,
+          ( Env.add (Var.translate v) (Expr.unbox e) env env,
             ScopeName.Map.add name (v, body.scope_body_input_struct) scopes )
-        | Topdef (_, _, e) -> Env.add v e env env, scopes)
+        | Topdef (_, _, e) -> Env.add (Var.translate v) (Expr.unbox (customize e)) env env, scopes)
   in
   let scope_v, _scope_arg_struct = ScopeName.Map.find scope scopes in
-  let e, env = (Env.find scope_v all_env).base in
+  let e, env = (Env.find (Var.translate scope_v) all_env).base in
   let e =
     match e with
     | EAbs { binder; _ }, _ ->
@@ -823,7 +837,7 @@ let to_dot oc ctx env base_vars g =
     let vertex_attributes v =
       let e = V.label v in
       `Label (vertex_label v)
-      :: `Comment (Pos.retrieve_loc_text (pos e))
+      :: `Comment (Pos.retrieve_loc_text (Expr.pos e))
       ::
       (match G.V.label v with
       | EVar var, _ -> (
