@@ -17,18 +17,15 @@
 open Catala_utils
 open Shared_ast
 
-type mark = { pos: Pos.t; justifs: expr list }
-
+type mark = {pos: Pos.t; conditions: expr list}
 and expr = (dcalc, mark) gexpr
+
+let pos e = (Marked.get_mark e).pos
 
 (* -- Definition of the lazy interpreter -- *)
 
-let remark e =
-  let rec f (e, m) = Expr.map ~f (e, {pos = Expr.mark_pos m; justifs = []}) in
-  Expr.unbox (f e)
-
 let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
-let error e = Errors.raise_spanned_error (Marked.get_mark e).pos
+let error e = Errors.raise_spanned_error (pos e)
 let noassert = true
 
 type laziness_level = {
@@ -198,8 +195,8 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
       lazy_eval ctx env llevel e
     | _ :: _ :: _ ->
       Errors.raise_multispanned_error
-        ((None, m.pos)
-        :: List.map (fun (e, _) -> None, e.pos) excs)
+        ((None, Expr.mark_pos m)
+        :: List.map (fun (e, _) -> None, pos e) excs)
         "Conflicting exceptions")
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
@@ -826,8 +823,7 @@ let to_dot oc ctx env base_vars g =
     let vertex_attributes v =
       let e = V.label v in
       `Label (vertex_label v)
-      :: `Comment (Pos.retrieve_loc_text (Expr.pos e))
-      `Comment (Pos.retrieve_loc_text (e.pos))
+      :: `Comment (Pos.retrieve_loc_text (pos e))
       ::
       (match G.V.label v with
       | EVar var, _ -> (
