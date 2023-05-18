@@ -17,39 +17,17 @@
 open Catala_utils
 open Shared_ast
 
-type annot = {conditions: expr list}
-and expr = (dcalc, annot custom) gexpr
-
 (* -- Definition of the lazy interpreter -- *)
 
 let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
 let error e = Errors.raise_spanned_error (Expr.pos e)
 let noassert = true
 
-type laziness_level = {
-  eval_struct : bool;
-      (* if true, evaluate members of structures, tuples, etc. *)
-  eval_op : bool;
-      (* if false, evaluate the operands but keep e.g. `3 + 4` as is *)
-  eval_default : bool;
-  (* if false, stop evaluating as soon as you can discriminate with
-     `EEmptyError` *)
-  eval_vars : expr Var.t -> bool;
-      (* if false, variables are only resolved when they point to another
-         unchanged variable *)
-}
-
-let value_level =
-  {
-    eval_struct = false;
-    eval_op = true;
-    eval_default = true;
-    eval_vars = (fun _ -> true);
-  }
-
 module Env = struct
   type t = Env of (expr, elt) Var.Map.t
   and elt = { base : expr * t; mutable reduced : expr * t }
+  and expr = (dcalc, annot custom) gexpr
+  and annot = {conditions: (expr * t) list}
 
   let find v (Env t) = Var.Map.find v t
 
@@ -72,6 +50,30 @@ module Env = struct
       (fun ppf (v, _) -> Print.var_debug ppf v)
       ppf (Var.Map.bindings t)
 end
+
+type expr = Env.expr
+type annot = Env.annot = {conditions: (expr * Env.t) list}
+
+type laziness_level = {
+  eval_struct : bool;
+      (* if true, evaluate members of structures, tuples, etc. *)
+  eval_op : bool;
+      (* if false, evaluate the operands but keep e.g. `3 + 4` as is *)
+  eval_default : bool;
+  (* if false, stop evaluating as soon as you can discriminate with
+     `EEmptyError` *)
+  eval_vars : expr Var.t -> bool;
+      (* if false, variables are only resolved when they point to another
+         unchanged variable *)
+}
+
+let value_level =
+  {
+    eval_struct = false;
+    eval_op = true;
+    eval_default = true;
+    eval_vars = (fun _ -> true);
+  }
 
 let add_condition ~condition e =
   Mark.map_mark
@@ -191,8 +193,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
     | [] -> (
       match eval_to_value env just with
       | (ELit (LBool true), _), _ ->
+        let condition = just, env in
         let e, env = lazy_eval ctx env llevel cons in
-        add_condition ~condition:just e,
+        add_condition ~condition e,
         env
       | (ELit (LBool false), _), _ -> (EEmptyError, m), env
       | e, _ -> error e "Invalid exception justification %a" Expr.format e)
@@ -207,8 +210,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
     | (ELit (LBool true), _), _ ->
+      let condition = cond, env in
       let e, env = lazy_eval ctx env llevel etrue in
-      add_condition ~condition:cond e,
+      add_condition ~condition e,
       env
     | (ELit (LBool false), _), _ -> lazy_eval ctx env llevel efalse
     | e, _ -> error e "Invalid condition %a" Expr.format e)
@@ -327,16 +331,20 @@ end
 
 module E = struct
   type hand_side = Lhs of string | Rhs of string
-  type t = hand_side option
+  type t = { side: hand_side option; condition: bool }
 
-  let compare =
-    Option.compare (fun x y ->
-        match x, y with
-        | Lhs s, Lhs t | Rhs s, Rhs t -> String.compare s t
-        | Lhs _, Rhs _ -> -1
-        | Rhs _, Lhs _ -> 1)
+  let compare x y =
+    match Bool.compare x.condition y.condition with
+    | 0 ->
+      Option.compare (fun x y ->
+          match x, y with
+          | Lhs s, Lhs t | Rhs s, Rhs t -> String.compare s t
+          | Lhs _, Rhs _ -> -1
+          | Rhs _, Lhs _ -> 1)
+        x.side y.side
+    | n -> n
 
-  let default = None
+  let default = { side = None; condition = false }
 end
 
 module G = Graph.Persistent.Digraph.AbstractLabeled (V) (E)
@@ -531,8 +539,8 @@ let program_to_graph
           Some (E.Lhs "⊗"), Some (E.Rhs "⊘")
         | _ -> None, None
       in
-      let g = G.add_edge_e g (G.E.create v lhs_label lhs) in
-      let g = G.add_edge_e g (G.E.create v rhs_label rhs) in
+      let g = G.add_edge_e g (G.E.create v { side = lhs_label; condition = false } lhs) in
+      let g = G.add_edge_e g (G.E.create v { side = rhs_label; condition = false } rhs) in
       (g, var_vertices, env), v
     | EApp { f = EOp { op = _; _ }, _; args }, _ ->
       let v = G.V.create e in
@@ -566,7 +574,21 @@ let program_to_graph
       Format.eprintf "%a" Expr.format e;
       assert false
   in
-  let (g, _, env), _ = aux (G.empty, Var.Map.empty, env) e in
+  let (g, vmap, env), _ = aux (G.empty, Var.Map.empty, env) e in
+  (* Add conditions ! *)
+  let (g, vmap, env) =
+    G.fold_vertex (fun v (g, vmap, env) ->
+      let e = G.V.label v in
+      let Custom { custom = { conditions; _ }; _ } = Mark.get e in
+      List.fold_left (fun (g, vmap, env0) (econd, env) ->
+          let (g, vmap, env), vcond = aux (g, vmap, env) econd in
+          G.add_edge_e g (G.E.create v { side = None; condition = true } vcond),
+          vmap,
+          Env.join env0 env)
+        (g, vmap, env) conditions)
+      g
+      (g, vmap, env)
+  in
   log "BASE: @[<v>%a@]"
     (Format.pp_print_list Print.var)
     (Var.Set.elements base_vars);
@@ -877,8 +899,9 @@ let to_dot oc ctx env base_vars g =
 
     let edge_attributes e =
       match E.label e with
-      | Some (Lhs s | Rhs s) -> [ (* `Label s; `Color 0xbb7700 *) ]
-      | None -> []
+      | { condition = true; _ } -> [ `Style `Dotted; `Color 0x7777bb ]
+      | { side = Some (Lhs s | Rhs s); _ } -> [ (* `Label s; `Color 0xbb7700 *) ]
+      | _ -> []
   end) in
   GPr.output_graph oc (reverse_graph g)
 
