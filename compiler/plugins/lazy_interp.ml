@@ -81,8 +81,14 @@ let add_condition ~condition e =
        Custom {pos; custom = { conditions = condition::conditions } })
     e
 
+let add_conditions ~conditions e =
+  Mark.map_mark
+    (fun (Custom { pos; custom = { conditions } }) ->
+       Custom {pos; custom = { conditions = conditions@conditions } })
+    e
 
-let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
+
+let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr * Env.t) list * Env.t (* result, conditions, env *)
     =
  fun ctx env llevel e0 ->
   let eval_to_value ?(eval_default = true) env e =
@@ -90,7 +96,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
   in
   match e0 with
   | EVar v, _ ->
-    if (not llevel.eval_default) || not (llevel.eval_vars v) then e0, env
+    if (not llevel.eval_default) || not (llevel.eval_vars v) then e0, [], env
     else
       (* Variables reducing to EEmpty should not propagate to parent EDefault
          (?) *)
@@ -101,18 +107,18 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
             Env.print env
       in
       let e, env1 = env_elt.reduced in
-      let r, env1 = lazy_eval ctx env1 llevel e in
+      let r, conds, env1 = lazy_eval ctx env1 llevel e in
       env_elt.reduced <- r, env1;
-      r, Env.join env env1
+      r, conds, Env.join env env1
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
       && not (List.equal Expr.equal args [ELit LUnit, m])
       (* Applications to () encode thunked default terms *)
-    then e0, env
+    then e0, [], env
     else
       match eval_to_value env f with
-      | (EAbs { binder; _ }, _), env ->
+      | (EAbs { binder; _ }, _), conds, env ->
         let vars, body = Bindlib.unmbind binder in
         log "@[<v 2>@[<hov 4>{";
         let env =
@@ -123,115 +129,126 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t
             env (Array.to_seq vars) (List.to_seq args)
         in
         log "@]@[<hov 4>IN [%a]@]" (Print.expr ~debug:true ()) body;
-        let e, env = lazy_eval ctx env llevel body in
+        let e, conds1, env = lazy_eval ctx env llevel body in
         log "@]}";
-        e, env
-      | ((EOp { op; _ }, m) as f), env ->
-        let env, args =
+        e, conds @ conds1, env
+      | ((EOp { op; _ }, m) as f), conds, env ->
+        let (env, conds), args =
           List.fold_left_map
-            (fun env e ->
-              let e, env = lazy_eval ctx env llevel e in
-              env, e)
-            env args
+            (fun (env, conds) e ->
+              let e, conds1, env = lazy_eval ctx env llevel e in
+              (env, conds1 @ conds), e)
+            (env, conds) args
         in
-        if not llevel.eval_op then (EApp { f; args }, m), env
+        if not llevel.eval_op then (EApp { f; args }, m), conds, env
         else
           let renv = ref env in
-          (* Dirty workaround returning env from evaluate_operator *)
+          (* Dirty workaround returning env and conds from evaluate_operator *)
           let eval e =
-            let e, env = lazy_eval ctx !renv llevel e in
+            let e, conditions, env = lazy_eval ctx !renv llevel e in
             renv := env;
-            e
+            add_conditions ~conditions e
           in
-          Interpreter.evaluate_operator eval op m args, !renv
+          Interpreter.evaluate_operator eval op m args, conds, !renv
       (* fixme: this forwards eempty *)
-      | e, _ -> error e "Invalid apply on %a" Expr.format e)
-  | (EAbs _ | ELit _ | EOp _ | EEmptyError), _ -> e0, env (* these are values *)
+      | e, _, _ -> error e "Invalid apply on %a" Expr.format e)
+  | (EAbs _ | ELit _ | EOp _ | EEmptyError), _ -> e0, [], env (* these are values *)
   | (EStruct _ | ETuple _ | EInj _ | EArray _), _ ->
-    if not llevel.eval_struct then e0, env
+    if not llevel.eval_struct then e0, [], env
     else
       let env, e =
         Expr.map_gather ~acc:env ~join:Env.join
           ~f:(fun e ->
-            let e, env = lazy_eval ctx env llevel e in
-            env, Expr.box e)
+            let e, conditions, env = lazy_eval ctx env llevel e in
+            env, Expr.box (add_conditions ~conditions e))
           e0
       in
-      Expr.unbox e, env
+      Expr.unbox e, [], env
   | EStructAccess { e; name; field }, _ -> (
-    if not llevel.eval_default then e0, env
+    if not llevel.eval_default then e0, [], env
     else
       match eval_to_value env e with
-      | (EStruct { name = n; fields }, _), env when StructName.equal name n ->
-        lazy_eval ctx env llevel (StructField.Map.find field fields)
-      | e, _ -> error e "Invalid field access on %a" Expr.format e)
+      | (EStruct { name = n; fields }, _), conds, env when StructName.equal name n ->
+        let e, conds1, env = lazy_eval ctx env llevel (StructField.Map.find field fields) in
+        e, conds1 @ conds, env
+      | e, _, _ -> error e "Invalid field access on %a" Expr.format e)
   | ETupleAccess { e; index; size }, _ -> (
-    if not llevel.eval_default then e0, env
+    if not llevel.eval_default then e0, [], env
     else
       match eval_to_value env e with
-      | (ETuple es, _), env when List.length es = size ->
-        lazy_eval ctx env llevel (List.nth es index)
-      | e, _ -> error e "Invalid tuple access on %a" Expr.format e)
+      | (ETuple es, _), conds, env when List.length es = size ->
+        let e, conds1, env = lazy_eval ctx env llevel (List.nth es index) in
+        e, conds1 @ conds, env
+      | e, _, _ -> error e "Invalid tuple access on %a" Expr.format e)
   | EMatch { e; name; cases }, _ -> (
-    if not llevel.eval_default then e0, env
+    if not llevel.eval_default then e0, [], env
     else
       match eval_to_value env e with
-      | (EInj { name = n; cons; e }, m), env when EnumName.equal name n ->
-        lazy_eval ctx env llevel
-          (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
-      | e, _ -> error e "Invalid match argument %a" Expr.format e)
+      | (EInj { name = n; cons; e }, m), conds, env when EnumName.equal name n ->
+        let e, conds1, env =
+          lazy_eval ctx env llevel
+            (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
+        in
+        e, conds1 @ conds, env
+      | e, _, _ -> error e "Invalid match argument %a" Expr.format e)
   | EDefault { excepts; just; cons }, m -> (
     let excs =
       List.filter_map
         (fun e ->
           match eval_to_value env e ~eval_default:false with
-          | (EEmptyError, _), _ -> None
+          | (EEmptyError, _), _, _ -> None
           | e -> Some e)
         excepts
     in
     match excs with
     | [] -> (
       match eval_to_value env just with
-      | (ELit (LBool true), _), _ ->
-        let condition = just, env in
-        let e, env = lazy_eval ctx env llevel cons in
-        add_condition ~condition e,
-        env
-      | (ELit (LBool false), _), _ -> (EEmptyError, m), env
-      | e, _ -> error e "Invalid exception justification %a" Expr.format e)
-    | [(e, env)] ->
+      | (ELit (LBool true), _), conds, _ ->
+        let conds = (just, env) :: conds in
+        let e, conds1, env = lazy_eval ctx env llevel cons in
+        e, conds1 @ conds, env
+      | (ELit (LBool false), _), conds, _ -> (EEmptyError, m), conds, env
+      (* Note: conditions for empty are skipped *)
+      | e, _, _ -> error e "Invalid exception justification %a" Expr.format e)
+    | [(e, conds, env)] ->
       log "@[<hov 5>EVAL %a@]" Expr.format e;
-      lazy_eval ctx env llevel e
+      let e, conds1, env = lazy_eval ctx env llevel e in
+      e, conds1 @ conds, env
     | _ :: _ :: _ ->
       Errors.raise_multispanned_error
         ((None, Expr.mark_pos m)
-        :: List.map (fun (e, _) -> None, Expr.pos e) excs)
+        :: List.map (fun (e, _, _) -> None, Expr.pos e) excs)
         "Conflicting exceptions")
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
-    | (ELit (LBool true), _), _ ->
-      let condition = cond, env in
-      let e, env = lazy_eval ctx env llevel etrue in
-      add_condition ~condition e,
-      env
-    | (ELit (LBool false), _), _ -> lazy_eval ctx env llevel efalse
-    | e, _ -> error e "Invalid condition %a" Expr.format e)
+    | (ELit (LBool true), _), conds, _ ->
+      let conds = (cond, env) :: conds in
+      let e, conds1, env = lazy_eval ctx env llevel etrue in
+      e, conds1 @ conds, env
+    | (ELit (LBool false), _), _conds, _ ->
+      lazy_eval ctx env llevel efalse
+      (* Note: would be possible to add the negated condition here (not cond :: _conds) *)
+    | e, _, _ -> error e "Invalid condition %a" Expr.format e)
   | EErrorOnEmpty e, _ -> (
     match eval_to_value env e ~eval_default:false with
-    | ((EEmptyError, _) as e'), _ ->
+    | ((EEmptyError, _) as e'), _conds, _ ->
       (* This does _not_ match the eager semantics ! *)
       error e' "This value is undefined %a" Expr.format e
-    | e, env -> lazy_eval ctx env llevel e)
+    | e, _conds, env -> lazy_eval ctx env llevel e)
   | EAssert e, m -> (
-    if noassert then (ELit LUnit, m), env
+    if noassert then (ELit LUnit, m), [], env
     else
       match eval_to_value env e with
-      | (ELit (LBool true), m), env -> (ELit LUnit, m), env
-      | (ELit (LBool false), _), _ ->
+      | (ELit (LBool true), m), _conds, env -> (ELit LUnit, m), [], env
+      | (ELit (LBool false), _), _conds, _ ->
         error e "Assert failure (%a)" Expr.format e error e "Assert failure (%a)"
           Expr.format e
       | _ -> error e "Invalid assertion condition %a" Expr.format e)
   | _ -> .
+
+let lazy_eval ctx env llevel e =
+  let e, conditions, env = lazy_eval ctx env llevel e in
+  add_conditions ~conditions e, env
 
 let result_level base_vars =
   {
@@ -467,19 +484,21 @@ let program_to_graph
   in
   let rec aux (g, var_vertices, env0) e =
     let e, env0 = lazy_eval ctx env0 level e in
-    match Expr.skip_wrappers e with
+    let m = Mark.get e in
+    let e = Mark.set m (Expr.skip_wrappers e) in
+    match e with
     | ( EApp
           {
             f = EOp { op = ToRat_int | ToRat_mon | ToMoney_rat; _ }, _;
             args = [arg];
           },
         _ ) ->
-      aux (g, var_vertices, env0) arg
+      aux (g, var_vertices, env0) (Mark.set m arg)
     (* we skip conversions *)
     | ELit l, _ ->
       let v = G.V.create e in
       (G.add_vertex g v, var_vertices, env0), v
-    | (EVar var, _) as e -> (
+    | (EVar var, _) -> (
       try (g, var_vertices, env0), Var.Map.find var var_vertices
       with Not_found -> (
         let v = G.V.create e in
@@ -678,9 +697,11 @@ let rec graph_cleanup g =
     (* Remove intermediate variables *)
     GTop.fold (* Result -> variables order *)
       (fun v (g, substs) ->
+         if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v) then g, substs else
         let succ = G.succ g v in
         match G.V.label v, succ, List.map G.V.label succ with
-        | (EVar var1, _), [v2], [(EVar var2, _)] ->
+        | (EVar var1, m1), [v2], [(EVar var2, m2)] ->
+         if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v2) then g, substs else
           let g =
             List.fold_left
               (fun g e ->
