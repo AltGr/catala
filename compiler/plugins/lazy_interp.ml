@@ -83,10 +83,50 @@ let add_condition ~condition e =
 
 let add_conditions ~conditions e =
   Mark.map_mark
-    (fun (Custom { pos; custom = { conditions } }) ->
-       Custom {pos; custom = { conditions = conditions@conditions } })
+    (fun (Custom { pos; custom = { conditions = c } }) ->
+       Custom {pos; custom = { conditions = conditions@c } })
     e
 
+let neg_op = function
+  | Op.Xor -> Some Op.Eq
+  | Op.Lt_int_int -> Some Op.Gte_int_int
+  | Op.Lt_rat_rat -> Some Op.Gte_rat_rat
+  | Op.Lt_mon_mon -> Some Op.Gte_mon_mon
+  | Op.Lt_dat_dat -> Some Op.Gte_dat_dat
+  | Op.Lt_dur_dur -> Some Op.Gte_dur_dur
+  | Op.Lte_int_int -> Some Op.Gt_int_int
+  | Op.Lte_rat_rat -> Some Op.Gt_rat_rat
+  | Op.Lte_mon_mon -> Some Op.Gt_mon_mon
+  | Op.Lte_dat_dat -> Some Op.Gt_dat_dat
+  | Op.Lte_dur_dur -> Some Op.Gt_dur_dur
+  | Op.Gt_int_int -> Some Op.Lte_int_int
+  | Op.Gt_rat_rat -> Some Op.Lte_rat_rat
+  | Op.Gt_mon_mon -> Some Op.Lte_mon_mon
+  | Op.Gt_dat_dat -> Some Op.Lte_dat_dat
+  | Op.Gt_dur_dur -> Some Op.Lte_dur_dur
+  | Op.Gte_int_int -> Some Op.Lt_int_int
+  | Op.Gte_rat_rat -> Some Op.Lt_rat_rat
+  | Op.Gte_mon_mon -> Some Op.Lt_mon_mon
+  | Op.Gte_dat_dat -> Some Op.Lt_dat_dat
+  | Op.Gte_dur_dur -> Some Op.Lt_dur_dur
+  | _ -> None
+
+let rec bool_negation e =
+  match Expr.skip_wrappers e with
+  | ELit (LBool true), m -> ELit (LBool false), m
+  | ELit (LBool false), m -> ELit (LBool true), m
+  | EApp {f = EOp { op = Op.Not; _ }, _; args = [e, _]}, m -> e, m
+  | EApp {f = EOp { op; tys }, mop; args = [e1; e2]}, m as e ->
+    (match op with
+     | Op.And -> EApp {f = EOp { op = Op.Or; tys }, mop; args = [bool_negation e1; bool_negation e2]}, m
+     | Op.Or -> EApp {f = EOp { op = Op.And; tys }, mop; args = [bool_negation e1; bool_negation e2]}, m
+     | op -> match neg_op op with
+       | Some op ->
+         EApp {f = EOp { op; tys }, mop; args = [e1; e2]}, m
+       | None ->
+         EApp {f = EOp {op=Op.Not; tys=[TLit TBool, Expr.mark_pos m]}, m; args = [e]}, m)
+  | (_, m) as e ->
+    EApp {f = EOp {op=Op.Not; tys=[TLit TBool, Expr.mark_pos m]}, m; args = [e]}, m
 
 let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr * Env.t) list * Env.t (* result, conditions, env *)
     =
@@ -225,9 +265,11 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr 
       let conds = (cond, env) :: conds in
       let e, conds1, env = lazy_eval ctx env llevel etrue in
       e, conds1 @ conds, env
-    | (ELit (LBool false), _), _conds, _ ->
-      lazy_eval ctx env llevel efalse
-      (* Note: would be possible to add the negated condition here (not cond :: _conds) *)
+    | (ELit (LBool false), m), conds, _ ->
+      let ncond = bool_negation cond in
+      let conds = (ncond, env) :: conds in
+      let e, conds1, env = lazy_eval ctx env llevel efalse in
+      e, conds1 @ conds, env
     | e, _, _ -> error e "Invalid condition %a" Expr.format e)
   | EErrorOnEmpty e, _ -> (
     match eval_to_value env e ~eval_default:false with
@@ -894,7 +936,7 @@ let to_dot oc ctx env base_vars g =
       let pos = Expr.pos e in
       let loc_text =
         Re.replace_string Re.(compile (char '\n')) ~by:"&#10;"
-          (Format.asprintf "%a@." Pos.format_loc_text (Expr.pos e))
+          (String.concat "\n» " (List.rev (Pos.get_law_info pos)) ^ "\n")
       in
       `Label (vertex_label v (* ^ "\n" ^ loc_text *))
       :: `Comment (loc_text)
@@ -905,7 +947,7 @@ let to_dot oc ctx env base_vars g =
        *                (Pos.get_file pos))
        *          ^ "-" ^ string_of_int (Pos.get_start_line pos)) *)
       :: `Url ("https://github.com/CatalaLang/catala/blob/master/" ^ Pos.get_file pos ^ "#L" ^ string_of_int (Pos.get_start_line pos))
-      :: `Fontname "monospace"
+      (* :: `Fontname "monospace" *)
       ::
       (match G.V.label v with
       | EVar var, _ -> (
