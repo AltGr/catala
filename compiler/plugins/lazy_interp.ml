@@ -128,15 +128,14 @@ let rec bool_negation e =
   | (_, m) as e ->
     EApp {f = EOp {op=Op.Not; tys=[TLit TBool, Expr.mark_pos m]}, m; args = [e]}, m
 
-let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr * Env.t) list * Env.t (* result, conditions, env *)
-    =
+let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t =
  fun ctx env llevel e0 ->
   let eval_to_value ?(eval_default = true) env e =
     lazy_eval ctx env { value_level with eval_default } e
   in
   match e0 with
   | EVar v, _ ->
-    if (not llevel.eval_default) || not (llevel.eval_vars v) then e0, [], env
+    if (not llevel.eval_default) || not (llevel.eval_vars v) then e0, env
     else
       (* Variables reducing to EEmpty should not propagate to parent EDefault
          (?) *)
@@ -147,18 +146,18 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr 
             Env.print env
       in
       let e, env1 = env_elt.reduced in
-      let r, conds, env1 = lazy_eval ctx env1 llevel e in
+      let r, env1 = lazy_eval ctx env1 llevel e in
       env_elt.reduced <- r, env1;
-      r, conds, Env.join env env1
+      r, Env.join env env1
   | EApp { f; args }, m -> (
     if
       (not llevel.eval_default)
       && not (List.equal Expr.equal args [ELit LUnit, m])
       (* Applications to () encode thunked default terms *)
-    then e0, [], env
+    then e0, env
     else
       match eval_to_value env f with
-      | (EAbs { binder; _ }, _), conds, env ->
+      | (EAbs { binder; _ }, _), env ->
         let vars, body = Bindlib.unmbind binder in
         log "@[<v 2>@[<hov 4>{";
         let env =
@@ -169,129 +168,128 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * (expr 
             env (Array.to_seq vars) (List.to_seq args)
         in
         log "@]@[<hov 4>IN [%a]@]" (Print.expr ~debug:true ()) body;
-        let e, conds1, env = lazy_eval ctx env llevel body in
+        let e, env = lazy_eval ctx env llevel body in
         log "@]}";
-        e, conds @ conds1, env
-      | ((EOp { op; _ }, m) as f), conds, env ->
-        let (env, conds), args =
+        e, env
+      | ((EOp { op; _ }, m) as f), env ->
+        let env, args =
           List.fold_left_map
-            (fun (env, conds) e ->
-              let e, conds1, env = lazy_eval ctx env llevel e in
-              (env, conds1 @ conds), e)
-            (env, conds) args
+            (fun env e ->
+              let e, env = lazy_eval ctx env llevel e in
+              env, e)
+            env args
         in
-        if not llevel.eval_op then (EApp { f; args }, m), conds, env
+        if not llevel.eval_op then (EApp { f; args }, m), env
         else
           let renv = ref env in
           (* Dirty workaround returning env and conds from evaluate_operator *)
           let eval e =
-            let e, conditions, env = lazy_eval ctx !renv llevel e in
+            let e, env = lazy_eval ctx !renv llevel e in
             renv := env;
-            add_conditions ~conditions e
+            e
           in
-          Interpreter.evaluate_operator eval op m args, conds, !renv
+          Interpreter.evaluate_operator eval op m args, !renv
       (* fixme: this forwards eempty *)
-      | e, _, _ -> error e "Invalid apply on %a" Expr.format e)
-  | (EAbs _ | ELit _ | EOp _ | EEmptyError), _ -> e0, [], env (* these are values *)
+      | e, _ -> error e "Invalid apply on %a" Expr.format e)
+  | (EAbs _ | ELit _ | EOp _ | EEmptyError), _ -> e0, env (* these are values *)
   | (EStruct _ | ETuple _ | EInj _ | EArray _), _ ->
-    if not llevel.eval_struct then e0, [], env
+    if not llevel.eval_struct then e0, env
     else
       let env, e =
         Expr.map_gather ~acc:env ~join:Env.join
           ~f:(fun e ->
-            let e, conditions, env = lazy_eval ctx env llevel e in
-            env, Expr.box (add_conditions ~conditions e))
+            let e, env = lazy_eval ctx env llevel e in
+            env, Expr.box e)
           e0
       in
-      Expr.unbox e, [], env
+      Expr.unbox e, env
   | EStructAccess { e; name; field }, _ -> (
-    if not llevel.eval_default then e0, [], env
+    if not llevel.eval_default then e0, env
     else
       match eval_to_value env e with
-      | (EStruct { name = n; fields }, _), conds, env when StructName.equal name n ->
-        let e, conds1, env = lazy_eval ctx env llevel (StructField.Map.find field fields) in
-        e, conds1 @ conds, env
-      | e, _, _ -> error e "Invalid field access on %a" Expr.format e)
+      | (EStruct { name = n; fields }, _), env when StructName.equal name n ->
+        let e, env = lazy_eval ctx env llevel (StructField.Map.find field fields) in
+        e, env
+      | e, _ -> error e "Invalid field access on %a" Expr.format e)
   | ETupleAccess { e; index; size }, _ -> (
-    if not llevel.eval_default then e0, [], env
+    if not llevel.eval_default then e0, env
     else
       match eval_to_value env e with
-      | (ETuple es, _), conds, env when List.length es = size ->
-        let e, conds1, env = lazy_eval ctx env llevel (List.nth es index) in
-        e, conds1 @ conds, env
-      | e, _, _ -> error e "Invalid tuple access on %a" Expr.format e)
+      | (ETuple es, _), env when List.length es = size ->
+        lazy_eval ctx env llevel (List.nth es index)
+      | e, _ -> error e "Invalid tuple access on %a" Expr.format e)
   | EMatch { e; name; cases }, _ -> (
-    if not llevel.eval_default then e0, [], env
+    if not llevel.eval_default then e0, env
     else
       match eval_to_value env e with
-      | (EInj { name = n; cons; e }, m), conds, env when EnumName.equal name n ->
-        let e, conds1, env =
-          lazy_eval ctx env llevel
-            (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
-        in
-        e, conds1 @ conds, env
-      | e, _, _ -> error e "Invalid match argument %a" Expr.format e)
+      | (EInj { name = n; cons; e }, m), env when EnumName.equal name n ->
+        (* let conds = FIXME add condition
+         *   (Expr.unbox @@
+         *    Expr.ematch (Expr.box e) name
+         *      (EnumConstructor.Map.singleton cons
+         *         (Expr.make_abs [|Var.make "_"|] (Expr.elit (LBool true) m) [TEnum name, (Expr.mark_pos m)]  (Expr.mark_pos m)))
+         *      m,
+         *    env)
+         *   :: conds
+         * in *)
+        lazy_eval ctx env llevel
+          (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
+      | e, _ -> error e "Invalid match argument %a" Expr.format e)
   | EDefault { excepts; just; cons }, m -> (
     let excs =
       List.filter_map
         (fun e ->
           match eval_to_value env e ~eval_default:false with
-          | (EEmptyError, _), _, _ -> None
+          | (EEmptyError, _), _ -> None
           | e -> Some e)
         excepts
     in
     match excs with
     | [] -> (
       match eval_to_value env just with
-      | (ELit (LBool true), _), conds, _ ->
-        let conds = (just, env) :: conds in
-        let e, conds1, env = lazy_eval ctx env llevel cons in
-        e, conds1 @ conds, env
-      | (ELit (LBool false), _), conds, _ -> (EEmptyError, m), conds, env
+      | (ELit (LBool true), _), _ ->
+        let condition = just, env in
+        let e, env = lazy_eval ctx env llevel cons in
+        add_condition ~condition e, env
+      | (ELit (LBool false), _), _ -> (EEmptyError, m), env
       (* Note: conditions for empty are skipped *)
-      | e, _, _ -> error e "Invalid exception justification %a" Expr.format e)
-    | [(e, conds, env)] ->
+      | e, _ -> error e "Invalid exception justification %a" Expr.format e)
+    | [(e, env)] ->
       log "@[<hov 5>EVAL %a@]" Expr.format e;
-      let e, conds1, env = lazy_eval ctx env llevel e in
-      e, conds1 @ conds, env
+      lazy_eval ctx env llevel e
     | _ :: _ :: _ ->
       Message.raise_multispanned_error
         ((None, Expr.mark_pos m)
-        :: List.map (fun (e, _, _) -> None, Expr.pos e) excs)
+        :: List.map (fun (e, _) -> None, Expr.pos e) excs)
         "Conflicting exceptions")
   | EIfThenElse { cond; etrue; efalse }, _ -> (
     match eval_to_value env cond with
-    | (ELit (LBool true), _), conds, _ ->
-      let conds = (cond, env) :: conds in
-      let e, conds1, env = lazy_eval ctx env llevel etrue in
-      e, conds1 @ conds, env
-    | (ELit (LBool false), m), conds, _ ->
-      let ncond = bool_negation cond in
-      let conds = (ncond, env) :: conds in
-      let e, conds1, env = lazy_eval ctx env llevel efalse in
-      e, conds1 @ conds, env
-    | e, _, _ -> error e "Invalid condition %a" Expr.format e)
+    | (ELit (LBool true), _), _ ->
+      let condition = cond, env in
+      let e, env = lazy_eval ctx env llevel etrue in
+      add_condition ~condition e, env
+    | (ELit (LBool false), m), _ ->
+      let condition = bool_negation cond, env in
+      let e, env = lazy_eval ctx env llevel efalse in
+      add_condition ~condition e, env
+    | e, _ -> error e "Invalid condition %a" Expr.format e)
   | EErrorOnEmpty e, _ -> (
     match eval_to_value env e ~eval_default:false with
-    | ((EEmptyError, _) as e'), _conds, _ ->
+    | ((EEmptyError, _) as e'), _ ->
       (* This does _not_ match the eager semantics ! *)
       error e' "This value is undefined %a" Expr.format e
-    | e, _conds, env -> lazy_eval ctx env llevel e)
+    | e, env -> lazy_eval ctx env llevel e)
   | EAssert e, m -> (
-    if noassert then (ELit LUnit, m), [], env
+    if noassert then (ELit LUnit, m), env
     else
       match eval_to_value env e with
-      | (ELit (LBool true), m), _conds, env -> (ELit LUnit, m), [], env
-      | (ELit (LBool false), _), _conds, _ ->
+      | (ELit (LBool true), m), env -> (ELit LUnit, m), env
+      | (ELit (LBool false), _), _ ->
         error e "Assert failure (%a)" Expr.format e error e "Assert failure (%a)"
           Expr.format e
       | _ -> error e "Invalid assertion condition %a" Expr.format e)
   | EExternal _, _ -> assert false (* todo *)
   | _ -> .
-
-let lazy_eval ctx env llevel e =
-  let e, conditions, env = lazy_eval ctx env llevel e in
-  add_conditions ~conditions e, env
 
 let result_level base_vars =
   {
@@ -525,9 +523,21 @@ let program_to_graph
       eval_vars = (fun v -> false);
     }
   in
-  let rec aux (g, var_vertices, env0) e =
+  let rec aux parent (g, var_vertices, env0) e =
     let e, env0 = lazy_eval ctx env0 level e in
     let m = Mark.get e in
+    let Custom { custom = { conditions; _ }; _ } = m in
+    let g, var_vertices, env0 =
+      match parent with
+      | None -> g, var_vertices, env0
+      | Some parent ->
+        List.fold_left (fun (g, var_vertices, env0) (econd, env) ->
+            let (g, var_vertices, env), vcond = aux (Some parent) (g, var_vertices, env) econd in
+            G.add_edge_e g (G.E.create parent { side = None; condition = true } vcond),
+            var_vertices,
+            Env.join env0 env)
+          (g, var_vertices, env0) conditions
+    in
     let e = Mark.set m (Expr.skip_wrappers e) in
     match e with
     | ( EApp
@@ -536,7 +546,7 @@ let program_to_graph
             args = [arg];
           },
         _ ) ->
-      aux (g, var_vertices, env0) (Mark.set m arg)
+      aux parent (g, var_vertices, env0) (Mark.set m arg)
     (* we skip conversions *)
     | ELit l, _ ->
       let v = G.V.create e in
@@ -549,7 +559,7 @@ let program_to_graph
         try
           let child, env = (Env.find var env0).base in
           let (g, var_vertices, env), child_v =
-            aux (g, var_vertices, Env.join env0 env) child
+            aux (Some v) (g, var_vertices, Env.join env0 env) child
           in
           let var_vertices =
             (* Duplicates non-base constant var nodes *)
@@ -578,15 +588,15 @@ let program_to_graph
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let (g, var_vertices, env), children =
-        List.fold_left_map aux (g, var_vertices, env0) args
+        List.fold_left_map (aux (Some v)) (g, var_vertices, env0) args
       in
       ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
         v )
     | EApp { f = EOp { op; _ }, _; args = [lhs; rhs] }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
-      let (g, var_vertices, env), lhs = aux (g, var_vertices, env0) lhs in
-      let (g, var_vertices, env), rhs = aux (g, var_vertices, env) rhs in
+      let (g, var_vertices, env), lhs = aux (Some v) (g, var_vertices, env0) lhs in
+      let (g, var_vertices, env), rhs = aux (Some v) (g, var_vertices, env) rhs in
       let lhs_label, rhs_label =
         match op with
         | Add_int_int | Add_rat_rat | Add_mon_mon | Add_dat_dur _ | Add_dur_dur
@@ -608,17 +618,17 @@ let program_to_graph
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let (g, var_vertices, env), children =
-        List.fold_left_map aux (g, var_vertices, env0) args
+        List.fold_left_map (aux (Some v)) (g, var_vertices, env0) args
       in
       ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
         v )
-    | EInj { e; _ }, _ -> aux (g, var_vertices, env0) e
+    | EInj { e; _ }, _ -> aux parent (g, var_vertices, env0) e
     | EStruct { fields; _ }, _ ->
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let args = List.map snd (StructField.Map.bindings fields) in
       let (g, var_vertices, env), children =
-        List.fold_left_map aux (g, var_vertices, env0) args
+        List.fold_left_map (aux (Some v)) (g, var_vertices, env0) args
       in
       ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
         v )
@@ -626,7 +636,7 @@ let program_to_graph
       let v = G.V.create e in
       let g = G.add_vertex g v in
       let (g, var_vertices, env), children =
-        List.fold_left_map aux (g, var_vertices, env0) elts
+        List.fold_left_map (aux (Some v)) (g, var_vertices, env0) elts
       in
       ( (List.fold_left (fun g -> G.add_edge g v) g children, var_vertices, env),
         v )
@@ -636,21 +646,21 @@ let program_to_graph
       Format.eprintf "%a" Expr.format e;
       assert false
   in
-  let (g, vmap, env), _ = aux (G.empty, Var.Map.empty, env) e in
+  let (g, vmap, env), _ = aux None (G.empty, Var.Map.empty, env) e in
   (* Add conditions ! *)
-  let (g, vmap, env) =
-    G.fold_vertex (fun v (g, vmap, env) ->
-      let e = G.V.label v in
-      let Custom { custom = { conditions; _ }; _ } = Mark.get e in
-      List.fold_left (fun (g, vmap, env0) (econd, env) ->
-          let (g, vmap, env), vcond = aux (g, vmap, env) econd in
-          G.add_edge_e g (G.E.create v { side = None; condition = true } vcond),
-          vmap,
-          Env.join env0 env)
-        (g, vmap, env) conditions)
-      g
-      (g, vmap, env)
-  in
+  (* let (g, vmap, env) =
+   *   G.fold_vertex (fun v (g, vmap, env) ->
+   *     let e = G.V.label v in
+   *     let Custom { custom = { conditions; _ }; _ } = Mark.get e in
+   *     List.fold_left (fun (g, vmap, env0) (econd, env) ->
+   *         let (g, vmap, env), vcond = aux (g, vmap, env) econd in
+   *         G.add_edge_e g (G.E.create v { side = None; condition = true } vcond),
+   *         vmap,
+   *         Env.join env0 env)
+   *       (g, vmap, env) conditions)
+   *     g
+   *     (g, vmap, env)
+   * in *)
   log "BASE: @[<v>%a@]"
     (Format.pp_print_list Print.var)
     (Var.Set.elements base_vars);
@@ -740,23 +750,16 @@ let rec graph_cleanup g =
     (* Remove intermediate variables *)
     GTop.fold (* Result -> variables order *)
       (fun v (g, substs) ->
-         (* if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v) then g, substs else *)
-        let cond_e, succ_e = List.partition (fun e -> (G.E.label e).condition) (G.succ_e g v) in
+        let succ_e = G.succ_e g v in
+        if List.exists (fun ed -> (G.E.label ed).condition) succ_e then g, substs else
         let succ = List.map G.E.dst succ_e in
         match G.V.label v, succ, List.map G.V.label succ with
         | (EVar var1, m1), [v2], [(EVar var2, m2)] ->
-         if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v2) then g, substs else
           let g =
             List.fold_left
               (fun g e ->
                 G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
               g (G.pred_e g v)
-          in
-          let g =
-            List.fold_left
-              (fun g e ->
-                G.add_edge_e g (G.E.create v (G.E.label e) (G.E.dst e)))
-              g cond_e
           in
           G.remove_vertex g v, fun e -> subst_by var1 var2 (substs e)
         | _ -> g, substs)
@@ -955,7 +958,7 @@ let to_dot oc ctx env base_vars g =
           [`Style `Filled; `Fillcolor 0xffaa55; `Shape `Box]
         else
           match List.map G.V.label (G.succ g v) with
-          | [] -> [`Style `Filled; `Fillcolor 0x77aaff] (* Constants *)
+          | [] -> [`Style `Filled; `Fillcolor 0x77aaff; `Shape `Note] (* Constants *)
           | _ -> [`Style `Filled; `Fillcolor 0xffee99; `Shape `Box])
       | EApp { f = EOp { op; _ }, _; _ }, _ -> (
         match op_kind op with `Sum | `Product | _ -> [`Shape `Box] (* | _ -> [] *))
