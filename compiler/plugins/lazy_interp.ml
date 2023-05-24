@@ -59,6 +59,7 @@ type laziness_level = {
       (* if true, evaluate members of structures, tuples, etc. *)
   eval_op : bool;
       (* if false, evaluate the operands but keep e.g. `3 + 4` as is *)
+  eval_match : bool;
   eval_default : bool;
   (* if false, stop evaluating as soon as you can discriminate with
      `EEmptyError` *)
@@ -71,6 +72,7 @@ let value_level =
   {
     eval_struct = false;
     eval_op = true;
+    eval_match = true;
     eval_default = true;
     eval_vars = (fun _ -> true);
   }
@@ -219,21 +221,16 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
         lazy_eval ctx env llevel (List.nth es index)
       | e, _ -> error e "Invalid tuple access on %a" Expr.format e)
   | EMatch { e; name; cases }, _ -> (
-    if not llevel.eval_default then e0, env
+    if not llevel.eval_match then e0, env
     else
       match eval_to_value env e with
       | (EInj { name = n; cons; e }, m), env when EnumName.equal name n ->
-        (* let conds = FIXME add condition
-         *   (Expr.unbox @@
-         *    Expr.ematch (Expr.box e) name
-         *      (EnumConstructor.Map.singleton cons
-         *         (Expr.make_abs [|Var.make "_"|] (Expr.elit (LBool true) m) [TEnum name, (Expr.mark_pos m)]  (Expr.mark_pos m)))
-         *      m,
-         *    env)
-         *   :: conds
-         * in *)
-        lazy_eval ctx env llevel
-          (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
+        let condition = e, env in
+        let e, env =
+          lazy_eval ctx env llevel
+            (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
+        in
+        add_condition ~condition e, env
       | e, _ -> error e "Invalid match argument %a" Expr.format e)
   | EDefault { excepts; just; cons }, m -> (
     let excs =
@@ -271,7 +268,10 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
     | (ELit (LBool false), m), _ ->
       let condition = bool_negation cond, env in
       let e, env = lazy_eval ctx env llevel efalse in
-      add_condition ~condition e, env
+      (match efalse with
+       (* The negated condition is not added for nested [else if] to reduce verbosity *)
+       | EIfThenElse _, _ -> e, env
+       | _ -> add_condition ~condition e, env)
     | e, _ -> error e "Invalid condition %a" Expr.format e)
   | EErrorOnEmpty e, _ -> (
     match eval_to_value env e ~eval_default:false with
@@ -519,6 +519,7 @@ let program_to_graph
       value_level with
       eval_struct = true;
       eval_op = false;
+      eval_match = false;
       eval_vars = (fun v -> false);
     }
   in
@@ -641,6 +642,8 @@ let program_to_graph
         v )
     | EAbs _, _ ->
       (g, var_vertices, env), G.V.create e (* (testing -> ignored) *)
+    | EMatch {name; e; cases}, _ ->
+      aux parent (g, var_vertices, env0) e
     | _ ->
       Format.eprintf "%a" Expr.format e;
       assert false
@@ -955,10 +958,10 @@ let to_dot oc ctx env base_vars g =
       | EVar var, _ -> (
         if Var.Set.mem var base_vars then
           [`Style `Filled; `Fillcolor 0xffaa55; `Shape `Box]
-        else
-          match List.map G.V.label (G.succ g v) with
-          | [] -> [`Style `Filled; `Fillcolor 0x77aaff; `Shape `Note] (* Constants *)
-          | _ -> [`Style `Filled; `Fillcolor 0xffee99; `Shape `Box])
+        else if List.exists (fun e -> not (G.E.label e).condition) (G.succ_e g v) then (* non-constants *)
+          [`Style `Filled; `Fillcolor 0xffee99; `Shape `Box]
+        else (* Constants *)
+          [`Style `Filled; `Fillcolor 0x77aaff; `Shape `Note])
       | EApp { f = EOp { op; _ }, _; _ }, _ -> (
         match op_kind op with `Sum | `Product | _ -> [`Shape `Box] (* | _ -> [] *))
       | _ -> [])
