@@ -697,8 +697,9 @@ let rec graph_cleanup g =
     (* Remove intermediate variables *)
     GTop.fold (* Result -> variables order *)
       (fun v (g, substs) ->
-         if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v) then g, substs else
-        let succ = G.succ g v in
+         (* if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v) then g, substs else *)
+        let cond_e, succ_e = List.partition (fun e -> (G.E.label e).condition) (G.succ_e g v) in
+        let succ = List.map G.E.dst succ_e in
         match G.V.label v, succ, List.map G.V.label succ with
         | (EVar var1, m1), [v2], [(EVar var2, m2)] ->
          if List.exists (fun ed -> (G.E.label ed).condition) (G.succ_e g v2) then g, substs else
@@ -707,6 +708,12 @@ let rec graph_cleanup g =
               (fun g e ->
                 G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
               g (G.pred_e g v)
+          in
+          let g =
+            List.fold_left
+              (fun g e ->
+                G.add_edge_e g (G.E.create v (G.E.label e) (G.E.dst e)))
+              g cond_e
           in
           G.remove_vertex g v, fun e -> subst_by var1 var2 (substs e)
         | _ -> g, substs)
@@ -851,15 +858,19 @@ let to_dot oc ctx env base_vars g =
   let module GPr = Graph.Graphviz.Dot (struct
     include G
 
-    let graph_attributes _ = [ (* `Rankdir `LeftToRight *) ]
+    let graph_attributes _ =
+      [
+        (* `Rankdir `LeftToRight *)
+      ]
     let default_vertex_attributes _ = []
 
     let vertex_label v =
-      match Expr.skip_wrappers (G.V.label v) with
+      let e = Expr.skip_wrappers (G.V.label v) in
+      match e with
       | EVar v, _ -> (
-        match Env.find v env with
-        | { reduced = (ELit l, _), _; _ } ->
-          Format.asprintf "%s\n%a" (Bindlib.name_of v) Print.lit l
+        match lazy_eval ctx env value_level e (* Env.find v env *) with
+        | (ELit l, _), _ ->
+          Format.asprintf "%s = %a" (Bindlib.name_of v) Print.lit l
         | _ -> Format.asprintf "%s" (Bindlib.name_of v)
         | exception Not_found -> Format.asprintf "YY %s" (Bindlib.name_of v))
       | (EApp { f = EOp { op; _ }, _; _ }, _) as e -> (
@@ -879,8 +890,21 @@ let to_dot oc ctx env base_vars g =
 
     let vertex_attributes v =
       let e = V.label v in
-      `Label (vertex_label v)
-      :: `Comment (Pos.retrieve_loc_text (Expr.pos e))
+      let pos = Expr.pos e in
+      let loc_text =
+        Re.replace_string Re.(compile (char '\n')) ~by:"&#10;"
+          (Pos.retrieve_loc_text pos ^ "\n")
+      in
+      `Label (vertex_label v (* ^ "\n" ^ loc_text *))
+      :: `Comment (loc_text)
+      (* :: `Url ("https://catala-lang.org/en/examples/housing-benefits#" ^
+       *          Re.(replace_string
+       *                (compile (seq [char '/'; rep1 (diff any (char '/')); str "/../"]))
+       *                ~by:"/"
+       *                (Pos.get_file pos))
+       *          ^ "-" ^ string_of_int (Pos.get_start_line pos)) *)
+      :: `Url ("https://github.com/CatalaLang/catala/blob/master/" ^ Pos.get_file pos ^ "#L" ^ string_of_int (Pos.get_start_line pos))
+      :: `Fontname "monospace"
       ::
       (match G.V.label v with
       | EVar var, _ -> (
@@ -920,7 +944,7 @@ let to_dot oc ctx env base_vars g =
 
     let edge_attributes e =
       match E.label e with
-      | { condition = true; _ } -> [ `Style `Dotted; `Color 0x7777bb ]
+      | { condition = true; _ } -> [ `Style `Dashed; `Penwidth 5.; `Color 0xff7700 ]
       | { side = Some (Lhs s | Rhs s); _ } -> [ (* `Label s; `Color 0xbb7700 *) ]
       | _ -> []
   end) in
