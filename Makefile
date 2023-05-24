@@ -216,6 +216,9 @@ literate_examples: literate_allocations_familiales literate_code_general_impots 
 	literate_us_tax_code literate_tutorial_en literate_tutoriel_fr \
 	literate_polish_taxes literate_aides_logement
 
+%.svg: plugins %.catala_fr
+	CATALA_PLUGINS=_build/default/compiler/plugins dune exec -- catala lazy $*.catala_fr -s Exemple3 --color=never | sed 's/comment=/tooltip=/' | dot -Tsvg >$*.svg
+
 ##########################################
 # French law library
 ##########################################
