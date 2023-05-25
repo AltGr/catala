@@ -190,7 +190,8 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
             renv := env;
             e
           in
-          Interpreter.evaluate_operator eval op m args, !renv
+          let e = Interpreter.evaluate_operator eval op m args in
+          e, !renv
       (* fixme: this forwards eempty *)
       | e, _ -> error e "Invalid apply on %a" Expr.format e)
   | (EAbs _ | ELit _ | EOp _ | EEmptyError), _ -> e0, env (* these are values *)
@@ -529,6 +530,7 @@ let program_to_graph
     let m = Mark.get e in
     let Custom { custom = { conditions; _ }; _ } = m in
     let g, var_vertices, env0 =
+      (* add conditions *)
       match parent with
       | None -> g, var_vertices, env0
       | Some parent ->
