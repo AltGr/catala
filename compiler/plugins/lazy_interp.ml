@@ -930,10 +930,21 @@ let to_dot oc ctx env base_vars g =
         | `Other -> Format.asprintf "%a" Expr.format e)
       | EApp { f; _ }, _ -> Format.asprintf "%a" Expr.format f
       | ELit l, _ -> Format.asprintf "%a" Print.lit l
-      | EStruct { name; _ }, _ ->
-        Format.asprintf "{%a}" StructName.format_t name
+      | EStruct { name; fields }, _ ->
+        Format.asprintf "{ %a | { { %a } | { %a }}}" StructName.format_t name
+          (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf " | ")
+             (fun ppf (fld, _) -> StructField.format_t ppf fld; Format.pp_print_string ppf "\\l"))
+          (StructField.Map.bindings fields)
+          (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf " | ")
+             (fun ppf -> function _, ((EVar _ | ELit _ | EInj { e = (EVar _ | ELit _), _; _ }), _ as e) -> Expr.format ppf e;  Format.pp_print_string ppf "\\l" | _ -> Format.pp_print_string ppf "…\\l"))
+          (StructField.Map.bindings fields)
+        |> Re.replace_string Re.(compile (seq [char '\n'; rep space])) ~by:" "
       | EArray elts, _ ->
-        Format.asprintf "[collection] (length=%d)" (List.length elts)
+        Format.asprintf "{ %a }"
+          (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf " | ")
+             (fun ppf -> function (EVar _ | ELit _), _ as e -> Expr.format ppf e | _ -> Format.pp_print_string ppf "…"))
+          elts
+        |> Re.replace_string Re.(compile (seq [char '\n'; rep space])) ~by:" "
       | z -> Format.asprintf "[%a]" Expr.format z
 
     let vertex_name v = Printf.sprintf "x%03d" (G.V.hash v)
@@ -964,6 +975,7 @@ let to_dot oc ctx env base_vars g =
           [`Style `Filled; `Fillcolor 0xffee99; `Shape `Box]
         else (* Constants *)
           [`Style `Filled; `Fillcolor 0x77aaff; `Shape `Note])
+      | EStruct _, _ | EArray _, _ -> [`Shape `Record]
       | EApp { f = EOp { op; _ }, _; _ }, _ -> (
         match op_kind op with `Sum | `Product | _ -> [`Shape `Box] (* | _ -> [] *))
       | _ -> [])
