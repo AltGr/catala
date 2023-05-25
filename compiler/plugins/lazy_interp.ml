@@ -267,7 +267,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
       | (EStruct { name = n; fields }, _), env when StructName.equal name n ->
         let e, env = lazy_eval ctx env llevel (StructField.Map.find field fields) in
         e, env
-      | e, _ -> error e "Invalid field access on %a" Expr.format e)
+      | _ -> e0, env)
   | ETupleAccess { e; index; size }, _ -> (
     if not llevel.eval_default then e0, env
     else
@@ -573,7 +573,7 @@ let program_to_graph
   let level =
     {
       value_level with
-      eval_struct = true;
+      eval_struct = false;
       eval_op = false;
       eval_match = false;
       eval_vars = (fun v -> false);
@@ -637,6 +637,7 @@ let program_to_graph
           in
           (G.add_edge g v child_v, var_vertices, env), v
         with Not_found ->
+          Errors.format_warning "VAR NOT FOUND: %a" Print.var var;
           let v = G.V.create e in
           let g = G.add_vertex g v in
           (g, var_vertices, env), v))
@@ -706,6 +707,14 @@ let program_to_graph
       (g, var_vertices, env), G.V.create e (* (testing -> ignored) *)
     | EMatch {name; e; cases}, _ ->
       aux parent (g, var_vertices, env0) e
+    | EStructAccess { e; field; _ }, _ ->
+      let v = G.V.create e in
+      let g = G.add_vertex g v in
+      let (g, var_vertices, env), child =
+        aux (Some v) (g, var_vertices, env0) e
+      in
+      ( (G.add_edge g v child, var_vertices, env),
+        v )
     | _ ->
       Format.eprintf "%a" Expr.format e;
       assert false
@@ -1008,8 +1017,8 @@ let to_dot oc ctx env base_vars g =
         match lazy_eval ctx env value_level e (* Env.find v env *) with
         | (ELit l, _), _ ->
           Format.asprintf "%s = %a" (Bindlib.name_of v) Print.lit l
-        | _ -> Format.asprintf "%s" (Bindlib.name_of v)
-        | exception Not_found -> Format.asprintf "YY %s" (Bindlib.name_of v))
+        | e, _ -> Format.asprintf "%s\n%a" (Bindlib.name_of v) Expr.format e
+        | exception _ -> Format.asprintf "YY %s" (Bindlib.name_of v))
       | (EApp { f = EOp { op; _ }, _; _ }, _) as e -> (
         match op_kind op with
          | `Sum | `Product | `Round -> Format.asprintf "%a" Expr.format e
