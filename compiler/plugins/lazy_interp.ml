@@ -763,9 +763,9 @@ let reverse_graph g =
         (G.E.create (G.E.dst e) (G.E.label e) (G.E.src e)))
     g g
 
-let subst_by v1 v2 e =
+let subst_by v1 e2 e =
   let rec f = function
-    | EVar v, m when Var.equal v v1 -> Expr.box (EVar v2, m)
+    | EVar v, m when Var.equal v v1 -> Expr.box e2
     | e -> Expr.map ~f e
   in
   Expr.unbox (f e)
@@ -787,7 +787,7 @@ let map_vertices f g =
       G.remove_vertex g v)
     g g
 
-let rec graph_cleanup g =
+let rec graph_cleanup g base_vars =
   (* let _g =
    *   let module GCtr = Graph.Contraction.Make (G) in
    *   GCtr.contract
@@ -806,6 +806,37 @@ let rec graph_cleanup g =
    *     g
    * in *)
   let module GTop = Graph.Topological.Make (G) in
+  let g =
+    (* Remove separate nodes for variable literal values *)
+    G.fold_vertex
+      (fun v g ->
+        match G.V.label v, List.map G.V.label (G.pred g v) with
+        (* | (ELit _, _), [EVar _, _] -> G.remove_vertex g v *)
+        | (ELit _, _), _ ->
+          G.remove_vertex g v (* <- test with print full form. *)
+        | _, _ -> g)
+      g g
+  in
+  let g =
+    (* Merge intermediate operations *)
+    let g = reverse_graph g in
+    GTop.fold (* Variables -> result order *)
+      (fun v g ->
+        let succ = G.succ g v in
+        match G.V.label v, succ, List.map G.V.label succ with
+        | (EApp { f = EOp _, _; _ }, _), [v2], [(EApp { f = EOp _, _; _ }, _)]
+          ->
+          let g =
+            List.fold_left
+              (fun g e ->
+                G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
+              g (G.pred_e g v)
+          in
+          G.remove_vertex g v
+        | _ -> g)
+      g g
+    |> reverse_graph
+  in
   let g, substs =
     (* Remove intermediate variables *)
     GTop.fold (* Result -> variables order *)
@@ -814,20 +845,26 @@ let rec graph_cleanup g =
         if List.exists (fun ed -> (G.E.label ed).condition) succ_e then g, substs else
         let succ = List.map G.E.dst succ_e in
         match G.V.label v, succ, List.map G.V.label succ with
-        | (EVar var1, m1), [v2], [(EVar var2, m2)] ->
+        | (EVar var1, m1), [v2], [(EVar var2, m2)] when not (Var.Set.mem var1 base_vars) ->
           let g =
             List.fold_left
               (fun g e ->
                 G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v2))
               g (G.pred_e g v)
           in
-          G.remove_vertex g v, fun e -> subst_by var1 var2 (substs e)
+          G.remove_vertex g v, fun e -> subst_by var1 (EVar var2, m2) (substs e)
+        | (EVar var1, m1), [v2], [EApp _, _ as e2] when not (Var.Set.mem var1 base_vars) ->
+          (match G.pred_e g v with
+           | [pred_e] when (G.E.src pred_e) |> G.out_degree g <= 3 ->
+             let g = G.add_edge_e g (G.E.create (G.E.src pred_e) (G.E.label pred_e) v2) in
+             G.remove_vertex g v, fun e -> subst_by var1 e2 (substs e)
+           | _ -> g, substs)
         | _ -> g, substs)
       g (g, Fun.id)
   in
   let g = map_vertices substs g in
   let g =
-    (* Merge intermediate operations *)
+    (* Merge intermediate operations (again) *)
     let g = reverse_graph g in
     GTop.fold (* Variables -> result order *)
       (fun v g ->
@@ -1212,7 +1249,8 @@ let apply ~source_file ~output_file ~scope prg _type_ordering =
   (* let ppf = Format.std_formatter in *)
   (* let result_expr, env = interpret_program prg scope in *)
   let g, base_vars, env = program_to_graph prg scope in
-  to_dot stdout prg.decl_ctx env base_vars (graph_cleanup g)
+  Format.eprintf "%a\n" (Format.pp_print_list Print.var) (Var.Set.elements base_vars);
+  to_dot stdout prg.decl_ctx env base_vars (graph_cleanup g base_vars)
 
 (* ; * print_value_with_env prg.decl_ctx ppf env result_expr *)
 
