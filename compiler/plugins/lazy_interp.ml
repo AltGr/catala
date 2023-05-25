@@ -17,6 +17,9 @@
 open Catala_utils
 open Shared_ast
 
+let with_conditions = true
+let with_cleanup = true
+
 (* -- Definition of the lazy interpreter -- *)
 
 let log fmt = Format.ifprintf Format.err_formatter (fmt ^^ "@\n")
@@ -173,9 +176,9 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
         let e, env = lazy_eval ctx env llevel body in
         log "@]}";
         e, env
-      | (EOp { op = (Op.Filter|Op.Reduce|Op.Fold as op); tys}, m), env ->
+      | (EOp { op = (Op.Filter|Op.Reduce|Op.Fold as op); tys}, m), env when not llevel.eval_op ->
         (* Distribute collection operations to the terms rather than use their runtime implementations *)
-        let arr = List.hd (List.rev args) in
+        let arr = List.hd (List.rev args) in (* All these ops have the array as last arg *)
         let aty = List.hd (List.rev tys) in
         (match eval_to_value env arr with
          | (EArray elts, _), env ->
@@ -210,7 +213,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
                 in
                 (EArray (List.rev rev_elts), m), env
               (* Note: no annots for removed terms, even if the result is empty *)
-              | Op.Reduce, [f; dft; _], (elt0::elts) ->
+              | Op.Reduce, [f; _; _], (elt0::elts) ->
                 let e =
                   List.fold_left (fun acc elt -> EApp { f; args = [acc; elt] }, m) elt0 elts
                 in
@@ -222,8 +225,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
                 e, env
               | _ -> assert false)
            in
-           (* The term was transformed into one without an outer op on a collection, call the interp again *)
-           lazy_eval ctx env llevel e
+           e, env
          | _ ->  (EApp { f; args }, m), env)
       | ((EOp { op; _ }, m) as f), env ->
         let env, args =
@@ -583,6 +585,7 @@ let program_to_graph
     let Custom { custom = { conditions; _ }; _ } = m in
     let g, var_vertices, env0 =
       (* add conditions *)
+      if not with_conditions then g, var_vertices, env0 else
       match parent with
       | None -> g, var_vertices, env0
       | Some parent ->
@@ -856,7 +859,8 @@ let rec graph_cleanup g base_vars =
           G.remove_vertex g v, fun e -> subst_by var1 (EVar var2, m2) (substs e)
         | (EVar var1, m1), [v2], [EApp _, _ as e2] when not (Var.Set.mem var1 base_vars) ->
           (match G.pred_e g v with
-           | [pred_e] when (G.E.src pred_e) |> G.out_degree g <= 3 ->
+           | [pred_e] when G.E.src pred_e |> G.out_degree g <= 3 ->
+             (* Arbitrary heuristics: don't merge if the child node already has >3 parents *)
              let g = G.add_edge_e g (G.E.create (G.E.src pred_e) (G.E.label pred_e) v2) in
              G.remove_vertex g v, fun e -> subst_by var1 e2 (substs e)
            | _ -> g, substs)
@@ -883,17 +887,6 @@ let rec graph_cleanup g base_vars =
         | _ -> g)
       g g
     |> reverse_graph
-  in
-  let g =
-    (* Remove separate nodes for variable literal values *)
-    G.fold_vertex
-      (fun v g ->
-        match G.V.label v, List.map G.V.label (G.pred g v) with
-        (* | (ELit _, _), [EVar _, _] -> G.remove_vertex g v *)
-        | (ELit _, _), _ ->
-          G.remove_vertex g v (* <- test with print full form. *)
-        | _, _ -> g)
-      g g
   in
   (* let g =
    *   G.fold_edges_e (fun e g ->
@@ -1100,7 +1093,7 @@ let to_dot oc ctx env base_vars g =
 
     let edge_attributes e =
       match E.label e with
-      | { condition = true; _ } -> [ `Style `Dashed; `Penwidth 5.; `Color 0xff7700 ]
+      | { condition = true; _ } -> [ `Style `Dashed; `Penwidth 5.; `Color 0xff7700; `Arrowhead `Odot ]
       | { side = Some (Lhs s | Rhs s); _ } -> [ (* `Label s; `Color 0xbb7700 *) ]
       | _ -> []
   end) in
@@ -1246,7 +1239,7 @@ let run link_modules optimize check_invariants ex_scope options =
   (* let result_expr, env = interpret_program prg scope in *)
   let g, base_vars, env = program_to_graph prg scope in
   Format.eprintf "%a\n" (Format.pp_print_list Print.var) (Var.Set.elements base_vars);
-  to_dot stdout prg.decl_ctx env base_vars (graph_cleanup g base_vars)
+  to_dot stdout prg.decl_ctx env base_vars (if with_cleanup then graph_cleanup g base_vars else g)
 
 (* ; * print_value_with_env prg.decl_ctx ppf env result_expr *)
 
