@@ -608,10 +608,11 @@ let program_to_graph
     | (EVar var, _) -> (
       try (g, var_vertices, env0), Var.Map.find var var_vertices
       with Not_found -> (
-        let v = G.V.create e in
-        let g = G.add_vertex g v in
         try
           let child, env = (Env.find var env0).base in
+          let m = Mark.get child in
+          let v = G.V.create (Mark.set m e) in
+          let g = G.add_vertex g v in
           let (g, var_vertices, env), child_v =
             aux (Some v) (g, var_vertices, Env.join env0 env) child
           in
@@ -631,7 +632,10 @@ let program_to_graph
               else Var.Map.add var v var_vertices
           in
           (G.add_edge g v child_v, var_vertices, env), v
-        with Not_found -> (g, var_vertices, env), v))
+        with Not_found ->
+          let v = G.V.create e in
+          let g = G.add_vertex g v in
+          (g, var_vertices, env), v))
     | ( EApp
           {
             f = EOp { op = Map | Filter | Reduce | Fold; _ }, _;
