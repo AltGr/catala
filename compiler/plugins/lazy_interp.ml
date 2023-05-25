@@ -173,6 +173,58 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
         let e, env = lazy_eval ctx env llevel body in
         log "@]}";
         e, env
+      | (EOp { op = (Op.Filter|Op.Reduce|Op.Fold as op); tys}, m), env ->
+        (* Distribute collection operations to the terms rather than use their runtime implementations *)
+        let arr = List.hd (List.rev args) in
+        let aty = List.hd (List.rev tys) in
+        (match eval_to_value env arr with
+         | (EArray elts, _), env ->
+           let eapp f e = EApp { f; args = [e] }, m in
+           let empty_condition () = (* Is the expression [length(arr) = 0] *)
+             let pos = Expr.mark_pos m in
+             EApp { f = EOp {op=Op.Eq_int_int; tys=[TLit TInt, pos; TLit TInt, pos]}, m;
+                    args = [
+                      EApp { f=EOp {op=Op.Length; tys=[aty]}, m; args=[arr] }, m;
+                      ELit (LInt (Runtime.integer_of_int 0)), m;
+                    ]},
+             m
+           in
+           let e, env =
+             (match op, args, elts with
+              | (Op.Map | Op.Filter), _, [] ->
+                let e = EArray [], m in
+                add_condition ~condition:(empty_condition (), env) e, env
+              | (Op.Reduce | Op.Fold), [_; dft; _], [] ->
+                add_condition ~condition:(empty_condition (), env) dft, env
+              | Op.Map, [f; _], elts -> (EArray (List.map (eapp f) elts), m), env
+              | Op.Filter, [f; _], elts ->
+                let rev_elts, env =
+                  List.fold_left
+                    (fun (elts, env) e ->
+                       let cond = eapp f e in
+                       match lazy_eval ctx env value_level cond with
+                       | (ELit (LBool true), _), _ -> add_condition ~condition:(cond, env) e :: elts, env
+                       | (ELit (LBool false), _), _ -> elts, env
+                       | _ -> assert false)
+                    ([], env) elts
+                in
+                (EArray (List.rev rev_elts), m), env
+              (* Note: no annots for removed terms, even if the result is empty *)
+              | Op.Reduce, [f; dft; _], (elt0::elts) ->
+                let e =
+                  List.fold_left (fun acc elt -> EApp { f; args = [acc; elt] }, m) elt0 elts
+                in
+                e, env
+              | Op.Fold, [f; base; _], elts ->
+                let e =
+                  List.fold_left (fun acc elt -> EApp { f; args = [acc; elt] }, m) base elts
+                in
+                e, env
+              | _ -> assert false)
+           in
+           (* The term was transformed into one without an outer op on a collection, call the interp again *)
+           lazy_eval ctx env llevel e
+         | _ ->  (EApp { f; args }, m), env)
       | ((EOp { op; _ }, m) as f), env ->
         let env, args =
           List.fold_left_map
