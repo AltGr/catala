@@ -177,7 +177,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
         let e, env = lazy_eval ctx env llevel body in
         log "@]}";
         e, env
-      | (EOp { op = (Op.Filter|Op.Reduce|Op.Fold as op); tys}, m), env when not llevel.eval_op ->
+      | (EOp { op = (Op.Map|Op.Filter|Op.Reduce|Op.Fold|Op.Length as op); tys}, m), env (* when not llevel.eval_op *) ->
         (* Distribute collection operations to the terms rather than use their runtime implementations *)
         let arr = List.hd (List.rev args) in (* All these ops have the array as last arg *)
         let aty = List.hd (List.rev tys) in
@@ -224,9 +224,12 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
                   List.fold_left (fun acc elt -> EApp { f; args = [acc; elt] }, m) base elts
                 in
                 e, env
+              | Op.Length, [_], elts ->
+                (ELit (LInt (Runtime.integer_of_int (List.length elts))), m), env
               | _ -> assert false)
            in
-           e, env
+           (* We did a transformation (removing the outer operator), but further evaluation may be needed to guarantee that [llevel] is reached *)
+           lazy_eval ctx env llevel e
          | _ ->  (EApp { f; args }, m), env)
       | ((EOp { op; _ }, m) as f), env ->
         let env, args =
@@ -280,13 +283,14 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
     if not llevel.eval_match then e0, env
     else
       match eval_to_value env e with
-      | (EInj { name = n; cons; e }, m), env when EnumName.equal name n ->
+      | (EInj { name = n; cons; e = e1}, m), env when EnumName.equal name n ->
         let condition = e, env in
-        let e, env =
+        (* FIXME: condition should be "e TEST_MATCH n" but we don't have a concise expression to express that *)
+        let e1, env =
           lazy_eval ctx env llevel
-            (EApp { f = EnumConstructor.Map.find cons cases; args = [e] }, m)
+            (EApp { f = EnumConstructor.Map.find cons cases; args = [e1] }, m)
         in
-        add_condition ~condition e, env
+        add_condition ~condition e1, env
       | e, _ -> error e "Invalid match argument %a" Expr.format e)
   | EDefault { excepts; just; cons }, m -> (
     let excs =
@@ -830,7 +834,15 @@ let rec graph_cleanup g base_vars =
         | (ELit _, m) ->
           G.remove_vertex g v,
           (* Forward position of the deleted literal to its parent *)
-          List.fold_left (fun vmap v -> if G.out_degree g v = 1 then VMap.add v m vmap else vmap) vmap
+          List.fold_left (fun vmap v ->
+              let out =
+                G.succ_e g v
+                |> List.filter (fun e -> not (G.E.label e).condition)
+              in
+              match out with
+              | [_] -> VMap.add v m vmap
+              | _ -> vmap)
+            vmap
             (G.pred g v)
         | _, _ -> g, vmap)
       g (g, VMap.empty)
