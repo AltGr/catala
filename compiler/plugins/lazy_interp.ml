@@ -229,7 +229,7 @@ let rec lazy_eval : decl_ctx -> Env.t -> laziness_level -> expr -> expr * Env.t 
               | _ -> assert false)
            in
            (* We did a transformation (removing the outer operator), but further evaluation may be needed to guarantee that [llevel] is reached *)
-           lazy_eval ctx env llevel e
+           lazy_eval ctx env {llevel with eval_match = true} e
          | _ ->  (EApp { f; args }, m), env)
       | ((EOp { op; _ }, m) as f), env ->
         let env, args =
