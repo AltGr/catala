@@ -921,6 +921,39 @@ let rec graph_cleanup g base_vars =
       g g
     |> reverse_graph
   in
+  let g =
+    let module EMap = Map.Make(struct type t = expr let compare = Expr.compare end) in
+    (* Merge duplicate nodes *)
+    let emap =
+      G.fold_vertex (fun v expr_map ->
+          let e = G.V.label v in
+          EMap.update e (function None -> Some [v] | Some l -> Some (v::l)) expr_map)
+        g EMap.empty
+    in
+    EMap.fold (fun expr vs g ->
+        match vs with
+        | [] | [_] -> g
+        | v0::vn ->
+          let e_in =
+            List.map (G.pred_e g) vs
+            |> List.flatten
+            |> List.map (fun e -> G.E.create (G.E.src e) (G.E.label e) v0)
+            |> List.sort_uniq G.E.compare
+          in
+          let e_out =
+            List.map (G.succ_e g) vs
+            |> List.flatten
+            |> List.map (fun e -> G.E.create v0 (G.E.label e) (G.E.dst e))
+            |> List.sort_uniq G.E.compare
+          in
+          let g = List.fold_left G.remove_vertex g vn in
+          let g = List.fold_left G.remove_edge_e g (G.succ_e g v0) in
+          let g = List.fold_left G.remove_edge_e g (G.pred_e g v0) in
+          let g = List.fold_left G.add_edge_e g e_in in
+          let g = List.fold_left G.add_edge_e g e_out in
+          g)
+      emap g
+  in
   (* let g =
    *   G.fold_edges_e (fun e g ->
    *       match G.V.label (G.E.src e) with
@@ -1044,10 +1077,11 @@ let to_dot oc ctx env base_vars g =
         | e, _ -> Format.asprintf "%s\n%a" (Bindlib.name_of v) Expr.format e
         | exception _ -> Format.asprintf "YY %s" (Bindlib.name_of v))
       | (EApp { f = EOp { op; _ }, _; _ }, _) as e -> (
+        Re.replace_string Re.(compile (char '\n')) ~by:"\\l" @@
         match op_kind op with
-         | `Sum | `Product | `Round -> Format.asprintf "%a" Expr.format e
-        | `Fct -> Format.asprintf "<%a>" (Print.operator ~debug:false) op
-        | `Other -> Format.asprintf "%a" Expr.format e)
+         | `Sum | `Product | `Round -> Format.asprintf "%a\\l" Expr.format e
+         | `Fct -> Format.asprintf "<%a>" (Print.operator ~debug:false) op
+         | `Other -> Format.asprintf "%a\\l" Expr.format e)
       | EApp { f; _ }, _ -> Format.asprintf "%a" Expr.format f
       | ELit l, _ -> Format.asprintf "%a" Print.lit l
       | EStruct { name; fields }, _ ->
@@ -1085,7 +1119,7 @@ let to_dot oc ctx env base_vars g =
        *                (Pos.get_file pos))
        *          ^ "-" ^ string_of_int (Pos.get_start_line pos)) *)
       :: `Url ("https://github.com/CatalaLang/catala/blob/master/" ^ Pos.get_file pos ^ "#L" ^ string_of_int (Pos.get_start_line pos))
-      (* :: `Fontname "monospace" *)
+      :: `Fontname "DejaVu Sans Mono"
       ::
       (match G.V.label v with
       | EVar var, _ -> (
