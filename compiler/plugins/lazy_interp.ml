@@ -19,6 +19,7 @@ open Shared_ast
 
 let with_conditions = true
 let with_cleanup = true
+let merge_level = 2
 
 (* -- Definition of the lazy interpreter -- *)
 
@@ -785,7 +786,7 @@ let subst_by v1 e2 e =
 let map_vertices f g =
   G.fold_vertex
     (fun v g ->
-      let v' = G.V.create (f (G.V.label v)) in
+      let v' = G.V.create (f v) in
       let g =
         G.fold_pred_e
           (fun e g -> G.add_edge_e g (G.E.create (G.E.src e) (G.E.label e) v'))
@@ -818,16 +819,26 @@ let rec graph_cleanup g base_vars =
    *     g
    * in *)
   let module GTop = Graph.Topological.Make (G) in
-  let g =
+  let module VMap = Map.Make(G.V) in
+  let g, vmap =
     (* Remove separate nodes for variable literal values *)
     G.fold_vertex
-      (fun v g ->
-        match G.V.label v, List.map G.V.label (G.pred g v) with
+      (fun v (g, vmap) ->
+        match G.V.label v with
         (* | (ELit _, _), [EVar _, _] -> G.remove_vertex g v *)
-        | (ELit _, _), _ ->
-          G.remove_vertex g v (* <- test with print full form. *)
-        | _, _ -> g)
-      g g
+        | (ELit _, m) ->
+          G.remove_vertex g v,
+          (* Forward position of the deleted literal to its parent *)
+          List.fold_left (fun vmap v -> if G.out_degree g v = 1 then VMap.add v m vmap else vmap) vmap
+            (G.pred g v)
+        | _, _ -> g, vmap)
+      g (g, VMap.empty)
+  in
+  let g = map_vertices (fun v ->
+      match VMap.find_opt v vmap with
+      | Some m -> Mark.set m (G.V.label v)
+      | None -> G.V.label v)
+      g
   in
   let g =
     (* Merge intermediate operations *)
@@ -866,14 +877,15 @@ let rec graph_cleanup g base_vars =
           in
           G.remove_vertex g v, fun e -> subst_by var1 (EVar var2, m2) (substs e)
         | (EVar var1, m1), [v2], [EApp _, _ as e2] when not (Var.Set.mem var1 base_vars) ->
-          (match G.pred_e g v with
-           | [pred_e] when G.E.src pred_e |> G.out_degree g <= 3 ->
-             (* Arbitrary heuristics: don't merge if the child node already has >3 parents *)
+          let pred_e = G.pred_e g v in
+          (match pred_e, List.map (fun e -> G.V.label (G.E.src e)) pred_e with
+           | [pred_e], [EApp _, _] when G.E.src pred_e |> G.out_degree g <= merge_level ->
+             (* Arbitrary heuristics: don't merge if the child node already has > level parents *)
              let g = G.add_edge_e g (G.E.create (G.E.src pred_e) (G.E.label pred_e) v2) in
              G.remove_vertex g v, fun e -> subst_by var1 e2 (substs e)
            | _ -> g, substs)
         | _ -> g, substs)
-      g (g, Fun.id)
+      g (g, G.V.label)
   in
   let g = map_vertices substs g in
   let g =
