@@ -122,10 +122,11 @@ let rec format_typ
       t1 format_typ t2
   | TArray t1 -> (
     match Mark.remove (UnionFind.get (UnionFind.find t1)) with
-    | TAny _ when not !Cli.debug_flag -> Format.pp_print_string fmt "collection"
+    | TAny _ when not Cli.globals.debug ->
+      Format.pp_print_string fmt "collection"
     | _ -> Format.fprintf fmt "@[collection@ %a@]" format_typ t1)
   | TAny v ->
-    if !Cli.debug_flag then Format.fprintf fmt "<a%d>" (Any.hash v)
+    if Cli.globals.debug then Format.fprintf fmt "<a%d>" (Any.hash v)
     else Format.pp_print_string fmt "<any>"
 
 exception Type_error of A.any_expr * unionfind_typ * unionfind_typ

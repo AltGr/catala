@@ -158,26 +158,27 @@ champ d'application Exemple2 :
 ```catala-test-inline
 $ catala Interpret -s Exemple1
 [RESULT] Computation successful! Results:
-[RESULT] montant_versé = 246.23 €
+[RESULT] montant_versé = ¤246.23
 [RESULT] éligibilité = true
 ```
 ```catala-test-inline
 $ catala Interpret_Lcalc -s Exemple1 --avoid_exceptions
 [RESULT] Computation successful! Results:
-[RESULT] montant_versé = ESome 246.23 €
+[RESULT] montant_versé = ESome ¤246.23
 [RESULT] éligibilité = ESome true
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Exemple2
 [RESULT] Computation successful! Results:
-[RESULT] montant_versé = 230.63 €
+[RESULT] montant_versé = ¤230.63
 [RESULT] éligibilité = true
 ```
 
 ```catala-test-inline
 $ catala Interpret -s Exemple2 --avoid_exceptions
-[RESULT] Computation successful! Results:
-[RESULT] montant_versé = 230.63 €
-[RESULT] éligibilité = true
+catala: unknown option '--avoid_exceptions'.
+Usage: catala interpret [OPTION]… FILE
+Try 'catala interpret --help' or 'catala --help' for more information.
+#return code 124#
 ```

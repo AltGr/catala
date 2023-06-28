@@ -20,5 +20,5 @@ $ catala Lcalc -s S --avoid_exceptions -O --closure_conversion
 5 │   internal f content integer depends on y content integer
   │            ‾
   └─ Article
-#return code 255#
+#return code 123#
 ```
