@@ -171,6 +171,12 @@ val with_ty : 'm mark -> ?pos:Pos.t -> typ -> 'm mark
 val map_ty : (typ -> typ) -> 'm mark -> 'm mark
 (** Identity on untyped marks*)
 
+val mark_tany : 'm mark -> 'm mark
+(** Remove type information from the given mark: identity on untyped marks, or
+    fills type information with [TAny] for typed marks. Useful to avoid
+    propagating wrong type information when rewriting or expanding terms, when
+    computing all intermediate types by hand would be too tedious *)
+
 val map_mark : (Pos.t -> Pos.t) -> (typ -> typ) -> 'm mark -> 'm mark
 
 val map_mark2 :

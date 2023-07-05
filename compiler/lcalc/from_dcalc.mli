@@ -24,3 +24,9 @@ val translate_program_without_exceptions :
     translation uses an option monad to handle empty defaults terms. This
     transformation is one piece to permit to compile toward legacy languages
     that does not contains catchable exceptions. *)
+
+val translate_program_with_ifthenelse : 'm Dcalc.Ast.program -> 'm Ast.program
+(** Translation from the default calculus to the lambda calculus. This
+    translation is experimental and relies only on nested [if then else]
+    constructions, without need for option types, monads, built-in
+    [HandleDefault] operators or exceptions (except for fatal cases) *)

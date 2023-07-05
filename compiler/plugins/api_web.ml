@@ -429,13 +429,14 @@ let run
     optimize
     check_invariants
     avoid_exceptions
+    only_ite
     closure_conversion
     options =
   if not options.Cli.trace then
     Message.raise_error "This plugin requires the --trace flag.";
   let prg, _, type_ordering =
     Driver.Passes.lcalc options ~link_modules ~optimize ~check_invariants
-      ~avoid_exceptions ~closure_conversion
+      ~avoid_exceptions ~only_ite ~closure_conversion
   in
   let modname =
     (* TODO: module directive support *)
@@ -473,6 +474,7 @@ let term =
   $ Cli.Flags.optimize
   $ Cli.Flags.check_invariants
   $ Cli.Flags.avoid_exceptions
+  $ Cli.Flags.only_ite
   $ Cli.Flags.closure_conversion
 
 let () =

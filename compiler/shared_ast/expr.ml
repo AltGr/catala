@@ -248,6 +248,8 @@ let maybe_ty (type m) ?(typ = TAny) (m : m mark) : typ =
   | Untyped { pos } | Custom { pos; _ } -> Mark.add pos typ
   | Typed { ty; _ } -> ty
 
+let mark_tany m = with_ty m (TAny, mark_pos m)
+
 (* - Predefined types (option) - *)
 
 let option_enum = EnumName.fresh ("eoption", Pos.no_pos)
@@ -815,7 +817,19 @@ let make_app e args pos =
         | fty :: argtys -> (
           match Mark.remove fty.ty with
           | TArrow (tx', tr) ->
-            assert (Type.unifiable_list tx' (List.map (fun x -> x.ty) argtys));
+            if not (Type.unifiable_list tx' (List.map (fun x -> x.ty) argtys))
+            then
+              Message.raise_internal_error
+                "@[<v>Bad argument types while building function application@,\
+                 - function expected: %a@,\
+                 - arguments: %a@]"
+                (Format.pp_print_list Print.typ_debug ~pp_sep:(fun ppf () ->
+                     Format.pp_print_string ppf ", "))
+                tx'
+                (Format.pp_print_list
+                   (fun ppf x -> Print.typ_debug ppf x.ty)
+                   ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ", "))
+                argtys format (unbox e);
             tr
           | TAny -> fty.ty
           | _ ->

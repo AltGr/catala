@@ -212,12 +212,13 @@ let run
     optimize
     check_invariants
     avoid_exceptions
+    only_ite
     closure_conversion
     ex_scope
     options =
   let prg, ctx, _ =
     Driver.Passes.lcalc options ~link_modules ~optimize ~check_invariants
-      ~avoid_exceptions ~closure_conversion
+      ~avoid_exceptions ~only_ite ~closure_conversion
   in
   let output_file, with_output =
     Driver.Commands.get_output_format options ~ext:"_schema.json" output
@@ -239,6 +240,7 @@ let term =
   $ Cli.Flags.optimize
   $ Cli.Flags.check_invariants
   $ Cli.Flags.avoid_exceptions
+  $ Cli.Flags.only_ite
   $ Cli.Flags.closure_conversion
   $ Cli.Flags.ex_scope
 

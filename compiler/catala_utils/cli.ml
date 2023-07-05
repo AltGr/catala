@@ -283,6 +283,15 @@ module Flags = struct
   let optimize =
     value & flag & info ["optimize"; "O"] ~doc:"Run compiler optimizations."
 
+  let only_ite =
+    value
+    & flag
+    & info ["only_ite"]
+        ~doc:
+          "Turns on an experimental variant of $(b,--avoid_exceptions) that \
+           compiles to a lower-level lambda-calculus. Implies \
+           $(b,--avoid_exceptions)."
+
   let avoid_exceptions =
     value
     & flag
@@ -295,7 +304,7 @@ module Flags = struct
     & info ["closure_conversion"]
         ~doc:
           "Performs closure conversion on the lambda calculus. Implies \
-           $(b,--avoid-exceptions) and $(b,--optimize)."
+           $(b,--avoid_exceptions) and $(b,--optimize)."
 
   let link_modules =
     value

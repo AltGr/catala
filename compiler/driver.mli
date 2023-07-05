@@ -54,6 +54,7 @@ module Passes : sig
     optimize:bool ->
     check_invariants:bool ->
     avoid_exceptions:bool ->
+    only_ite:bool ->
     closure_conversion:bool ->
     Shared_ast.untyped Lcalc.Ast.program
     * Desugared.Name_resolution.context
@@ -65,6 +66,7 @@ module Passes : sig
     optimize:bool ->
     check_invariants:bool ->
     avoid_exceptions:bool ->
+    only_ite:bool ->
     closure_conversion:bool ->
     Scalc.Ast.program
     * Desugared.Name_resolution.context

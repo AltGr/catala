@@ -28,12 +28,13 @@ let run
     optimize
     check_invariants
     avoid_exceptions
+    only_ite
     closure_conversion
     options =
   let open Driver.Commands in
   let prg, _, type_ordering =
     Driver.Passes.scalc options ~link_modules ~optimize ~check_invariants
-      ~avoid_exceptions ~closure_conversion
+      ~avoid_exceptions ~only_ite ~closure_conversion
   in
   let output_file, with_output = get_output_format options ~ext:".py" output in
   Message.emit_debug "Compiling program into Python...";
@@ -49,6 +50,7 @@ let term =
   $ Cli.Flags.optimize
   $ Cli.Flags.check_invariants
   $ Cli.Flags.avoid_exceptions
+  $ Cli.Flags.only_ite
   $ Cli.Flags.closure_conversion
 
 let () =

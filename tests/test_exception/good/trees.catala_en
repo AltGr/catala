@@ -1,0 +1,247 @@
+## Test
+
+```catala
+declaration scope Foo:
+  input y content integer
+  context output x content integer
+
+scope Foo:
+  definition x equals 1000
+
+  exception definition x under condition y = 0
+  consequence equals 0
+
+  label ex1
+  exception definition x under condition y = 1
+  consequence equals 1
+
+  exception ex1 definition x under condition y = 2
+  consequence equals 2
+
+  label exx1
+  exception definition x under condition y = 2
+  consequence equals 102
+
+  exception exx1 definition x under condition y = 3
+  consequence equals 103
+
+  exception exx1 definition x under condition y = 4
+  consequence equals 104
+
+declaration scope Test: foo scope Foo output x content integer
+scope Test: definition foo.y equals 1 definition x equals foo.x
+```
+
+```catala-test-inline
+$ catala exceptions -s Foo -v x
+[RESULT]
+Printing the tree of exceptions for the definitions of variable "x" of scope "Foo".
+[RESULT]
+Definitions with label "base_case":
+┌─⯈ tests/test_exception/good/trees.catala_en:9.3-9.15:
+└─┐
+9 │   definition x equals 1000
+  │   ‾‾‾‾‾‾‾‾‾‾‾‾
+  └─ Test
+[RESULT]
+Definitions with label "exception_to_x":
+┌─⯈ tests/test_exception/good/trees.catala_en:11.3-11.25:
+└──┐
+11 │   exception definition x under condition y = 0
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+[RESULT]
+Definitions with label "ex1":
+┌─⯈ tests/test_exception/good/trees.catala_en:14.3-15.25:
+└──┐
+14 │   label ex1
+   │   ‾‾‾‾‾‾‾‾‾
+15 │   exception definition x under condition y = 1
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+[RESULT]
+Definitions with label "exception_to_ex1":
+┌─⯈ tests/test_exception/good/trees.catala_en:18.3-18.29:
+└──┐
+18 │   exception ex1 definition x under condition y = 2
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+[RESULT]
+Definitions with label "exx1":
+┌─⯈ tests/test_exception/good/trees.catala_en:21.3-22.25:
+└──┐
+21 │   label exx1
+   │   ‾‾‾‾‾‾‾‾‾‾
+22 │   exception definition x under condition y = 2
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+[RESULT]
+Definitions with label "exception_to_exx1":
+┌─⯈ tests/test_exception/good/trees.catala_en:25.3-25.30:
+└──┐
+25 │   exception exx1 definition x under condition y = 3
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+┌─⯈ tests/test_exception/good/trees.catala_en:28.3-28.30:
+└──┐
+28 │   exception exx1 definition x under condition y = 4
+   │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+   └─ Test
+[RESULT]
+The exception tree structure is as follows:
+
+"base_case"───┬──"exx1"───"exception_to_exx1"
+                                                          │
+                                                          ├──"ex1"───"exception_to_ex1"
+                                                          │
+                                                          └──"exception_to_x"
+```
+
+```catala-test-inline
+$ catala dcalc -s Foo -O
+let scope Foo
+  (Foo_in: Foo_in {y_in: integer; x_in: unit → integer})
+  : Foo {x: integer}
+  =
+  let get y : integer = Foo_in.y_in in
+  let get x : unit → integer = Foo_in.x_in in
+  let set x : integer =
+    error_empty
+      ⟨ x ()
+      | true
+        ⊢ ⟨ ⟨ ⟨ ⟨y = 3 ⊢ 103⟩, ⟨y = 4 ⊢ 104⟩ | false ⊢ ∅ ⟩ | y = 2 ⊢ 102 ⟩,
+            ⟨ ⟨y = 2 ⊢ 2⟩ | y = 1 ⊢ 1 ⟩, ⟨y = 0 ⊢ 0⟩
+          | true ⊢ 1000 ⟩ ⟩
+  in
+  return { Foo x = x; }
+```
+
+```catala-test-inline
+$ catala lcalc -s Foo -O --only_ite
+let scope Foo
+  (Foo_in: Foo_in {y_in: integer; x_in: unit → integer})
+  : Foo {x: integer}
+  =
+  let get y : integer = Foo_in.y_in in
+  let get x : unit → integer = Foo_in.x_in in
+  let set x : integer =
+    let opt_arg : any = x () in
+    if match opt_arg with
+       | ENone _ → false
+       | ESome some → true
+    then
+      match opt_arg with
+      | ENone _ → raise NoValueProvided
+      | ESome some → some
+    else
+      let exc_condition : any = y = 4 in
+      let exc_condition1 : any = y = 2 in
+      let exc_condition2 : any = y = 1 in
+      let exc_condition3 : any = y = 0 in
+      let exc_branch : any = exc_condition1 || exc_condition2 in
+      if y = 3
+      then
+        if exc_condition3 || exc_branch || exc_condition
+        then raise ConflictError
+        else ESome 103
+      else if exc_condition
+      then
+        if exc_branch || exc_condition3
+        then raise ConflictError
+        else ESome 104
+      else if y = 2
+      then
+        if exc_branch || exc_condition3
+        then raise ConflictError
+        else ESome 102
+      else if exc_condition1
+      then if exc_condition3 then raise ConflictError else ESome 2
+      else if exc_condition2
+      then if exc_condition3 then raise ConflictError else ESome 1
+      else if exc_condition3
+      then ESome 0
+      else ESome 1000
+  in
+  return { Foo x = x; }
+```
+
+```catala-test-inline
+$ catala lcalc -s Foo --only_ite
+let scope Foo
+  (Foo_in: Foo_in {y_in: integer; x_in: unit → integer})
+  : Foo {x: integer}
+  =
+  let get y : integer = Foo_in.y_in in
+  let get x : unit → integer = Foo_in.x_in in
+  let set x : integer =
+    let opt_arg : any = x () in
+    let exc_condition : any =
+      match opt_arg with
+      | ENone _ → false
+      | ESome some → true
+    in
+    let exc_condition1 : any = true in
+    if exc_condition
+    then
+      if false
+      then raise ConflictError
+      else
+        match opt_arg with
+        | ENone _ → raise NoValueProvided
+        | ESome some → some
+    else if exc_condition1
+    then
+      if false
+      then raise ConflictError
+      else
+        let exc_condition2 : any = true in
+        let exc_condition3 : any = y = 2 in
+        let exc_condition4 : any = y = 2 in
+        let exc_condition5 : any = y = 1 in
+        let exc_condition6 : any = y = 0 in
+        let exc_condition7 : any = true in
+        let exc_branch : any = exc_condition2 || exc_condition3 in
+        let exc_branch1 : any = exc_condition4 || exc_condition5 in
+        if exc_condition2
+        then
+          if exc_branch1 || exc_condition6
+          then raise ConflictError
+          else
+            ESome
+              let exc_condition8 : any = y = 3 in
+              let exc_condition9 : any = y = 4 in
+              let exc_condition10 : any = false in
+              if exc_condition8
+              then if exc_condition9 then raise ConflictError else ESome 103
+              else if exc_condition9
+              then if false then raise ConflictError else ESome 104
+              else if exc_condition10
+              then
+                if false
+                then raise ConflictError
+                else ESome raise NoValueProvided
+              else ENone ()
+        else if exc_condition3
+        then
+          if exc_branch1 || exc_condition6
+          then raise ConflictError
+          else ESome 102
+        else if exc_condition4
+        then if exc_condition6 then raise ConflictError else ESome 2
+        else if exc_condition5
+        then if exc_condition6 then raise ConflictError else ESome 1
+        else if exc_condition6
+        then if false then raise ConflictError else ESome 0
+        else if exc_condition7
+        then if false then raise ConflictError else ESome 1000
+        else ENone ()
+    else raise NoValueProvided
+  in
+  return { Foo x = x; }
+```
+
+```catala-test-inline
+$ catala interpret -s Test
+[RESULT] Computation successful! Results:
+[RESULT] x = 1
+```

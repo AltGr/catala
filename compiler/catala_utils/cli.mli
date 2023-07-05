@@ -96,6 +96,7 @@ module Flags : sig
   val output : string option Term.t
   val optimize : bool Term.t
   val avoid_exceptions : bool Term.t
+  val only_ite : bool Term.t
   val closure_conversion : bool Term.t
   val link_modules : string list Term.t
   val disable_counterexamples : bool Term.t

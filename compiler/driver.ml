@@ -140,6 +140,7 @@ module Passes = struct
       ~optimize
       ~check_invariants
       ~avoid_exceptions
+      ~only_ite
       ~closure_conversion :
       untyped Lcalc.Ast.program
       * Desugared.Name_resolution.context
@@ -148,16 +149,19 @@ module Passes = struct
       dcalc options ~link_modules ~optimize ~check_invariants
     in
     Message.emit_debug "Compiling program into lambda calculus...";
-    let avoid_exceptions = avoid_exceptions || closure_conversion in
+    let avoid_exceptions = avoid_exceptions || closure_conversion || only_ite in
     let optimize = optimize || closure_conversion in
     (* --closure_conversion implies --avoid_exceptions and --optimize *)
     let prg =
-      if avoid_exceptions then (
+      if only_ite then
+        Program.untype (Lcalc.From_dcalc.translate_program_with_ifthenelse prg)
+      else if avoid_exceptions then (
         if options.trace then
           Message.raise_error
             "Option --avoid_exceptions is not compatible with option --trace";
-        Lcalc.Compile_without_exceptions.translate_program prg)
-      else Program.untype (Lcalc.Compile_with_exceptions.translate_program prg)
+        Lcalc.From_dcalc.translate_program_without_exceptions prg)
+      else
+        Program.untype (Lcalc.From_dcalc.translate_program_with_exceptions prg)
     in
     let prg =
       if optimize then begin
@@ -190,13 +194,14 @@ module Passes = struct
       ~optimize
       ~check_invariants
       ~avoid_exceptions
+      ~only_ite
       ~closure_conversion :
       Scalc.Ast.program
       * Desugared.Name_resolution.context
       * Scopelang.Dependency.TVertex.t list =
     let prg, ctx, type_ordering =
       lcalc options ~link_modules ~optimize ~check_invariants ~avoid_exceptions
-        ~closure_conversion
+        ~only_ite ~closure_conversion
     in
     Message.emit_debug "Compiling program into statement calculus...";
     Scalc.From_lcalc.translate_program prg, ctx, type_ordering
@@ -588,11 +593,12 @@ module Commands = struct
       optimize
       check_invariants
       avoid_exceptions
+      only_ite
       closure_conversion
       ex_scope_opt =
     let prg, ctx, _ =
       Passes.lcalc options ~link_modules ~optimize ~check_invariants
-        ~avoid_exceptions ~closure_conversion
+        ~avoid_exceptions ~only_ite ~closure_conversion
     in
     let _output_file, with_output = get_output_format options output in
     with_output
@@ -622,6 +628,7 @@ module Commands = struct
         $ Cli.Flags.optimize
         $ Cli.Flags.check_invariants
         $ Cli.Flags.avoid_exceptions
+        $ Cli.Flags.only_ite
         $ Cli.Flags.closure_conversion
         $ Cli.Flags.ex_scope_opt)
 
@@ -631,11 +638,12 @@ module Commands = struct
       optimize
       check_invariants
       avoid_exceptions
+      only_ite
       closure_conversion
       ex_scope =
     let prg, ctx, _ =
       Passes.lcalc options ~link_modules ~optimize ~check_invariants
-        ~avoid_exceptions ~closure_conversion
+        ~avoid_exceptions ~only_ite ~closure_conversion
     in
     print_interpretation_results options Interpreter.interpret_program_lcalc prg
       (get_scope_uid ctx ex_scope)
@@ -654,6 +662,7 @@ module Commands = struct
         $ Cli.Flags.optimize
         $ Cli.Flags.check_invariants
         $ Cli.Flags.avoid_exceptions
+        $ Cli.Flags.only_ite
         $ Cli.Flags.closure_conversion
         $ Cli.Flags.ex_scope)
 
@@ -664,10 +673,11 @@ module Commands = struct
       optimize
       check_invariants
       avoid_exceptions
+      only_ite
       closure_conversion =
     let prg, _, type_ordering =
       Passes.lcalc options ~link_modules ~optimize ~check_invariants
-        ~avoid_exceptions ~closure_conversion
+        ~avoid_exceptions ~only_ite ~closure_conversion
     in
     let output_file, with_output =
       get_output_format options ~ext:".ml" output
@@ -697,6 +707,7 @@ module Commands = struct
         $ Cli.Flags.optimize
         $ Cli.Flags.check_invariants
         $ Cli.Flags.avoid_exceptions
+        $ Cli.Flags.only_ite
         $ Cli.Flags.closure_conversion)
 
   let scalc
@@ -706,11 +717,12 @@ module Commands = struct
       optimize
       check_invariants
       avoid_exceptions
+      only_ite
       closure_conversion
       ex_scope_opt =
     let prg, ctx, _ =
       Passes.scalc options ~link_modules ~optimize ~check_invariants
-        ~avoid_exceptions ~closure_conversion
+        ~avoid_exceptions ~only_ite ~closure_conversion
     in
     let _output_file, with_output = get_output_format options output in
     with_output
@@ -743,6 +755,7 @@ module Commands = struct
         $ Cli.Flags.optimize
         $ Cli.Flags.check_invariants
         $ Cli.Flags.avoid_exceptions
+        $ Cli.Flags.only_ite
         $ Cli.Flags.closure_conversion
         $ Cli.Flags.ex_scope_opt)
 
@@ -753,10 +766,11 @@ module Commands = struct
       optimize
       check_invariants
       avoid_exceptions
+      only_ite
       closure_conversion =
     let prg, _, type_ordering =
       Passes.scalc options ~link_modules ~optimize ~check_invariants
-        ~avoid_exceptions ~closure_conversion
+        ~avoid_exceptions ~only_ite ~closure_conversion
     in
     let output_file, with_output =
       get_output_format options ~ext:".py" output
@@ -779,6 +793,7 @@ module Commands = struct
         $ Cli.Flags.optimize
         $ Cli.Flags.check_invariants
         $ Cli.Flags.avoid_exceptions
+        $ Cli.Flags.only_ite
         $ Cli.Flags.closure_conversion)
 
   let pygmentize_cmd =

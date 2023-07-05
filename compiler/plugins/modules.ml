@@ -43,7 +43,7 @@ let action_flag =
 let gen_ocaml options link_modules optimize check_invariants modname main =
   let prg, ctx, type_ordering =
     Driver.Passes.lcalc options ~link_modules ~optimize ~check_invariants
-      ~avoid_exceptions:false ~closure_conversion:false
+      ~avoid_exceptions:false ~only_ite:false ~closure_conversion:false
   in
   let exec_scope = Option.map (Driver.Commands.get_scope_uid ctx) main in
   let filename, with_output =
