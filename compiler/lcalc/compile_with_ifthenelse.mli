@@ -15,9 +15,13 @@
    the License. *)
 
 (** Translation from the default calculus to the lambda calculus. This
-    translation relies only on nested [if then else] constructions, without need for option types, monads, built-in [HandleDefault] operators or exceptions (except for fatal cases).
+    translation relies only on nested [if then else] constructions, without need
+    for monads, thunks, built-in [HandleDefault] operators or exceptions (except
+    for fatal cases).
 
-    WARNING: the implemented semantics is slightly different from the normal one, and has not been proved equivalent at this point. In short, exceptions won't propagate outside of immediately nested [Default] blocks, which would normally be the case.
-*)
+    WARNING: the implemented semantics is slightly different from the normal
+    one, and has not been proved equivalent at this point. In short, exceptions
+    won't propagate outside of immediately nested [Default] blocks, which would
+    normally be the case. *)
 
 val translate_program : 'm Dcalc.Ast.program -> 'm Ast.program

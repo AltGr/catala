@@ -48,16 +48,31 @@ let rec translate_default ~to_option e =
   let tbool = TLit TBool, pos in
   let mbool = Expr.with_ty m tbool in
   let rec mktree defs = function
+    | ( EDefault
+          {
+            excepts = [];
+            just = ELit (LBool true), _;
+            cons = (EDefault _, _) as e;
+          },
+        _ ) ->
+      mktree defs e
     | EDefault { excepts; just; cons }, _ ->
       let just = translate_expr just in
-      let tcons = translate_expr cons in
+      let tcons =
+        match Mark.remove cons with
+        | EEmptyError ->
+          if to_option then
+            Expr.einj (Expr.elit LUnit m) Expr.none_constr Expr.option_enum m
+          else Expr.eraise NoValueProvided m
+        | _ -> translate_expr cons
+      in
       let tcons =
         if to_option then Expr.einj tcons Expr.some_constr Expr.option_enum m
         else tcons
       in
       let vjust = Var.make "exc_condition" in
       let defs, tchilds = List.fold_left_map mktree defs excepts in
-      (vjust, just) :: defs, Node { tjust = vjust; tcons; tchilds }
+      (vjust, just, TLit TBool) :: defs, Node { tjust = vjust; tcons; tchilds }
     | (EApp _, _) as eapp ->
       (* The encoding of 'context' variables uses functions returning an option
          directly as exceptions *)
@@ -77,13 +92,16 @@ let rec translate_default ~to_option e =
           ~some:(fun v -> v)
           m
       in
-      ( (vjust, just) :: (vdef, eapp) :: defs,
+      ( (vdef, eapp, TAny (* Option (TAny, pos) *))
+        :: (vjust, just, TLit TBool)
+        :: defs,
         Node { tjust = vjust; tcons; tchilds = [] } )
     | e ->
       Message.raise_spanned_error (Expr.pos e)
         "Exception that is not a default term: %a" Expr.format e
   in
-  let defs, tree = mktree [] e in
+  let rdefs, tree = mktree [] e in
+  let defs = List.rev rdefs in
   let rec justs acc = function
     | Node { tjust; tchilds; _ } -> tjust :: List.fold_left justs acc tchilds
   in
@@ -107,7 +125,8 @@ let rec translate_default ~to_option e =
             | [v] -> defs, (node, v) :: chld_conds
             | vs ->
               let v = Var.make "exc_branch" in
-              (v, mk_vars_or vs) :: defs, (node, v) :: chld_conds)
+              ( (v, mk_vars_or (List.rev vs), TLit TBool) :: defs,
+                (node, v) :: chld_conds ))
           ([], []) tchilds
       in
       let rec descend chlds_conds =
@@ -119,50 +138,73 @@ let rec translate_default ~to_option e =
           in
           let defs, chld_ifthen_list = tree_to_ifthen_list conds chld in
           let defs2, rest = descend rest in
-          defs @ defs2, chld_ifthen_list @ rest
+          defs @ defs2, rest @ chld_ifthen_list
       in
-      let defs2, rest = descend (List.rev chld_conditions) in
-      ( defs @ defs2,
-        rest
-        @ [
-            ( tjust,
-              Expr.eifthenelse
-                (mk_vars_or conflict_conditions)
-                (Expr.eraise ConflictError m)
-                tcons m );
-          ] )
+      let defs2, rest = descend chld_conditions in
+      ( defs2 @ defs,
+        ( tjust,
+          if conflict_conditions = [] then tcons
+          else
+            Expr.eifthenelse
+              (mk_vars_or conflict_conditions)
+              (Expr.eraise ConflictError m)
+              tcons m )
+        :: rest )
   in
   let defs2, ifthens = tree_to_ifthen_list [] tree in
   let body =
-    List.fold_right
-      (fun (just, cons) e -> Expr.eifthenelse (Expr.evar just mbool) cons e m)
-      ifthens
+    List.fold_left
+      (fun e (just, cons) -> Expr.eifthenelse (Expr.evar just mbool) cons e m)
       (if to_option then
        Expr.einj (Expr.elit LUnit m) Expr.none_constr Expr.option_enum m
       else Expr.eraise NoValueProvided m)
+      ifthens
   in
   List.fold_left
-    (fun e (var, def) -> Expr.make_let_in var (TAny, pos) def e pos)
+    (fun e (var, def, ty) -> Expr.make_let_in var (ty, pos) def e pos)
     body (defs2 @ defs)
 
 and translate_expr (e : 'm D.expr) : 'm A.expr boxed =
   let m = Mark.get e in
   match Mark.remove e with
-  | EEmptyError -> Expr.eraise NoValueProvided m
-  | EErrorOnEmpty ((EDefault _, _) as e) ->
+  | EAbs { binder; tys } ->
+    let vars, body = Bindlib.unmbind binder in
+    let body =
+      match body with
+      | (EDefault _, _) as e ->
+        (* A raw default term only appears as the body of functions that are
+           supplied to scope context variables *)
+        translate_default ~to_option:true e
+      | e -> translate_expr e
+    in
+    let binder = Expr.bind (Array.map Var.translate vars) body in
+    Expr.eabs binder tys m
+  | EDefault _ ->
     (* A normal default term that is a fatal error if unresolved *)
     translate_default ~to_option:false e
-  | EDefault _ ->
-    (* A raw default term only appears as the body of functions that are
-       supplied to scope context variables *)
-    translate_default ~to_option:true e
-  | EErrorOnEmpty arg -> translate_expr arg
+  | EErrorOnEmpty e -> translate_expr e
+  | EEmptyError ->
+    (* This should only happen for unspecified context variables *)
+    Expr.einj (Expr.elit LUnit m) Expr.none_constr Expr.option_enum
+      (Expr.mark_tany m)
   | EOp { op; tys } -> Expr.eop (Operator.translate op) tys m
-  | ( ELit _ | EApp _ | EArray _ | EVar _ | EExternal _ | EAbs _ | EIfThenElse _
+  | ( ELit _ | EApp _ | EArray _ | EVar _ | EExternal _ | EIfThenElse _
     | ETuple _ | ETupleAccess _ | EInj _ | EAssert _ | EStruct _
     | EStructAccess _ | EMatch _ ) as e ->
     Expr.map ~f:translate_expr (Mark.add m e)
   | _ -> .
 
 let translate_program (prg : 'm D.program) : 'm A.program =
+  let prg =
+    {
+      prg with
+      decl_ctx =
+        {
+          prg.decl_ctx with
+          ctx_enums =
+            prg.decl_ctx.ctx_enums
+            |> EnumName.Map.add Expr.option_enum Expr.option_enum_config;
+        };
+    }
+  in
   Bindlib.unbox (Program.map_exprs ~f:translate_expr ~varf:translate_var prg)
