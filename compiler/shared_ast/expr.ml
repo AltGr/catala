@@ -109,7 +109,7 @@ let subst binder vars =
   Bindlib.msubst binder (Array.of_list (List.map Mark.remove vars))
 
 let evar v mark = Mark.add mark (Bindlib.box_var v)
-let eexternal eref mark = Mark.add mark (Bindlib.box (EExternal eref))
+let eexternal ~path ~name mark = Mark.add mark (Bindlib.box (EExternal {path; name}))
 let etuple args = Box.appn args @@ fun args -> ETuple args
 
 let etupleaccess e index size =
@@ -167,10 +167,10 @@ let ematch e name cases mark =
        (Box.lift e)
        (Box.lift_enum (EnumConstructor.Map.map Box.lift cases))
 
-let escopecall scope args mark =
+let escopecall ~path ~scope ~args mark =
   Mark.add mark
   @@ Bindlib.box_apply
-       (fun args -> EScopeCall { scope; args })
+       (fun args -> EScopeCall { path; scope; args })
        (Box.lift_scope_vars (ScopeVar.Map.map Box.lift args))
 
 (* - Manipulation of marks - *)
@@ -272,7 +272,7 @@ let map
   | EOp { op; tys } -> eop op tys m
   | EArray args -> earray (List.map f args) m
   | EVar v -> evar (Var.translate v) m
-  | EExternal eref -> eexternal eref m
+  | EExternal { path; name } -> eexternal ~path ~name m
   | EAbs { binder; tys } ->
     let vars, body = Bindlib.unmbind binder in
     let body = f body in
@@ -300,9 +300,9 @@ let map
   | EMatch { e; name; cases } ->
     let cases = EnumConstructor.Map.map f cases in
     ematch (f e) name cases m
-  | EScopeCall { scope; args } ->
-    let fields = ScopeVar.Map.map f args in
-    escopecall scope fields m
+  | EScopeCall { path; scope; args } ->
+    let args = ScopeVar.Map.map f args in
+    escopecall ~path ~scope ~args m
   | ECustom { obj; targs; tret } -> ecustom obj targs tret m
 
 let rec map_top_down ~f e = map ~f:(map_top_down ~f) (f e)
@@ -369,7 +369,7 @@ let map_gather
     let acc, args = lfoldmap args in
     acc, earray args m
   | EVar v -> acc, evar (Var.translate v) m
-  | EExternal eref -> acc, eexternal eref m
+  | EExternal { path; name } -> acc, eexternal ~path ~name m
   | EAbs { binder; tys } ->
     let vars, body = Bindlib.unmbind binder in
     let acc, body = f body in
@@ -434,7 +434,7 @@ let map_gather
         (acc, EnumConstructor.Map.empty)
     in
     acc, ematch e name cases m
-  | EScopeCall { scope; args } ->
+  | EScopeCall { path; scope; args } ->
     let acc, args =
       ScopeVar.Map.fold
         (fun var e (acc, args) ->
@@ -442,7 +442,7 @@ let map_gather
           join acc acc1, ScopeVar.Map.add var e args)
         args (acc, ScopeVar.Map.empty)
     in
-    acc, escopecall scope args m
+    acc, escopecall ~path ~scope ~args m
   | ECustom { obj; targs; tret } -> acc, ecustom obj targs tret m
 
 (* - *)
@@ -515,25 +515,31 @@ let compare_lit (l1 : lit) (l2 : lit) =
   | LDuration _, _ -> .
   | _, LDuration _ -> .
 
+let compare_path =
+  List.compare (Mark.compare ModuleName.compare)
+
 let compare_location
     (type a)
     (x : a glocation Mark.pos)
     (y : a glocation Mark.pos) =
   match Mark.remove x, Mark.remove y with
-  | DesugaredScopeVar (vx, None), DesugaredScopeVar (vy, None)
-  | DesugaredScopeVar (vx, Some _), DesugaredScopeVar (vy, None)
-  | DesugaredScopeVar (vx, None), DesugaredScopeVar (vy, Some _) ->
+  | DesugaredScopeVar { name = vx; state = None}, DesugaredScopeVar { name = vy; state = None}
+  | DesugaredScopeVar { name = vx; state = Some _}, DesugaredScopeVar { name = vy; state = None}
+  | DesugaredScopeVar { name = vx; state = None}, DesugaredScopeVar { name = vy; state = Some _} ->
     ScopeVar.compare (Mark.remove vx) (Mark.remove vy)
-  | DesugaredScopeVar ((x, _), Some sx), DesugaredScopeVar ((y, _), Some sy) ->
+  | DesugaredScopeVar {name = (x, _); state = Some sx}, DesugaredScopeVar {name = (y, _); state = Some sy} ->
     let cmp = ScopeVar.compare x y in
     if cmp = 0 then StateName.compare sx sy else cmp
-  | ScopelangScopeVar (vx, _), ScopelangScopeVar (vy, _) ->
+  | ScopelangScopeVar { name = (vx, _) }, ScopelangScopeVar { name = (vy, _) } ->
     ScopeVar.compare vx vy
-  | ( SubScopeVar (_, (xsubindex, _), (xsubvar, _)),
-      SubScopeVar (_, (ysubindex, _), (ysubvar, _)) ) ->
+  | ( SubScopeVar { alias = (xsubindex, _); var = (xsubvar, _); _},
+      SubScopeVar { alias = (ysubindex, _); var = (ysubvar, _); _} ) ->
     let c = SubScopeName.compare xsubindex ysubindex in
     if c = 0 then ScopeVar.compare xsubvar ysubvar else c
-  | ToplevelVar (vx, _), ToplevelVar (vy, _) -> TopdefName.compare vx vy
+  | ToplevelVar { path = px; name = (vx, _) }, ToplevelVar { path = py; name = (vy, _) } ->
+    (match compare_path px py with
+     | 0 -> TopdefName.compare vx vy
+     | n -> n)
   | DesugaredScopeVar _, _ -> -1
   | _, DesugaredScopeVar _ -> 1
   | ScopelangScopeVar _, _ -> -1
@@ -543,21 +549,33 @@ let compare_location
   | ToplevelVar _, _ -> .
   | _, ToplevelVar _ -> .
 
+let equal_path = List.equal (Mark.equal ModuleName.equal)
 let equal_location a b = compare_location a b = 0
 let equal_except ex1 ex2 = ex1 = ex2
 let compare_except ex1 ex2 = Stdlib.compare ex1 ex2
+let equal_external_ref ref1 ref2 = match ref1, ref2 with
+  | External_value v1, External_value v2 -> TopdefName.equal v1 v2
+  | External_scope s1, External_scope s2 -> ScopeName.equal s1 s2
+  | (External_value _ | External_scope _), _ -> false
+let compare_external_ref ref1 ref2 = match ref1, ref2 with
+  | External_value v1, External_value v2 -> TopdefName.compare v1 v2
+  | External_scope s1, External_scope s2 -> ScopeName.compare s1 s2
+  | External_value _, _ -> -1
+  | _, External_value _ -> 1
+  | External_scope _, _ -> .
+  | _, External_scope _ -> .
 
 (* weird indentation; see
    https://github.com/ocaml-ppx/ocamlformat/issues/2143 *)
 let rec equal_list : 'a. ('a, 't) gexpr list -> ('a, 't) gexpr list -> bool =
- fun es1 es2 ->
-  try List.for_all2 equal es1 es2 with Invalid_argument _ -> false
+  fun es1 es2 -> List.equal equal es1 es2
 
 and equal : type a. (a, 't) gexpr -> (a, 't) gexpr -> bool =
  fun e1 e2 ->
   match Mark.remove e1, Mark.remove e2 with
   | EVar v1, EVar v2 -> Bindlib.eq_vars v1 v2
-  | EExternal eref1, EExternal eref2 -> Qident.equal eref1 eref2
+  | EExternal { path = p1; name = n1 }, EExternal { path = p2; name = n2 } ->
+    Mark.equal equal_external_ref n1 n2 && equal_path p1 p2
   | ETuple es1, ETuple es2 -> equal_list es1 es2
   | ( ETupleAccess { e = e1; index = id1; size = s1 },
       ETupleAccess { e = e2; index = id2; size = s2 } ) ->
@@ -602,9 +620,11 @@ and equal : type a. (a, 't) gexpr -> (a, 't) gexpr -> bool =
     EnumName.equal n1 n2
     && equal e1 e2
     && EnumConstructor.Map.equal equal cases1 cases2
-  | ( EScopeCall { scope = s1; args = fields1 },
-      EScopeCall { scope = s2; args = fields2 } ) ->
-    ScopeName.equal s1 s2 && ScopeVar.Map.equal equal fields1 fields2
+  | ( EScopeCall { path = p1; scope = s1; args = fields1 },
+      EScopeCall { path = p2; scope = s2; args = fields2 } ) ->
+    ScopeName.equal s1 s2 &&
+    equal_path p1 p2 &&
+    ScopeVar.Map.equal equal fields1 fields2
   | ( ECustom { obj = obj1; targs = targs1; tret = tret1 },
       ECustom { obj = obj2; targs = targs2; tret = tret2 } ) ->
     Type.equal_list targs1 targs2 && Type.equal tret1 tret2 && obj1 == obj2
@@ -635,8 +655,8 @@ let rec compare : type a. (a, _) gexpr -> (a, _) gexpr -> int =
     List.compare compare a1 a2
   | EVar v1, EVar v2 ->
     Bindlib.compare_vars v1 v2
-  | EExternal eref1, EExternal eref2 ->
-    Qident.compare eref1 eref2
+  | EExternal { path = p1; name = n1 }, EExternal { path = p2; name = n2 } ->
+    compare_path p1 p2 @@< fun () -> Mark.compare compare_external_ref n1 n2
   | EAbs {binder=binder1; tys=typs1},
     EAbs {binder=binder2; tys=typs2} ->
     List.compare Type.compare typs1 typs2 @@< fun () ->
@@ -668,8 +688,9 @@ let rec compare : type a. (a, _) gexpr -> (a, _) gexpr -> int =
     EnumName.compare name1 name2 @@< fun () ->
     compare e1 e2 @@< fun () ->
     EnumConstructor.Map.compare compare emap1 emap2
-  | EScopeCall {scope=name1; args=field_map1},
-    EScopeCall {scope=name2; args=field_map2} ->
+  | EScopeCall {path = p1; scope=name1; args=field_map1},
+    EScopeCall {path = p2; scope=name2; args=field_map2} ->
+    compare_path p1 p2 @@< fun () ->
     ScopeName.compare name1 name2 @@< fun () ->
     ScopeVar.Map.compare compare field_map1 field_map2
   | ETuple es1, ETuple es2 ->

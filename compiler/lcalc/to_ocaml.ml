@@ -233,9 +233,9 @@ let rec format_typ (fmt : Format.formatter) (typ : typ) : unit =
   | TAny -> Format.fprintf fmt "_"
   | TClosureEnv -> failwith "unimplemented!"
 
-let format_var (fmt : Format.formatter) (v : 'm Var.t) : unit =
+let format_var_str (fmt : Format.formatter) (v : string) : unit =
   let lowercase_name =
-    String.to_snake_case (String.to_ascii (Bindlib.name_of v))
+    String.to_snake_case (String.to_ascii v)
   in
   let lowercase_name =
     Re.Pcre.substitute ~rex:(Re.Pcre.regexp "\\.")
@@ -245,10 +245,14 @@ let format_var (fmt : Format.formatter) (v : 'm Var.t) : unit =
   let lowercase_name = String.to_ascii lowercase_name in
   if
     List.mem lowercase_name ["handle_default"; "handle_default_opt"]
-    || String.begins_with_uppercase (Bindlib.name_of v)
+    (* O_O *)
+    || String.begins_with_uppercase v
   then Format.pp_print_string fmt lowercase_name
   else if lowercase_name = "_" then Format.pp_print_string fmt lowercase_name
   else Format.fprintf fmt "%s_" lowercase_name
+
+let format_var (fmt : Format.formatter) (v : 'm Var.t) : unit =
+  format_var_str fmt (Bindlib.name_of v)
 
 let needs_parens (e : 'm expr) : bool =
   match Mark.remove e with
@@ -288,7 +292,13 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
   in
   match Mark.remove e with
   | EVar v -> Format.fprintf fmt "%a" format_var v
-  | EExternal qid -> Qident.format fmt qid
+  | EExternal { path; name } ->
+    Print.path fmt path;
+    (* FIXME: this is wrong in general !!
+       We assume the idents exposed by the module depend only on the original name, while they actually get through Bindlib and may have been renamed. A correct implem could use the runtime registration used by the interpreter, but that would be distasteful and incur a penalty ; or we would need to reproduce the same structure as in the original module to ensure that bindlib performs the exact same renamings ; or finally we could normalise the names at generation time (either at toplevel or in a dedicated submodule ?) *)
+    (match Mark.remove name with
+     | External_value name -> format_var_str fmt (Mark.remove (TopdefName.get_info name))
+     | External_scope name -> format_var_str fmt (Mark.remove (ScopeName.get_info name)))
   | ETuple es ->
     Format.fprintf fmt "@[<hov 2>(%a)@]"
       (Format.pp_print_list

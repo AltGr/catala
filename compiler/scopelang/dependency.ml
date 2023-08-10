@@ -82,8 +82,8 @@ let rec expr_used_defs e =
       e VMap.empty
   in
   match e with
-  | ELocation (ToplevelVar (v, pos)), _ -> VMap.singleton (Topdef v) pos
-  | (EScopeCall { scope; _ }, m) as e ->
+  | ELocation (ToplevelVar { path = []; name = v, pos }), _ -> VMap.singleton (Topdef v) pos
+  | (EScopeCall { path = []; scope; _ }, m) as e ->
     VMap.add (Scope scope) (Expr.mark_pos m) (recurse_subterms e)
   | EAbs { binder; _ }, _ ->
     let _, body = Bindlib.unmbind binder in
@@ -95,7 +95,8 @@ let rule_used_defs = function
     (* TODO: maybe this info could be passed on from previous passes without
        walking through all exprs again *)
     expr_used_defs e
-  | Ast.Call (subscope, subindex, _) ->
+  | Ast.Call ((_::_path, _), _, _) -> VMap.empty
+  | Ast.Call (([], subscope), subindex, _) ->
     VMap.singleton (Scope subscope) (Mark.get (SubScopeName.get_info subindex))
 
 let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
@@ -128,7 +129,7 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
       prgm.program_topdefs g
   in
   ScopeName.Map.fold
-    (fun scope_name scope g ->
+    (fun scope_name (scope, _) g ->
       List.fold_left
         (fun g rule ->
           let used_defs = rule_used_defs rule in

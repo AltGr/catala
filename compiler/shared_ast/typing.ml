@@ -313,6 +313,7 @@ module Env = struct
     scope_vars : A.typ A.ScopeVar.Map.t;
     scopes : A.typ A.ScopeVar.Map.t A.ScopeName.Map.t;
     toplevel_vars : A.typ A.TopdefName.Map.t;
+    modules : 'e t A.ModuleName.Map.t;
   }
 
   let empty (decl_ctx : A.decl_ctx) =
@@ -331,6 +332,7 @@ module Env = struct
       scope_vars = A.ScopeVar.Map.empty;
       scopes = A.ScopeName.Map.empty;
       toplevel_vars = A.TopdefName.Map.empty;
+      modules = A.ModuleName.Map.empty;
     }
 
   let get t v = Var.Map.find_opt v t.vars
@@ -340,6 +342,11 @@ module Env = struct
   let get_subscope_out_var t scope var =
     Option.bind (A.ScopeName.Map.find_opt scope t.scopes) (fun vmap ->
         A.ScopeVar.Map.find_opt var vmap)
+
+  let rec module_env path env =
+    match path with
+    | [] -> env
+    | modname :: path -> module_env path (A.ModuleName.Map.find (Mark.remove modname) env.modules)
 
   let add v tau t = { t with vars = Var.Map.add v tau t.vars }
   let add_var v typ t = add v (ast_to_typ typ) t
@@ -352,6 +359,9 @@ module Env = struct
 
   let add_toplevel_var v typ t =
     { t with toplevel_vars = A.TopdefName.Map.add v typ t.toplevel_vars }
+
+  let add_module modname ~module_env t =
+    { t with modules = A.ModuleName.Map.add modname module_env t.modules }
 
   let open_scope scope_name t =
     let scope_vars =
@@ -414,11 +424,14 @@ and typecheck_expr_top_down :
   | A.ELocation loc ->
     let ty_opt =
       match loc with
-      | DesugaredScopeVar (v, _) | ScopelangScopeVar v ->
-        Env.get_scope_var env (Mark.remove v)
-      | SubScopeVar (scope, _, v) ->
-        Env.get_subscope_out_var env scope (Mark.remove v)
-      | ToplevelVar v -> Env.get_toplevel_var env (Mark.remove v)
+      | DesugaredScopeVar {name;_} | ScopelangScopeVar {name} ->
+        Env.get_scope_var env (Mark.remove name)
+      | SubScopeVar {path; scope; var; _} ->
+        let env = Env.module_env path env in
+        Env.get_subscope_out_var env scope (Mark.remove var)
+      | ToplevelVar {path; name} ->
+        let env = Env.module_env path env in
+        Env.get_toplevel_var env (Mark.remove name)
     in
     let ty =
       match ty_opt with
@@ -625,12 +638,16 @@ and typecheck_expr_top_down :
         cases
     in
     Expr.ematch e1' name cases' mark
-  | A.EScopeCall { scope; args } ->
+  | A.EScopeCall { path; scope; args } ->
     let scope_out_struct =
+      let ctx = Program.module_ctx ctx path in
       (A.ScopeName.Map.find scope ctx.ctx_scopes).out_struct_name
     in
     let mark = mark_with_tau_and_unify (unionfind (TStruct scope_out_struct)) in
-    let vars = A.ScopeName.Map.find scope env.scopes in
+    let vars =
+      let env = Env.module_env path env in
+      A.ScopeName.Map.find scope env.scopes
+    in
     let args' =
       A.ScopeVar.Map.mapi
         (fun name ->
@@ -638,7 +655,7 @@ and typecheck_expr_top_down :
             (ast_to_typ (A.ScopeVar.Map.find name vars)))
         args
     in
-    Expr.escopecall scope args' mark
+    Expr.escopecall ~path ~scope ~args:args' mark
   | A.ERaise ex -> Expr.eraise ex context_mark
   | A.ECatch { body; exn; handler } ->
     let body' = typecheck_expr_top_down ~leave_unresolved ctx env tau body in
@@ -655,16 +672,30 @@ and typecheck_expr_top_down :
           "Variable %s not found in the current context" (Bindlib.name_of v)
     in
     Expr.evar (Var.translate v) (mark_with_tau_and_unify tau')
-  | A.EExternal eref ->
+  | A.EExternal {path; name} ->
+    let ctx = Program.module_ctx ctx path in
     let ty =
-      try Qident.Map.find eref ctx.ctx_modules
-      with Not_found ->
+      let not_found pr x =
         Message.raise_spanned_error pos_e
-          "Could not resolve the reference to %a.@ Make sure the corresponding \
+          "Could not resolve the reference to %a%a.@ Make sure the corresponding \
            module was properly loaded?"
-          Qident.format eref
+          Print.path path
+          pr x
+      in
+      match Mark.remove name with
+      | A.External_value name ->
+        (try
+           ast_to_typ (A.TopdefName.Map.find name ctx.ctx_topdefs)
+         with Not_found -> not_found A.TopdefName.format name)
+      | A.External_scope name ->
+        (try
+           let scope_info = A.ScopeName.Map.find name ctx.ctx_scopes in
+           ast_to_typ (TArrow ([TStruct scope_info.in_struct_name, pos_e],
+                               (TStruct scope_info.out_struct_name, pos_e)),
+                       pos_e)
+         with Not_found -> not_found A.ScopeName.format name)
     in
-    Expr.eexternal eref (mark_with_tau_and_unify (ast_to_typ ty))
+    Expr.eexternal ~path ~name (mark_with_tau_and_unify ty)
   | A.ELit lit -> Expr.elit lit (ty_mark (lit_type lit))
   | A.ETuple es ->
     let tys = List.map (fun _ -> unionfind (TAny (Any.fresh ()))) es in
