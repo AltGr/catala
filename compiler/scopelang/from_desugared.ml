@@ -92,7 +92,7 @@ let rec translate_expr (ctx : ctx) (e : D.expr) :
        one possible matching structure *)
     Message.raise_spanned_error (Expr.mark_pos m)
       "Ambiguous structure field access"
-  | EDStructAccess { e; field; name_opt = Some name } ->
+  | EDStructAccess { e; field; path = _; name_opt = Some name } ->
     let e' = translate_expr ctx e in
     let field =
       try
@@ -105,7 +105,7 @@ let rec translate_expr (ctx : ctx) (e : D.expr) :
            @{<yellow>\"%a\"@}"
           field StructName.format name
     in
-    Expr.estructaccess e' field name m
+    Expr.estructaccess ~e:e' ~field ~name m
   | EScopeCall { path; scope; args } ->
     Expr.escopecall ~path ~scope
       ~args:(ScopeVar.Map.fold

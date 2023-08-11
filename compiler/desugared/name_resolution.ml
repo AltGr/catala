@@ -316,10 +316,10 @@ let rec process_base_typ
     | Surface.Ast.Text -> raise_unsupported_feature "text type" typ_pos
     | Surface.Ast.Named ([], (ident, _pos)) -> (
       match Ident.Map.find_opt ident ctxt.typedefs with
-      | Some (TStruct s_uid) -> TStruct s_uid, typ_pos
-      | Some (TEnum e_uid) -> TEnum e_uid, typ_pos
+      | Some (TStruct s_uid) -> TStruct ( s_uid), typ_pos
+      | Some (TEnum e_uid) -> TEnum ( e_uid), typ_pos
       | Some (TScope (_, scope_str)) ->
-        TStruct scope_str.out_struct_name, typ_pos
+        TStruct ( scope_str.out_struct_name), typ_pos
       | None ->
         Message.raise_spanned_error typ_pos
           "Unknown type @{<yellow>\"%s\"@}, not a struct or enum previously \

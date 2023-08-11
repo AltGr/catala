@@ -22,8 +22,9 @@ let struc
     ctx
     (fmt : Format.formatter)
     (name : StructName.t)
-    (fields : typ StructField.Map.t) : unit =
-  Format.fprintf fmt "%a %a %a %a@\n@[<hov 2>  %a@]@\n%a" Print.keyword "struct"
+    (path, fields : path * typ StructField.Map.t) : unit =
+  Format.fprintf fmt "%a %a%a %a %a@\n@[<hov 2>  %a@]@\n%a" Print.keyword "struct"
+    Print.path path
     StructName.format name Print.punctuation "=" Print.punctuation "{"
     (Format.pp_print_list
        ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
@@ -37,8 +38,9 @@ let enum
     ctx
     (fmt : Format.formatter)
     (name : EnumName.t)
-    (cases : typ EnumConstructor.Map.t) : unit =
-  Format.fprintf fmt "%a %a %a @\n@[<hov 2>  %a@]" Print.keyword "enum"
+    (path, cases : path * typ EnumConstructor.Map.t) : unit =
+  Format.fprintf fmt "%a %a%a %a @\n@[<hov 2>  %a@]" Print.keyword "enum"
+    Print.path path
     EnumName.format name Print.punctuation "="
     (Format.pp_print_list
        ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")

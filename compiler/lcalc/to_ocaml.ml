@@ -19,22 +19,6 @@ open Shared_ast
 open Ast
 module D = Dcalc.Ast
 
-let find_struct (s : StructName.t) (ctx : decl_ctx) : typ StructField.Map.t =
-  try StructName.Map.find s ctx.ctx_structs
-  with Not_found ->
-    let s_name, pos = StructName.get_info s in
-    Message.raise_spanned_error pos
-      "Internal Error: Structure %s was not found in the current environment."
-      s_name
-
-let find_enum (en : EnumName.t) (ctx : decl_ctx) : typ EnumConstructor.Map.t =
-  try EnumName.Map.find en ctx.ctx_enums
-  with Not_found ->
-    let en_name, pos = EnumName.get_info en in
-    Message.raise_spanned_error pos
-      "Internal Error: Enumeration %s was not found in the current environment."
-      en_name
-
 let format_lit (fmt : Format.formatter) (l : lit Mark.pos) : unit =
   match Mark.remove l with
   | LBool b -> Print.lit fmt (LBool b)
@@ -565,9 +549,13 @@ let format_ctx
     (fun struct_or_enum ->
       match struct_or_enum with
       | Scopelang.Dependency.TVertex.Struct s ->
-        Format.fprintf fmt "%a@\n" format_struct_decl (s, find_struct s ctx)
+        let path, def = StructName.Map.find s ctx.ctx_structs in
+        if path = [] then
+          Format.fprintf fmt "%a@\n" format_struct_decl (s, def)
       | Scopelang.Dependency.TVertex.Enum e ->
-        Format.fprintf fmt "%a@\n" format_enum_decl (e, find_enum e ctx))
+        let path, def = EnumName.Map.find e ctx.ctx_enums in
+        if path = [] then
+          Format.fprintf fmt "%a@\n" format_enum_decl (e, def))
     (type_ordering @ scope_structs)
 
 let rename_vars e =
@@ -626,7 +614,7 @@ let format_scope_exec
     scope_body =
   let scope_name_str = Mark.remove (ScopeName.get_info scope_name) in
   let scope_var = String.Map.find scope_name_str bnd in
-  let scope_input =
+  let _, scope_input =
     StructName.Map.find scope_body.scope_body_input_struct ctx.ctx_structs
   in
   if not (StructField.Map.is_empty scope_input) then

@@ -448,6 +448,7 @@ and ('a, 'b, 'm) base_gexpr =
     }
       -> ('a, < explicitScopes : yes ; .. >, 'm) base_gexpr
   | EDStructAccess : {
+      path : path;
       name_opt : StructName.t option;
       e : ('a, 'm) gexpr;
       field : Ident.t;
@@ -575,8 +576,8 @@ type 'e code_item_list =
   | Nil
   | Cons of 'e code_item * ('e, 'e code_item_list) binder
 
-type struct_ctx = typ StructField.Map.t StructName.Map.t
-type enum_ctx = typ EnumConstructor.Map.t EnumName.Map.t
+type struct_ctx = (path * typ StructField.Map.t) StructName.Map.t
+type enum_ctx = (path * typ EnumConstructor.Map.t) EnumName.Map.t
 
 type scope_info = {
   in_struct_name : StructName.t;

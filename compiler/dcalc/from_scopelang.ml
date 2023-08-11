@@ -212,7 +212,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
   let m = Mark.get e in
   match Mark.remove e with
   | EMatch { e = e1; name; cases = e_cases } ->
-    let enum_sig = EnumName.Map.find name ctx.decl_ctx.ctx_enums in
+    let path, enum_sig = EnumName.Map.find name ctx.decl_ctx.ctx_enums in
     let d_cases, remaining_e_cases =
       (* FIXME: these checks should probably be moved to a better place *)
       EnumConstructor.Map.fold
@@ -221,9 +221,9 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
             try EnumConstructor.Map.find constructor e_cases
             with Not_found ->
               Message.raise_spanned_error (Expr.pos e)
-                "The constructor %a of enum %a is missing from this pattern \
+                "The constructor %a of enum %a%a is missing from this pattern \
                  matching"
-                EnumConstructor.format constructor EnumName.format name
+                EnumConstructor.format constructor Print.path path EnumName.format name
           in
           let case_d = translate_expr ctx case_e in
           ( EnumConstructor.Map.add constructor case_d d_cases,
@@ -233,13 +233,14 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
     in
     if not (EnumConstructor.Map.is_empty remaining_e_cases) then
       Message.raise_spanned_error (Expr.pos e)
-        "Pattern matching is incomplete for enum %a: missing cases %a"
+        "Pattern matching is incomplete for enum %a%a: missing cases %a"
+        Print.path path
         EnumName.format name
         (EnumConstructor.Map.format_keys ~pp_sep:(fun fmt () ->
              Format.fprintf fmt ", "))
         remaining_e_cases;
     let e1 = translate_expr ctx e1 in
-    Expr.ematch e1 name d_cases m
+    Expr.ematch ~e:e1 ~name ~cases:d_cases m
   | EScopeCall { path; scope; args } ->
     let pos = Expr.mark_pos m in
     let sc_sig =
@@ -291,7 +292,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
         in_var_map StructField.Map.empty
     in
     let arg_struct =
-      Expr.estruct sc_sig.scope_sig_input_struct field_map (mark_tany m pos)
+      Expr.estruct ~name:sc_sig.scope_sig_input_struct ~fields:field_map (mark_tany m pos)
     in
     let called_func =
       let m = mark_tany m pos in
@@ -349,15 +350,15 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
     (* result_eta_expanded = { struct_output_function_field = lambda x -> log
        (struct_output.struct_output_function_field x) ... } *)
     let result_eta_expanded =
-      Expr.estruct sc_sig.scope_sig_output_struct
-        (StructField.Map.mapi
+      Expr.estruct ~name:sc_sig.scope_sig_output_struct
+        ~fields:(StructField.Map.mapi
            (fun field typ ->
              let original_field_expr =
                Expr.estructaccess
-                 (Expr.make_var result_var
+                 ~e:(Expr.make_var result_var
                     (Expr.with_ty m
                        (TStruct sc_sig.scope_sig_output_struct, Expr.pos e)))
-                 field sc_sig.scope_sig_output_struct (Expr.with_ty m typ)
+                 ~field ~name:sc_sig.scope_sig_output_struct (Expr.with_ty m typ)
              in
              match Mark.remove typ with
              | TArrow (ts_in, t_out) ->
@@ -404,7 +405,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
                     EndCall f_markings)
                  ts_in (Expr.pos e)
              | _ -> original_field_expr)
-           (StructName.Map.find sc_sig.scope_sig_output_struct ctx.decl_ctx.ctx_structs))
+           (snd (StructName.Map.find sc_sig.scope_sig_output_struct ctx.decl_ctx.ctx_structs)))
         (Expr.with_ty m (TStruct sc_sig.scope_sig_output_struct, Expr.pos e))
     in
     (* Here we have to go through an if statement that records a decision being
@@ -764,7 +765,7 @@ let translate_rule
         StructField.Map.empty all_subscope_input_vars
     in
     let subscope_struct_arg =
-      Expr.estruct called_scope_input_struct subscope_args
+      Expr.estruct ~name:called_scope_input_struct ~fields:subscope_args
         (mark_tany m pos_call)
     in
     let all_subscope_output_vars_dcalc =
@@ -899,8 +900,8 @@ let translate_rules
     ScopeName.Map.find scope_name ctx.decl_ctx.ctx_scopes
   in
   let return_exp =
-    Expr.estruct scope_sig.scope_sig_output_struct
-      (ScopeVar.Map.fold
+    Expr.estruct ~name:scope_sig.scope_sig_output_struct
+      ~fields:(ScopeVar.Map.fold
          (fun var (dcalc_var, _, io) acc ->
            if Mark.remove io.Desugared.Ast.io_output then
              let field = ScopeVar.Map.find var scope_sig_decl.out_struct_fields in
@@ -1059,7 +1060,7 @@ let translate_scope_decl
       StructField.Map.empty scope_input_variables
   in
   let new_struct_ctx =
-    StructName.Map.singleton scope_input_struct_name field_map
+    StructName.Map.singleton scope_input_struct_name ([], field_map)
   in
   ( scope_body,
     new_struct_ctx )

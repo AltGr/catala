@@ -126,12 +126,12 @@ let rec format_typ
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ *@ ")
          (fun fmt t ->
-           Format.fprintf fmt "%a" (format_typ ~colors:(List.tl colors)) t))
+           format_typ fmt ~colors:(List.tl colors) t))
       ts
       (pp_color_string (List.hd colors))
       ")"
-  | TStruct s -> Format.fprintf fmt "%a" A.StructName.format s
-  | TEnum e -> Format.fprintf fmt "%a" A.EnumName.format e
+  | TStruct s -> Print.path fmt (fst (A.StructName.Map.find s ctx.A.ctx_structs)); A.StructName.format fmt s
+  | TEnum e -> Print.path fmt (fst (A.EnumName.Map.find e ctx.A.ctx_enums)); A.EnumName.format fmt e
   | TOption t ->
     Format.fprintf fmt "@[<hov 2>option %a@]"
       (format_typ_with_parens ~colors:(List.tl colors))
@@ -322,11 +322,11 @@ module Env = struct
     {
       structs =
         A.StructName.Map.map
-          (A.StructField.Map.map ast_to_typ)
+          (fun (_path, ty) -> A.StructField.Map.map ast_to_typ ty)
           decl_ctx.ctx_structs;
       enums =
         A.EnumName.Map.map
-          (A.EnumConstructor.Map.map ast_to_typ)
+          (fun (_path, ty) -> A.EnumConstructor.Map.map ast_to_typ ty)
           decl_ctx.ctx_enums;
       vars = Var.Map.empty;
       scope_vars = A.ScopeVar.Map.empty;
@@ -443,8 +443,12 @@ and typecheck_expr_top_down :
     Expr.elocation loc (mark_with_tau_and_unify (ast_to_typ ty))
   | A.EStruct { name; fields } ->
     let mark = ty_mark (TStruct name) in
-    let str_ast = A.StructName.Map.find name ctx.A.ctx_structs in
-    let str = A.StructName.Map.find name env.structs in
+    let _path, str_ast =
+      A.StructName.Map.find name ctx.A.ctx_structs
+    in
+    let str =
+      A.StructName.Map.find name env.structs
+    in
     let _check_fields : unit =
       let missing_fields, extra_fields =
         A.StructField.Map.fold
@@ -476,15 +480,15 @@ and typecheck_expr_top_down :
           "Mismatching field definitions for structure %a" A.StructName.format
           name
     in
-    let fields' =
+    let fields =
       A.StructField.Map.mapi
         (fun f_name f_e ->
           let f_ty = A.StructField.Map.find f_name str in
           typecheck_expr_top_down ~leave_unresolved ctx env f_ty f_e)
         fields
     in
-    Expr.estruct name fields' mark
-  | A.EDStructAccess { e = e_struct; name_opt; field } ->
+    Expr.estruct ~name ~fields mark
+  | A.EDStructAccess { e = e_struct; path = _; name_opt; field } ->
     let t_struct =
       match name_opt with
       | Some name -> TStruct name
@@ -505,6 +509,7 @@ and typecheck_expr_top_down :
           "This is not a structure, cannot access field %s (%a)" field
           (format_typ ctx) (ty e_struct')
     in
+    let path, _ = A.StructName.Map.find name ctx.ctx_structs in
     let fld_ty =
       let str =
         try A.StructName.Map.find name env.structs
@@ -539,7 +544,7 @@ and typecheck_expr_top_down :
       A.StructField.Map.find field str
     in
     let mark = mark_with_tau_and_unify fld_ty in
-    Expr.edstructaccess e_struct' field (Some name) mark
+    Expr.edstructaccess ~e:e_struct' ~path ~name_opt:(Some name) ~field mark
   | A.EStructAccess { e = e_struct; name; field } ->
     let fld_ty =
       let str =
@@ -564,7 +569,7 @@ and typecheck_expr_top_down :
       typecheck_expr_top_down ~leave_unresolved ctx env
         (unionfind (TStruct name)) e_struct
     in
-    Expr.estructaccess e_struct' field name mark
+    Expr.estructaccess ~e:e_struct' ~field ~name mark
   | A.EInj { name; cons; e = e_enum }
     when Definitions.EnumName.equal name Expr.option_enum ->
     if Definitions.EnumConstructor.equal cons Expr.some_constr then
@@ -573,7 +578,7 @@ and typecheck_expr_top_down :
       let e_enum' =
         typecheck_expr_top_down ~leave_unresolved ctx env cell_type e_enum
       in
-      Expr.einj e_enum' cons name mark
+      Expr.einj ~name ~cons ~e:e_enum' mark
     else
       (* None constructor *)
       let cell_type = unionfind (TAny (Any.fresh ())) in
@@ -582,7 +587,7 @@ and typecheck_expr_top_down :
         typecheck_expr_top_down ~leave_unresolved ctx env
           (unionfind (TLit TUnit)) e_enum
       in
-      Expr.einj e_enum' cons name mark
+      Expr.einj ~name ~cons ~e:e_enum' mark
   | A.EInj { name; cons; e = e_enum } ->
     let mark = mark_with_tau_and_unify (unionfind (TEnum name)) in
     let e_enum' =
@@ -590,7 +595,7 @@ and typecheck_expr_top_down :
         (A.EnumConstructor.Map.find cons (A.EnumName.Map.find name env.enums))
         e_enum
     in
-    Expr.einj e_enum' cons name mark
+    Expr.einj ~e:e_enum' ~cons ~name mark
   | A.EMatch { e = e1; name; cases }
     when Definitions.EnumName.equal name Expr.option_enum ->
     let cell_type = unionfind ~pos:e1 (TAny (Any.fresh ())) in
@@ -604,7 +609,7 @@ and typecheck_expr_top_down :
     let t_ret = unionfind ~pos:e (TAny (Any.fresh ())) in
     let mark = mark_with_tau_and_unify t_ret in
     let e1' = typecheck_expr_top_down ~leave_unresolved ctx env t_arg e1 in
-    let cases' =
+    let cases =
       A.EnumConstructor.Map.merge
         (fun _ e e_ty ->
           match e, e_ty with
@@ -616,17 +621,19 @@ and typecheck_expr_top_down :
           | _ -> assert false)
         cases cases_ty
     in
-
-    Expr.ematch e1' name cases' mark
+    Expr.ematch ~e:e1' ~name ~cases mark
   | A.EMatch { e = e1; name; cases } ->
-    let cases_ty = A.EnumName.Map.find name ctx.A.ctx_enums in
+    let _path, cases_ty =
+      A.EnumName.Map.find name ctx.A.ctx_enums
+    in
     let t_ret = unionfind ~pos:e1 (TAny (Any.fresh ())) in
     let mark = mark_with_tau_and_unify t_ret in
     let e1' =
-      typecheck_expr_top_down ~leave_unresolved ctx env (unionfind (TEnum name))
+      typecheck_expr_top_down ~leave_unresolved ctx env
+        (unionfind (TEnum name))
         e1
     in
-    let cases' =
+    let cases =
       A.EnumConstructor.Map.mapi
         (fun c_name e ->
           let c_ty = A.EnumConstructor.Map.find c_name cases_ty in
@@ -637,7 +644,7 @@ and typecheck_expr_top_down :
           typecheck_expr_top_down ~leave_unresolved ctx env e_ty e)
         cases
     in
-    Expr.ematch e1' name cases' mark
+    Expr.ematch ~e:e1' ~name ~cases mark
   | A.EScopeCall { path; scope; args } ->
     let scope_out_struct =
       let ctx = Program.module_ctx ctx path in
@@ -1021,7 +1028,8 @@ let program ~leave_unresolved prg =
         prg.decl_ctx with
         ctx_structs =
           A.StructName.Map.mapi
-            (fun s_name fields ->
+            (fun s_name (path, fields) ->
+              path,
               A.StructField.Map.mapi
                 (fun f_name (t : A.typ) ->
                   match Mark.remove t with
@@ -1034,7 +1042,8 @@ let program ~leave_unresolved prg =
             prg.decl_ctx.ctx_structs;
         ctx_enums =
           A.EnumName.Map.mapi
-            (fun e_name cons ->
+            (fun e_name (path, cons) ->
+              path,
               A.EnumConstructor.Map.mapi
                 (fun cons_name (t : A.typ) ->
                   match Mark.remove t with

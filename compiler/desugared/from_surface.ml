@@ -250,8 +250,8 @@ let rec translate_expr
         (EnumName.Map.find enum_uid ctxt.enums)
     in
     Expr.ematch
-      (rec_helper e1_sub)
-      enum_uid cases emark
+      ~e:(rec_helper e1_sub)
+      ~name:enum_uid ~cases emark
   | Binop ((((S.And | S.Or | S.Xor), _) as op), e1, e2) ->
     check_formula op e1;
     check_formula op e2;
@@ -426,7 +426,7 @@ let rec translate_expr
           | Some ctxt ->
             get_str ctxt path
       in
-      Expr.edstructaccess e (Mark.remove x) (get_str ctxt path) emark)
+      Expr.edstructaccess ~e ~field:(Mark.remove x) ~name_opt:(get_str ctxt path) ~path emark)
   | FunCall (f, args) ->
     Expr.eapp (rec_helper f) (List.map rec_helper args) emark
   | ScopeCall (((path, id), _), fields) ->
@@ -520,12 +520,12 @@ let rec translate_expr
             StructField.format expected_f)
       expected_s_fields;
 
-    Expr.estruct s_uid s_fields emark
+    Expr.estruct ~name:s_uid ~fields:s_fields emark
   | StructLit (((_, _s_name), _), _fields) ->
     Message.raise_spanned_error pos "Qualified paths are not supported yet"
   | EnumInject (((path, (constructor, pos_constructor)), _), payload) -> (
-    let possible_c_uids =
-      try Ident.Map.find constructor ctxt.constructor_idmap
+    let get_possible_c_uids ctxt =
+      try Ident.Map.find constructor ctxt.Name_resolution.constructor_idmap
       with Not_found ->
         raise_error_cons_not_found ctxt (constructor, pos_constructor)
     in
@@ -533,8 +533,9 @@ let rec translate_expr
 
     match path with
     | [] ->
+      let possible_c_uids = get_possible_c_uids ctxt in
       if
-        (* No constructor name was specified *)
+        (* No enum name was specified *)
         EnumName.Map.cardinal possible_c_uids > 1
       then
         Message.raise_spanned_error pos_constructor
@@ -547,13 +548,19 @@ let rec translate_expr
         let e_uid, c_uid = EnumName.Map.choose possible_c_uids in
         let payload = Option.map rec_helper payload in
         Expr.einj
-          (match payload with
+          ~e:(match payload with
           | Some e' -> e'
           | None -> Expr.elit LUnit mark_constructor)
-          c_uid e_uid emark
-    | [enum] -> (
+          ~cons:c_uid ~name:e_uid emark
+    | path_enum -> (
+      let path, enum = match List.rev path_enum with
+        | enum :: rpath -> List.rev rpath, enum
+        | _ -> assert false
+      in
       try
-        (* The path has been fully qualified *)
+        let ctxt = Name_resolution.module_ctx ctxt path in
+        let possible_c_uids = get_possible_c_uids ctxt in
+        (* The path has been qualified *)
         let e_uid = Name_resolution.get_enum ctxt enum in
         try
           let c_uid = EnumName.Map.find e_uid possible_c_uids in
@@ -561,18 +568,16 @@ let rec translate_expr
             Option.map rec_helper payload
           in
           Expr.einj
-            (match payload with
+            ~e:(match payload with
             | Some e' -> e'
             | None -> Expr.elit LUnit mark_constructor)
-            c_uid e_uid emark
+            ~cons:c_uid ~name:e_uid emark
         with Not_found ->
           Message.raise_spanned_error pos "Enum %s does not contain case %s"
             (Mark.remove enum) constructor
       with Not_found ->
         Message.raise_spanned_error (Mark.get enum)
-          "Enum %s has not been defined before" (Mark.remove enum))
-    | _ ->
-      Message.raise_spanned_error pos "Qualified paths are not supported yet")
+          "Enum %s has not been defined" (Mark.remove enum)))
   | MatchWith (e1, (cases, _cases_pos)) ->
     let e1 = rec_helper e1 in
     let cases_d, e_uid =
@@ -580,7 +585,7 @@ let rec translate_expr
         local_vars
         cases
     in
-    Expr.ematch e1 e_uid cases_d emark
+    Expr.ematch ~e:e1 ~name:e_uid ~cases:cases_d emark
   | TestMatchCase (e1, pattern) ->
     (match snd (Mark.remove pattern) with
     | None -> ()
@@ -602,8 +607,8 @@ let rec translate_expr
         (EnumName.Map.find enum_uid ctxt.enums)
     in
     Expr.ematch
-      (rec_helper e1)
-      enum_uid cases emark
+      ~e:(rec_helper e1)
+      ~name:enum_uid ~cases:cases emark
   | ArrayLit es -> Expr.earray (List.map rec_helper es) emark
   | CollectionOp (((S.Filter { f } | S.Map { f }) as op), collection) ->
     let collection = rec_helper collection in
@@ -1469,8 +1474,23 @@ let translate_program
       {
         Ast.program_ctx =
           {
-            ctx_structs = ctxt.Name_resolution.structs;
-            ctx_enums = ctxt.Name_resolution.enums;
+            (* After name resolution, type definitions (structs and enums) are exposed at toplevel for easier lookup, but their paths need to remain available for printing and later passes *)
+            ctx_structs =
+              ModuleName.Map.fold (fun modname prg acc ->
+                  StructName.Map.union (fun _ _ _ -> assert false) acc
+                    (StructName.Map.map
+                       (fun (path, def) -> (modname, Pos.no_pos) :: path, def)
+                       prg.Ast.program_ctx.ctx_structs))
+                submodules
+                (StructName.Map.map (fun def -> [], def) ctxt.Name_resolution.structs);
+            ctx_enums =
+              ModuleName.Map.fold (fun modname prg acc ->
+                  EnumName.Map.union (fun _ _ _ -> assert false) acc
+                    (EnumName.Map.map
+                       (fun (path, def) -> (modname, Pos.no_pos) :: path, def)
+                       prg.Ast.program_ctx.ctx_enums))
+                submodules
+                (EnumName.Map.map (fun def -> [], def) ctxt.Name_resolution.enums);
             ctx_scopes =
               Ident.Map.fold
                 (fun _ def acc ->
@@ -1490,7 +1510,7 @@ let translate_program
     in
     make_ctx ctxt
   in
-  let process_code_block prgm block =
+  let process_code_block ctxt prgm block =
     List.fold_left
       (fun prgm item ->
          match Mark.remove item with
@@ -1510,13 +1530,13 @@ let translate_program
         (fun prgm child -> process_structure prgm child)
         prgm children
     | S.CodeBlock (block, _, _) ->
-      process_code_block prgm block
+      process_code_block ctxt prgm block
     | S.LawInclude _ | S.LawText _ -> prgm
   in
   let desugared =
     List.fold_left (fun acc (id, intf) ->
         let modul = ModuleName.Map.find id acc.Ast.program_modules in
-        let modul = process_code_block modul intf in
+        let modul = process_code_block (Name_resolution.module_ctx ctxt [id, Pos.no_pos]) modul intf in
         { acc with program_modules =
                      ModuleName.Map.add id modul acc.program_modules })
       desugared

@@ -271,7 +271,7 @@ let build_type_graph (structs : struct_ctx) (enums : enum_ctx) : TDependencies.t
   let g = TDependencies.empty in
   let g =
     StructName.Map.fold
-      (fun s fields g ->
+      (fun s (path, fields) g ->
         StructField.Map.fold
           (fun _ typ g ->
             let def = TVertex.Struct s in
@@ -281,8 +281,9 @@ let build_type_graph (structs : struct_ctx) (enums : enum_ctx) : TDependencies.t
               (fun used g ->
                 if TVertex.equal used def then
                   Message.raise_spanned_error (Mark.get typ)
-                    "The type %a is defined using itself, which is forbidden \
+                    "The type %a%a is defined using itself, which is forbidden \
                      since Catala does not provide recursive types"
+                    Print.path path
                     TVertex.format used
                 else
                   let edge = TDependencies.E.create used (Mark.get typ) def in
@@ -293,7 +294,7 @@ let build_type_graph (structs : struct_ctx) (enums : enum_ctx) : TDependencies.t
   in
   let g =
     EnumName.Map.fold
-      (fun e cases g ->
+      (fun e (path, cases) g ->
         EnumConstructor.Map.fold
           (fun _ typ g ->
             let def = TVertex.Enum e in
@@ -303,8 +304,9 @@ let build_type_graph (structs : struct_ctx) (enums : enum_ctx) : TDependencies.t
               (fun used g ->
                 if TVertex.equal used def then
                   Message.raise_spanned_error (Mark.get typ)
-                    "The type %a is defined using itself, which is forbidden \
+                    "The type %a%a is defined using itself, which is forbidden \
                      since Catala does not provide recursive types"
+                    Print.path path
                     TVertex.format used
                 else
                   let edge = TDependencies.E.create used (Mark.get typ) def in

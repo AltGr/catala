@@ -101,6 +101,14 @@ let external_ref fmt er =
   | External_value v -> TopdefName.format fmt v
   | External_scope s -> ScopeName.format fmt s
 
+let rec module_ctx ctx = function
+  | [] -> ctx
+  | (modname, mpos) :: path ->
+    match ModuleName.Map.find_opt modname ctx.ctx_modules with
+    | None ->
+      Message.raise_spanned_error mpos "Module %a not found" ModuleName.format modname
+    | Some ctx -> module_ctx ctx path
+
 let rec typ_gen
     (ctx : decl_ctx option)
     ~(colors : Ocolor_types.color4 list)
@@ -129,12 +137,16 @@ let rec typ_gen
     pp_color_string (List.hd colors) fmt ")"
   | TStruct s -> (
     match ctx with
-    | None -> StructName.format fmt s
+    | None ->
+      StructName.format fmt s
     | Some ctx ->
-      let fields = StructName.Map.find s ctx.ctx_structs in
-      if StructField.Map.is_empty fields then StructName.format fmt s
+      let p, fields = StructName.Map.find s ctx.ctx_structs in
+      if StructField.Map.is_empty fields then
+        (path fmt p; StructName.format fmt s)
       else
-        Format.fprintf fmt "@[<hv 2>%a %a@,%a@;<0 -2>%a@]" StructName.format s
+        Format.fprintf fmt "@[<hv 2>%a%a %a@,%a@;<0 -2>%a@]"
+          path p
+          StructName.format s
           (pp_color_string (List.hd colors))
           "{"
           (StructField.Map.format_bindings
@@ -153,13 +165,14 @@ let rec typ_gen
     match ctx with
     | None -> Format.fprintf fmt "@[<hov 2>%a@]" EnumName.format e
     | Some ctx ->
-      Format.fprintf fmt "@[<hov 2>%a%a%a%a@]" EnumName.format e punctuation "["
+      let p, def = EnumName.Map.find e ctx.ctx_enums in
+      Format.fprintf fmt "@[<hov 2>%a%a%a%a%a@]" path p EnumName.format e punctuation "["
         (EnumConstructor.Map.format_bindings
            ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ %a@ " punctuation "|")
            (fun fmt pp_case mty ->
              Format.fprintf fmt "%t%a@ %a" pp_case punctuation ":" (typ ~colors)
                mty))
-        (EnumName.Map.find e ctx.ctx_enums)
+        def
         punctuation "]")
   | TOption t ->
     Format.fprintf fmt "@[<hov 2>%a@ %a@]" base_type "eoption" (typ ~colors) t
@@ -858,8 +871,8 @@ let enum
     decl_ctx
     fmt
     (pp_name : Format.formatter -> unit)
-    (c : typ EnumConstructor.Map.t) =
-  Format.fprintf fmt "@[<h 0>%a %t %a@ %a@]" keyword "type" pp_name punctuation
+    (p, c : path * typ EnumConstructor.Map.t) =
+  Format.fprintf fmt "@[<h 0>%a %a%t %a@ %a@]" keyword "type" path p pp_name punctuation
     "="
     (EnumConstructor.Map.format_bindings
        ~pp_sep:(fun _ _ -> ())
@@ -875,9 +888,9 @@ let struct_
     decl_ctx
     fmt
     (pp_name : Format.formatter -> unit)
-    (c : typ StructField.Map.t) =
-  Format.fprintf fmt "@[<hv 0>@[<hv 2>@[<h>%a %t %a@;%a@]@;%a@]%a@]@;" keyword
-    "type" pp_name punctuation "=" punctuation "{"
+    (p, c : path * typ StructField.Map.t) =
+  Format.fprintf fmt "@[<hv 0>@[<hv 2>@[<h>%a %a%t %a@;%a@]@;%a@]%a@]@;" keyword
+    "type" path p pp_name punctuation "=" punctuation "{"
     (StructField.Map.format_bindings
        ~pp_sep:(fun _ _ -> ())
        (fun fmt pp_n ty ->
