@@ -33,6 +33,14 @@ type ctx = {
   modules : ctx ModuleName.Map.t;
 }
 
+let rec module_ctx ctx = function
+  | [] -> ctx
+  | (modname, mpos) :: path ->
+    match ModuleName.Map.find_opt modname ctx.modules with
+    | None ->
+      Message.raise_spanned_error mpos "Module %a not found" ModuleName.format modname
+    | Some ctx -> module_ctx ctx path
+
 let tag_with_log_entry
     (e : untyped Ast.expr boxed)
     (l : log_entry)
@@ -61,6 +69,7 @@ let rec translate_expr (ctx : ctx) (e : D.expr) :
   | ELocation (SubScopeVar { path; scope; alias; var }) ->
     (* When referring to a subscope variable in an expression, we are referring
        to the output, hence we take the last state. *)
+    let ctx = module_ctx ctx path in
     let var =
       match ScopeVar.Map.find (Mark.remove var) ctx.scope_var_mapping with
       | WholeVar new_s_var -> Mark.copy var new_s_var
@@ -798,7 +807,7 @@ let translate_program
       }
   in
   let ctx = make_ctx desugared in
-  let rec process_decl_ctx decl_ctx =
+  let rec process_decl_ctx ctx decl_ctx =
     let ctx_scopes =
       ScopeName.Map.map
         (fun out_str ->
@@ -817,17 +826,22 @@ let translate_program
         decl_ctx.ctx_scopes
     in
     { decl_ctx with
-      ctx_modules = ModuleName.Map.map process_decl_ctx decl_ctx.ctx_modules;
+      ctx_modules =
+        ModuleName.Map.mapi (fun modname decl_ctx ->
+            let ctx = ModuleName.Map.find modname ctx.modules in
+            process_decl_ctx ctx decl_ctx)
+          decl_ctx.ctx_modules;
       ctx_scopes; }
   in
   let rec process_modules program_ctx desugared =
     ModuleName.Map.mapi (fun modname m_desugared ->
+        let ctx = ModuleName.Map.find modname ctx.modules in
         {
          Ast.program_topdefs = TopdefName.Map.empty;
          program_scopes =
            ScopeName.Map.map
              (translate_scope_interface ctx)
-             desugared.D.program_scopes;
+             m_desugared.D.program_scopes;
          program_ctx;
          program_modules =
            process_modules
@@ -836,7 +850,7 @@ let translate_program
        })
       desugared.D.program_modules
   in
-  let program_ctx = process_decl_ctx desugared.D.program_ctx in
+  let program_ctx = process_decl_ctx ctx desugared.D.program_ctx in
   let program_modules = process_modules program_ctx desugared in
   let program_topdefs =
     TopdefName.Map.mapi

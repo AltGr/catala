@@ -1072,20 +1072,28 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
     Scopelang.Dependency.get_defs_ordering defs_dependencies
   in
   let decl_ctx = prgm.program_ctx in
+  Message.emit_debug "prog scopes: %a@ modules: %a"
+    (ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space) prgm.program_scopes
+    (ModuleName.Map.format
+       (fun fmt prg -> ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space fmt prg.Scopelang.Ast.program_scopes)) prgm.program_modules;
   let sctx : 'm scope_sigs_ctx =
     let process_scope_sig (scope_path, scope_name) scope =
+      Message.emit_debug "process_scope_sig %a%a (%a)"
+        Print.path scope_path ScopeName.format scope_name ScopeName.format scope.Scopelang.Ast.scope_decl_name;
       let scope_ref =
-          match scope_path with
-          | [] ->
-            let v = Var.make (Mark.remove (ScopeName.get_info scope_name)) in
-            Local_scope_ref v
-          | path ->
-            External_scope_ref (path, Mark.copy (ScopeName.get_info scope_name) scope_name)
-        in
-        let scope_info =
+        match scope_path with
+        | [] ->
+          let v = Var.make (Mark.remove (ScopeName.get_info scope_name)) in
+          Local_scope_ref v
+        | path ->
+          External_scope_ref (path, Mark.copy (ScopeName.get_info scope_name) scope_name)
+      in
+      let scope_info =
+        try
           ScopeName.Map.find scope_name (Program.module_ctx decl_ctx scope_path).ctx_scopes
-        in
-        let scope_sig_in_fields =
+        with Not_found -> Message.raise_spanned_error (Mark.get (ScopeName.get_info scope_name)) "Could not find scope %a%a" Print.path scope_path ScopeName.format scope_name
+      in
+      let scope_sig_in_fields =
           (* Output fields have already been generated and added to the program ctx at this point, because they are visible to the user (manipulated as the return type of ScopeCalls) ; but input fields are used purely internally and need to be created here to implement the call convention for scopes. *)
           ScopeVar.Map.filter_map
             (fun dvar (typ, vis) ->
@@ -1207,6 +1215,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
         ctx )
   in
   let items, ctx = translate_defs top_ctx defs_ordering in
+  (* WIP TODO FIXME HERE: the scopes in submodules are not translated here it seems, and their input structs not added to decl_ctx (see From_surface:1476 for decl_ctx flattening info) *)
   {
     code_items = Bindlib.unbox items;
     decl_ctx = ctx.decl_ctx;

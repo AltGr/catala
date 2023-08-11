@@ -316,7 +316,7 @@ module Env = struct
     modules : 'e t A.ModuleName.Map.t;
   }
 
-  let empty (decl_ctx : A.decl_ctx) =
+  let rec empty (decl_ctx : A.decl_ctx) =
     (* We fill the environment initially with the structs and enums
        declarations *)
     {
@@ -332,7 +332,7 @@ module Env = struct
       scope_vars = A.ScopeVar.Map.empty;
       scopes = A.ScopeName.Map.empty;
       toplevel_vars = A.TopdefName.Map.empty;
-      modules = A.ModuleName.Map.empty;
+      modules = A.ModuleName.Map.map empty decl_ctx.A.ctx_modules;
     }
 
   let get t v = Var.Map.find_opt v t.vars
@@ -346,7 +346,10 @@ module Env = struct
   let rec module_env path env =
     match path with
     | [] -> env
-    | modname :: path -> module_env path (A.ModuleName.Map.find (Mark.remove modname) env.modules)
+    | (modname, mpos) :: path ->
+      match A.ModuleName.Map.find_opt modname env.modules with
+      | None -> Message.raise_spanned_error mpos "Module %a not found" A.ModuleName.format modname
+      | Some env -> module_env path env
 
   let add v tau t = { t with vars = Var.Map.add v tau t.vars }
   let add_var v typ t = add v (ast_to_typ typ) t
@@ -361,6 +364,7 @@ module Env = struct
     { t with toplevel_vars = A.TopdefName.Map.add v typ t.toplevel_vars }
 
   let add_module modname ~module_env t =
+    Message.emit_debug "ADD MODULE %a" A.ModuleName.format modname;
     { t with modules = A.ModuleName.Map.add modname module_env t.modules }
 
   let open_scope scope_name t =

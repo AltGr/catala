@@ -70,12 +70,34 @@ let type_rule decl_ctx env = function
     Call (sc_name, ssc_name, Typed { pos; ty = Mark.add pos TAny })
 
 let type_program (prg : 'm program) : typed program =
-  let typing_env = Typing.Env.empty prg.program_ctx in
+  let base_typing_env prg =
+    let typing_env = Typing.Env.empty prg.program_ctx in
+    let typing_env =
+      TopdefName.Map.fold
+        (fun name (_, ty) -> Typing.Env.add_toplevel_var name ty)
+        prg.program_topdefs
+        typing_env
+    in
+    let typing_env =
+      ScopeName.Map.fold
+        (fun scope_name scope_decl ->
+           let vars = ScopeVar.Map.map fst (Mark.remove scope_decl).scope_sig in
+           Typing.Env.add_scope scope_name ~vars)
+        prg.program_scopes typing_env
+    in
+    typing_env
+  in
+  let rec build_typing_env prg =
+    ModuleName.Map.fold (fun modname prg ->
+        Typing.Env.add_module modname ~module_env:(build_typing_env prg))
+      prg.program_modules
+      (base_typing_env prg)
+  in
   let typing_env =
-    TopdefName.Map.fold
-      (fun name (_, ty) -> Typing.Env.add_toplevel_var name ty)
-      prg.program_topdefs
-      typing_env
+    ModuleName.Map.fold (fun modname prg ->
+        Typing.Env.add_module modname ~module_env:(build_typing_env prg))
+      prg.program_modules
+      (base_typing_env prg)
   in
   let program_topdefs =
     TopdefName.Map.map
@@ -85,13 +107,6 @@ let type_program (prg : 'm program) : typed program =
                ~typ expr),
           typ ))
       prg.program_topdefs
-  in
-  let typing_env =
-    ScopeName.Map.fold
-      (fun scope_name scope_decl ->
-        let vars = ScopeVar.Map.map fst (Mark.remove scope_decl).scope_sig in
-        Typing.Env.add_scope scope_name ~vars)
-      prg.program_scopes typing_env
   in
   let program_scopes =
     ScopeName.Map.map

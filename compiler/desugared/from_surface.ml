@@ -1051,6 +1051,7 @@ let process_def
     Ast.ScopeDef.Map.find def_key scope_ctxt.scope_defs_contexts
   in
   (* We add to the name resolution context the name of the parameter variable *)
+  Message.emit_debug "PROCESS_DEF %a@!" Ast.ScopeDef.format def_key;
   let local_vars, param_uids =
     process_rule_parameters ctxt (Mark.copy def.definition_name def_key) def
   in
@@ -1533,6 +1534,10 @@ let translate_program
       process_code_block ctxt prgm block
     | S.LawInclude _ | S.LawText _ -> prgm
   in
+  Message.emit_debug "DESUGARED → prog scopes: %a@ modules: %a"
+    (ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space) desugared.Ast.program_scopes
+    (ModuleName.Map.format
+       (fun fmt prg -> ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space fmt prg.Ast.program_scopes)) desugared.Ast.program_modules;
   let desugared =
     List.fold_left (fun acc (id, intf) ->
         let modul = ModuleName.Map.find id acc.Ast.program_modules in
@@ -1542,4 +1547,11 @@ let translate_program
       desugared
       surface.S.program_modules
   in
-  List.fold_left process_structure desugared surface.S.program_items
+  let desugared =
+    List.fold_left process_structure desugared surface.S.program_items
+  in
+  Message.emit_debug "DESUGARED2 → prog scopes: %a@ modules: %a"
+    (ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space) desugared.Ast.program_scopes
+    (ModuleName.Map.format
+       (fun fmt prg -> ScopeName.Map.format_keys ~pp_sep:Format.pp_print_space fmt prg.Ast.program_scopes)) desugared.Ast.program_modules;
+  desugared
