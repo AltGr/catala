@@ -1,17 +1,17 @@
-(rule
- (targets aides_logement.ml aides_logement_api_web.ml)
- (deps
-  (source_tree ..)
-  %{workspace_root}/compiler/plugins/api_web%{ext_plugin})
- (action
-  (chdir
-   %{workspace_root}
-   (run
-    catala
-    api_web
-    -t
-    --plugin-dir=compiler/plugins
-    %{dep:aides_logement.catala_fr}))))
+;; (rule
+;;  (targets aides_logement.ml aides_logement_api_web.ml)
+;;  (deps
+;;   (source_tree ..)
+;;   %{workspace_root}/compiler/plugins/api_web%{ext_plugin})
+;;  (action
+;;   (chdir
+;;    %{workspace_root}
+;;    (run
+;;     catala
+;;     api_web
+;;     -t
+;;     --plugin-dir=compiler/plugins
+;;     %{dep:aides_logement.catala_fr}))))
 
 (rule
  (targets aides_logement_schema.json)
