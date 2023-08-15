@@ -1149,6 +1149,26 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
           prgm.Scopelang.Ast.program_modules;
     }
   in
+  let rec gather_module_in_structs acc path sctx =
+    (* Expose all added in_structs from submodules at toplevel *)
+    ModuleName.Map.fold (fun modname scope_sigs acc ->
+        let path = path @ [modname, Pos.no_pos] in
+        let acc = gather_module_in_structs acc path scope_sigs.scope_sigs_modules in
+        ScopeName.Map.fold (fun _ scope_sig_ctx acc ->
+            let fields =
+              ScopeVar.Map.fold (fun _ sivc acc ->
+                  let pos = Mark.get (StructField.get_info sivc.scope_input_name) in
+                  StructField.Map.add sivc.scope_input_name (sivc.scope_input_typ, pos) acc)
+                scope_sig_ctx.scope_sig_in_fields StructField.Map.empty
+            in
+            StructName.Map.add scope_sig_ctx.scope_sig_input_struct
+              (path, fields) acc)
+          scope_sigs.scope_sigs acc
+        )
+        sctx
+        acc
+  in
+  let decl_ctx = { decl_ctx with ctx_structs = gather_module_in_structs decl_ctx.ctx_structs [] sctx.scope_sigs_modules } in
   let top_ctx =
     let toplevel_vars =
       TopdefName.Map.mapi
