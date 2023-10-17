@@ -44,7 +44,7 @@ depends: [
   "zarith_stubs_js" {>= "v0.14.1"}
   "crunch" {>= "3.0.0"}
   "alcotest" {>= "1.5.0"}
-  "ninja_utils" {= version}
+  "ninja_utils" {= "0.9.0"}
   "odoc" {with-doc}
   "ocamlformat" {cataladevmode & = "0.26.0"}
   "obelisk" {cataladevmode}
@@ -81,3 +81,4 @@ depexts: [
   ["groff" "latex-mk" "python-pygments" "pandoc"]
     {cataladevmode & os-family = "arch"}
 ]
+pin-depends: [ "ninja_utils.0.9.0" "git+https://github.com/CatalaLang/ninja_utils" ]
