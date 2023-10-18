@@ -1,4 +1,4 @@
 (documentation
  (package catala))
 
-(dirs jsoo ocaml python)
+(dirs jsoo ocaml python r)
