@@ -1,7 +1,7 @@
 (rule
  (targets (dir dist))
  (deps (source_tree .))
- (action (run python3 -m build -ns)))
+ (action (run python3 -m build -n)))
 
 (install
  (files (glob_files (dist/*.tar.gz with_prefix runtime_python)))
