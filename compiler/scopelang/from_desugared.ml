@@ -779,7 +779,7 @@ let translate_program
     ModuleName.Map.fold
       (fun _modname mctx acc ->
         let acc = gather_scope_vars acc mctx.modules in
-        ScopeVar.Map.union (fun _ _ -> assert false) acc mctx.scope_var_mapping)
+        ScopeVar.Map.union (fun _ v _ -> Some v) acc mctx.scope_var_mapping)
       modules acc
   in
   let ctx =
@@ -788,7 +788,7 @@ let translate_program
       scope_var_mapping = gather_scope_vars ctx.scope_var_mapping ctx.modules;
     }
   in
-  let rec process_decl_ctx ctx decl_ctx =
+  let rec init_decl_ctx ctx decl_ctx =
     let ctx_scopes =
       ScopeName.Map.map
         (fun out_str ->
@@ -806,21 +806,25 @@ let translate_program
           { out_str with out_struct_fields })
         decl_ctx.ctx_scopes
     in
-    {
-      decl_ctx with
-      ctx_modules =
-        ModuleName.Map.mapi
-          (fun modname decl_ctx ->
-            let ctx = ModuleName.Map.find modname ctx.modules in
-            process_decl_ctx ctx decl_ctx)
-          decl_ctx.ctx_modules;
-      ctx_scopes;
+    let modules =
+      ModuleName.Map.mapi
+        (fun m ctx -> init_decl_ctx ctx (ModuleName.Map.find m decl_ctx.ctx_modules))
+        ctx.modules
+    in
+    { ctx with
+      modules;
+      decl_ctx = {
+        decl_ctx with
+        ctx_modules = ModuleName.Map.map (fun ctx -> ctx.decl_ctx) modules;
+        ctx_scopes;
+      };
     }
   in
-  let rec process_modules program_ctx desugared =
+  let rec process_modules ctx desugared =
     ModuleName.Map.mapi
       (fun modname m_desugared ->
         let ctx = ModuleName.Map.find modname ctx.modules in
+        let program_ctx = ctx.decl_ctx in
         {
           Ast.program_module_name = Some modname;
           Ast.program_topdefs = TopdefName.Map.empty;
@@ -828,17 +832,17 @@ let translate_program
             ScopeName.Map.map
               (translate_scope_interface ctx)
               m_desugared.D.program_scopes;
-          program_ctx = ModuleName.Map.find modname program_ctx.ctx_modules;
+          program_ctx;
           program_modules =
             process_modules
-              (ModuleName.Map.find modname program_ctx.ctx_modules)
+              ctx
               m_desugared;
           Ast.program_lang = desugared.program_lang;
         })
       desugared.D.program_modules
   in
-  let program_ctx = process_decl_ctx ctx desugared.D.program_ctx in
-  let program_modules = process_modules program_ctx desugared in
+  let ctx = init_decl_ctx ctx desugared.program_ctx in
+  let program_modules = process_modules ctx desugared in
   let program_topdefs =
     TopdefName.Map.mapi
       (fun id -> function
@@ -857,7 +861,7 @@ let translate_program
     Ast.program_module_name = desugared.D.program_module_name;
     Ast.program_topdefs;
     Ast.program_scopes;
-    Ast.program_ctx;
+    Ast.program_ctx = ctx.decl_ctx;
     Ast.program_modules;
     Ast.program_lang = desugared.program_lang;
   }

@@ -545,6 +545,14 @@ let[@ocamlformat "disable"] static_base_rules =
         "fi";
       ]
       ~description:["<test>"; !output];
+  (* Note: this last rule looks horrible, but the processing is pretty simple:
+     in the rules above, we output the returning code of diffing individual
+     tests to a [<testfile>@test] file, then the rules for directories just
+     concat these files. What this last rule does is then just count the number
+     of `0` and the total number of characters in the file, and print a readable
+     message. Instead of this disgusting shell code embedded in the ninja file,
+     this could be a specialised subcommand of clerk, e.g. `clerk
+     test-diagnostic <results-file@test>` *)
   ]
 
 let gen_build_statements
@@ -641,7 +649,7 @@ let gen_build_statements
                        (if Filename.is_relative d then !Var.builddir / d else d);
                      ])
                    include_dirs
-              @ (List.map (fun m -> m ^".cmx") modules) );
+              @ List.map (fun m -> m ^ ".cmx") modules );
           ]
   in
   let expose_module =

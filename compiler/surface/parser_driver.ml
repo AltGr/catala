@@ -278,10 +278,15 @@ and expand_includes (source_file : string) (commands : Ast.law_structure list) :
             Ast.program_module_name = join_module_names (Some id);
             Ast.program_items = command :: acc.Ast.program_items;
           }
-        | Ast.ModuleUse (id, _alias) ->
+        | Ast.ModuleUse (id, alias) ->
           {
             acc with
-            Ast.program_modules = (id, []) :: acc.Ast.program_modules;
+            Ast.program_modules =
+              (Option.value ~default:id alias,
+               { intf_modname = id;
+                 intf_code = [];
+                 intf_submodules = []})
+              :: acc.Ast.program_modules;
             Ast.program_items = command :: acc.Ast.program_items;
           }
         | Ast.LawInclude (Ast.CatalaFile inc_file) ->
@@ -360,7 +365,7 @@ let get_interface program =
   let rec filter (req, acc) = function
     | Ast.LawInclude _ | Ast.LawText _ | Ast.ModuleDef _ -> req, acc
     | Ast.LawHeading (_, str) -> List.fold_left filter (req, acc) str
-    | Ast.ModuleUse (m, _) -> m :: req, acc
+    | Ast.ModuleUse (m, alias) -> (m, alias) :: req, acc
     | Ast.CodeBlock (code, _, true) ->
       ( req,
         List.fold_left
@@ -408,7 +413,15 @@ let load_interface source_file =
         | _ -> "Module_name")
   in
   let used_modules, intf = get_interface program in
-  (modname, intf), used_modules
+  let intf_submodules =
+    List.map (fun (intf_modname, alias_opt) ->
+        Option.value ~default:intf_modname alias_opt,
+        { Ast.intf_modname; Ast.intf_code = []; Ast.intf_submodules = [] })
+      used_modules
+  in
+  { Ast.intf_modname = modname;
+    Ast.intf_code = intf;
+    Ast.intf_submodules; }
 
 let parse_top_level_file (source_file : Cli.input_src) : Ast.program =
   let program = with_sedlex_source source_file parse_source in

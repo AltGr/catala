@@ -955,34 +955,46 @@ let empty_ctxt =
     modules = ModuleName.Map.empty;
   }
 
-let import_module modules (name, intf) =
-  let mname = ModuleName.of_string name in
-  let ctxt = { empty_ctxt with modules; path = [mname] } in
-  let ctxt = List.fold_left process_name_item ctxt intf in
-  let ctxt = List.fold_left process_decl_item ctxt intf in
-  let ctxt = { ctxt with modules = empty_ctxt.modules } in
-  (* No submodules at the moment, a module may use the ones loaded before it,
-     but doesn't reexport them *)
-  ModuleName.Map.add mname ctxt modules
-
 (** Derive the context from metadata, in one pass over the declarations *)
 let form_context (prgm : Surface.Ast.program) : context =
-  let modules =
-    List.fold_left import_module ModuleName.Map.empty prgm.program_modules
+  let rec gather_modules seen ctx intfs: _ ModuleName.Map.t * context =
+    List.fold_left (fun (seen, ctx) (alias, intf) ->
+        let alias = ModuleName.of_string alias in
+        let modname = ModuleName.of_string intf.Surface.Ast.intf_modname in
+        let seen, sub_ctx =
+          match ModuleName.Map.find_opt modname seen with
+          | Some sub_ctx -> seen, sub_ctx
+          | None ->
+            let sub_ctx = { empty_ctxt with path = [modname] } in
+            let seen, sub_ctx = gather_modules seen sub_ctx intf.Surface.Ast.intf_submodules in
+            let sub_ctx = List.fold_left process_name_item sub_ctx intf.Surface.Ast.intf_code in
+            let sub_ctx = List.fold_left process_decl_item sub_ctx intf.Surface.Ast.intf_code in
+            ModuleName.Map.add modname sub_ctx seen, sub_ctx
+        in
+        seen, { ctx with modules = ModuleName.Map.add alias sub_ctx ctx.modules })
+      (seen, ctx) intfs
   in
-  let ctxt = { empty_ctxt with modules } in
-  let rec gather_var_sigs acc modules =
-    (* Scope vars from imported modules need to be accessible directly for
-       definitions through submodules *)
-    ModuleName.Map.fold
-      (fun _modname mctx acc ->
-        let acc = gather_var_sigs acc mctx.modules in
-        ScopeVar.Map.union (fun _ _ -> assert false) acc mctx.var_typs)
-      modules acc
+  let _, ctxt =
+    gather_modules ModuleName.Map.empty empty_ctxt prgm.Surface.Ast.program_modules
   in
-  let ctxt =
-    { ctxt with var_typs = gather_var_sigs ScopeVar.Map.empty ctxt.modules }
-  in
+ (*  let modules =
+  *    List.fold_left
+  *      (fun )
+  * import_module ModuleName.Map.empty prgm.program_modules
+  *  in
+  *  let ctxt = { empty_ctxt with modules } in
+  *  let rec gather_var_sigs acc modules =
+  *    (* Scope vars from imported modules need to be accessible directly for
+  *       definitions through submodules *)
+  *    ModuleName.Map.fold
+  *      (fun _modname mctx acc ->
+  *        let acc = gather_var_sigs acc mctx.modules in
+  *        ScopeVar.Map.union (fun _ _ -> assert false) acc mctx.var_typs)
+  *      modules acc
+  *  in
+  *  let ctxt =
+  *    { ctxt with var_typs = gather_var_sigs ScopeVar.Map.empty ctxt.modules }
+  *  in *)
   let ctxt =
     List.fold_left
       (process_law_structure process_name_item)
@@ -999,24 +1011,25 @@ let form_context (prgm : Surface.Ast.program) : context =
       ctxt prgm.program_items
   in
   let rec gather_all_constrs ctxt =
-    (* Gather struct fields and enum constrs from modules: this helps with
-       disambiguation *)
-    let modules, constructor_idmap, field_idmap =
-      ModuleName.Map.fold
-        (fun m ctx (mmap, constrs, fields) ->
-          let ctx = gather_all_constrs ctx in
-          ( ModuleName.Map.add m ctx mmap,
+    (* Gather struct fields and enum constrs from modules to their parents: this helps with
+       disambiguation. Scope variables are also made available to their parents to make lookup easier: since we already have UIDs in that case there is no risk of confusion from here on *)
+    let modules = ModuleName.Map.map gather_all_constrs ctxt.modules in
+    ModuleName.Map.fold (fun _ sub_ctxt acc_ctxt ->
+        { acc_ctxt with
+          constructor_idmap =
             Ident.Map.union
               (fun _ enu1 enu2 ->
-                Some (EnumName.Map.union (fun _ _ -> assert false) enu1 enu2))
-              constrs ctx.constructor_idmap,
+                 Some (EnumName.Map.union (fun _ e1 e2 -> assert (EnumConstructor.equal e1 e2); Some e1) enu1 enu2))
+              ctxt.constructor_idmap sub_ctxt.constructor_idmap;
+          field_idmap =
             Ident.Map.union
               (fun _ str1 str2 ->
-                Some (StructName.Map.union (fun _ _ -> assert false) str1 str2))
-              fields ctx.field_idmap ))
-        ctxt.modules
-        (ModuleName.Map.empty, ctxt.constructor_idmap, ctxt.field_idmap)
-    in
-    { ctxt with modules; constructor_idmap; field_idmap }
+                 Some (StructName.Map.union (fun _ s1 s2 -> assert (StructField.equal s1 s2); Some s1) str1 str2))
+              ctxt.field_idmap sub_ctxt.field_idmap;
+          var_typs =
+            ScopeVar.Map.union (fun _ v _ -> Some v) ctxt.var_typs sub_ctxt.var_typs;
+        })
+      modules
+      { ctxt with modules }
   in
   gather_all_constrs ctxt

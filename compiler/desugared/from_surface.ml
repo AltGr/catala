@@ -1423,7 +1423,6 @@ let init_scope_defs
 (** Main function of this module *)
 let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
     Ast.program =
-  let top_ctx = ctxt in
   let desugared =
     let get_program_scopes ctxt =
       ScopeName.Map.mapi
@@ -1454,7 +1453,7 @@ let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
           {
             Ast.scope_vars;
             scope_sub_scopes;
-            scope_defs = init_scope_defs top_ctx s_context.var_idmap;
+            scope_defs = init_scope_defs ctxt s_context.var_idmap;
             scope_assertions = Ast.AssertionName.Map.empty;
             scope_meta_assertions = [];
             scope_options = [];
@@ -1462,31 +1461,37 @@ let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
           })
         ctxt.Name_resolution.scopes
     in
-    let rec make_ctx ctxt =
+    let rec make_desugared modname ctxt =
       let submodules =
-        ModuleName.Map.map make_ctx ctxt.Name_resolution.modules
+        ModuleName.Map.mapi (fun m ctxt ->
+            make_desugared (Some m) ctxt)
+          ctxt.Name_resolution.modules
       in
       {
         Ast.program_lang = surface.program_lang;
-        Ast.program_module_name =
-          Option.map ModuleName.of_string
-            surface.Surface.Ast.program_module_name;
+        Ast.program_module_name = modname;
         Ast.program_ctx =
           {
             (* After name resolution, type definitions (structs and enums) are
-               exposed at toplevel for easier lookup *)
+               exposed to parents for easier lookup *)
             ctx_structs =
+              StructName.Map.union (fun _ s _ -> Some s)
+                ctxt.Name_resolution.structs
+              @@
               ModuleName.Map.fold
                 (fun _ prg acc ->
                   StructName.Map.union
-                    (fun _ _ _ -> assert false)
+                    (fun _ _ _ -> None (* Name conflict: don't register (TODO: ensure proper error message if used) *))
                     acc prg.Ast.program_ctx.ctx_structs)
-                submodules ctxt.Name_resolution.structs;
+                submodules StructName.Map.empty;
             ctx_enums =
+              EnumName.Map.union (fun _ s _ -> Some s)
+                ctxt.Name_resolution.enums
+              @@
               ModuleName.Map.fold
                 (fun _ prg acc ->
                   EnumName.Map.union
-                    (fun _ _ _ -> assert false)
+                    (fun _ _ _ -> None (* same *))
                     acc prg.Ast.program_ctx.ctx_enums)
                 submodules ctxt.Name_resolution.enums;
             ctx_scopes =
@@ -1497,6 +1502,7 @@ let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
                     ScopeName.Map.add scope scope_info acc
                   | _ -> acc)
                 ctxt.Name_resolution.typedefs ScopeName.Map.empty;
+
             ctx_struct_fields = ctxt.Name_resolution.field_idmap;
             ctx_topdefs = ctxt.Name_resolution.topdef_types;
             ctx_modules =
@@ -1507,7 +1513,9 @@ let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
         Ast.program_modules = submodules;
       }
     in
-    make_ctx ctxt
+    make_desugared
+      (Option.map ModuleName.of_string surface.Surface.Ast.program_module_name)
+      ctxt
   in
   let process_code_block ctxt prgm block =
     List.fold_left
@@ -1537,18 +1545,27 @@ let translate_program (ctxt : Name_resolution.context) (surface : S.program) :
       else prgm
     | S.LawInclude _ | S.LawText _ | S.ModuleUse _ -> prgm
   in
-  let desugared =
+  let rec gather_modules seen ctxt surface_modules desugared =
     List.fold_left
-      (fun acc (id, intf) ->
-        let id = ModuleName.of_string id in
-        let modul = ModuleName.Map.find id acc.Ast.program_modules in
-        let modul =
-          process_code_block (ModuleName.Map.find id ctxt.modules) modul intf
-        in
-        {
-          acc with
-          program_modules = ModuleName.Map.add id modul acc.program_modules;
-        })
-      desugared surface.S.program_modules
+      (fun (seen, desugared) (alias, intf) ->
+         let alias = ModuleName.of_string alias in
+         let id = ModuleName.of_string (intf.S.intf_modname) in
+         let seen, mod_desugared =
+           match ModuleName.Map.find_opt id seen with
+           | Some mod_desugared -> seen, mod_desugared
+           | None ->
+             let prg = ModuleName.Map.find alias desugared.Ast.program_modules in
+             let ctxt = ModuleName.Map.find alias ctxt.Name_resolution.modules in
+             let mod_desugared =
+               process_code_block ctxt prg intf.S.intf_code
+             in
+             let seen, mod_desugared =
+               gather_modules seen ctxt intf.S.intf_submodules mod_desugared
+             in
+             ModuleName.Map.add id mod_desugared seen, mod_desugared
+         in
+         seen, {desugared with Ast.program_modules = ModuleName.Map.add alias mod_desugared desugared.Ast.program_modules})
+      (seen, desugared) surface_modules
   in
+  let _, desugared = gather_modules ModuleName.Map.empty ctxt surface.S.program_modules desugared in
   List.fold_left process_structure desugared surface.S.program_items

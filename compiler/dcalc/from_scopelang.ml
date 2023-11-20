@@ -1067,7 +1067,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
   in
   let decl_ctx = prgm.program_ctx in
   let sctx : 'm scope_sigs_ctx =
-    let process_scope_sig scope_name scope =
+    let process_scope_sig decl_ctx scope_name scope =
       let scope_path = ScopeName.path scope_name in
       let scope_ref =
         if scope_path = [] then
@@ -1079,8 +1079,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
       in
       let scope_info =
         try
-          ScopeName.Map.find scope_name
-            (Program.module_ctx decl_ctx scope_path).ctx_scopes
+          ScopeName.Map.find scope_name decl_ctx.ctx_scopes
         with ScopeName.Map.Not_found _ ->
           Message.raise_spanned_error
             (Mark.get (ScopeName.get_info scope_name))
@@ -1127,11 +1126,12 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
       }
     in
     let rec process_modules prg =
+      let decl_ctx = prg.Scopelang.Ast.program_ctx in
       {
         scope_sigs =
           ScopeName.Map.mapi
             (fun scope_name (scope_decl, _) ->
-              process_scope_sig scope_name scope_decl)
+              process_scope_sig decl_ctx scope_name scope_decl)
             prg.Scopelang.Ast.program_scopes;
         scope_sigs_modules =
           ModuleName.Map.map process_modules prg.Scopelang.Ast.program_modules;
@@ -1141,7 +1141,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
       scope_sigs =
         ScopeName.Map.mapi
           (fun scope_name (scope_decl, _) ->
-            process_scope_sig scope_name scope_decl)
+            process_scope_sig decl_ctx scope_name scope_decl)
           prgm.Scopelang.Ast.program_scopes;
       scope_sigs_modules =
         ModuleName.Map.map process_modules prgm.Scopelang.Ast.program_modules;

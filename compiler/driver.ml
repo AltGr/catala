@@ -61,34 +61,46 @@ let load_module_interfaces options includes program =
         (Format.pp_print_list ~pp_sep:Format.pp_print_space File.format)
         ms
   in
-  let load_file f =
-    let (mname, intf), using =
-      Surface.Parser_driver.load_interface (Cli.FileName f)
-    in
-    (ModuleName.of_string mname, intf), using
+  let load_module req_chain m =
+    let f = find_module req_chain m in
+    let intf = Surface.Parser_driver.load_interface (Cli.FileName f) in
+    if not (ModuleName.equal m (ModuleName.of_string intf.Surface.Ast.intf_modname)) then
+      Message.raise_multispanned_error
+        ((Some "Module name declaration", Mark.get intf.Surface.Ast.intf_modname)
+         :: err_req_pos (m :: req_chain))
+        "Mismatching module name declaration:";
+    intf
   in
-  let rec aux req_chain acc modules =
-    List.fold_left
-      (fun acc mname ->
-        let m = ModuleName.of_string mname in
-        if List.exists (fun (m1, _) -> ModuleName.equal m m1) acc then acc
-        else
-          let f = find_module req_chain m in
-          let (m', intf), using = load_file f in
-          if not (ModuleName.equal m m') then
-            Message.raise_multispanned_error
-              ((Some "Module name declaration", ModuleName.pos m')
-              :: err_req_pos (m :: req_chain))
-              "Mismatching module name declaration:";
-          let acc = (m', intf) :: acc in
-          aux (m :: req_chain) acc using)
-      acc modules
+  let rec aux req_chain loaded_modules modules =
+    List.fold_left_map (fun loaded_modules (alias, intf) ->
+        let modname = ModuleName.of_string intf.Surface.Ast.intf_modname in
+        match ModuleName.Map.find_opt modname loaded_modules with
+        | Some (Some intf) -> loaded_modules, (alias, intf)
+        | Some None ->
+          Message.raise_multispanned_error
+            (err_req_pos (modname :: req_chain))
+            "Circular module dependency"
+        | None ->
+          let intf = load_module req_chain modname in
+          let loaded_modules = ModuleName.Map.add modname None loaded_modules in
+          let loaded_modules, intf_submodules =
+            aux (modname :: req_chain) loaded_modules intf.Surface.Ast.intf_submodules
+          in
+          let intf = { intf with intf_submodules } in
+          let loaded_modules = ModuleName.Map.add modname (Some intf) loaded_modules in
+          loaded_modules, (alias, intf)
+      )
+      loaded_modules modules
   in
-  let program_modules =
-    aux [] [] (List.map fst program.Surface.Ast.program_modules)
-    |> List.map (fun (m, i) -> (m : ModuleName.t :> string Mark.pos), i)
+  let loaded_modules =
+    match program.Surface.Ast.program_module_name with
+    | Some m -> ModuleName.Map.singleton (ModuleName.of_string m) None
+    | None -> ModuleName.Map.empty
   in
-  { program with Surface.Ast.program_modules }
+  let _loaded_modules, program_modules =
+    aux [] loaded_modules program.Surface.Ast.program_modules
+  in
+  { program with program_modules }
 
 module Passes = struct
   (* Each pass takes only its cli options, then calls upon its dependent passes
