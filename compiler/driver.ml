@@ -218,7 +218,7 @@ module Passes = struct
     in
     debug_pass_name "lcalc";
     let avoid_exceptions = avoid_exceptions || closure_conversion in
-    let optimize = optimize || closure_conversion in
+    (* let optimize = optimize || closure_conversion in *)
     (* --closure_conversion implies --avoid_exceptions and --optimize *)
     let prg =
       match avoid_exceptions, options.trace, typed with
@@ -226,7 +226,7 @@ module Passes = struct
         Message.raise_error
           "Option --avoid_exceptions is not compatible with option --trace"
       | true, _, Untyped _ ->
-        Program.untype (Lcalc.Compile_with_exceptions.translate_program prg)
+        Program.untype (Lcalc.Compile_without_exceptions.translate_program (Shared_ast.Typing.program ~leave_unresolved:false prg))
       | true, _, Typed _ ->
         Lcalc.Compile_without_exceptions.translate_program prg
       | false, _, Typed _ ->
