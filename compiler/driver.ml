@@ -226,8 +226,7 @@ module Passes = struct
         Message.raise_error
           "Option --avoid_exceptions is not compatible with option --trace"
       | true, _, Untyped _ ->
-        Message.raise_error
-          "Option --avoid_exceptions is not compatible with option --no-typing"
+        Program.untype (Lcalc.Compile_with_exceptions.translate_program prg)
       | true, _, Typed _ ->
         Lcalc.Compile_without_exceptions.translate_program prg
       | false, _, Typed _ ->
@@ -255,9 +254,13 @@ module Passes = struct
             Optimizations.optimize_program prg)
           else prg
         in
-        Message.emit_debug "Retyping lambda calculus...";
-        let prg = Program.untype (Typing.program ~leave_unresolved:true prg) in
-        prg)
+        match typed with
+        | Untyped _ -> prg
+        | Typed _ ->
+          Message.emit_debug "Retyping lambda calculus...";
+          let prg = Program.untype (Typing.program ~leave_unresolved:true prg) in
+          prg
+        | Custom _ -> assert false)
     in
     prg, ctx, type_ordering
 
