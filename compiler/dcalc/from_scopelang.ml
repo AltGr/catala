@@ -47,15 +47,10 @@ type 'm scope_sig_ctx = {
       (** Mapping between the input scope variables and the input struct fields. *)
 }
 
-type 'm scope_sigs_ctx = {
-  scope_sigs : 'm scope_sig_ctx ScopeName.Map.t;
-  scope_sigs_modules : 'm scope_sigs_ctx ModuleName.Map.t;
-}
-
 type 'm ctx = {
   decl_ctx : decl_ctx;
   scope_name : ScopeName.t option;
-  scopes_parameters : 'm scope_sigs_ctx;
+  scopes_parameters : 'm scope_sig_ctx ScopeName.Map.t;
   toplevel_vars : ('m Ast.expr Var.t * naked_typ) TopdefName.Map.t;
   scope_vars :
     ('m Ast.expr Var.t * naked_typ * Desugared.Ast.io) ScopeVar.Map.t;
@@ -76,14 +71,6 @@ let pos_mark_mk (type a m) (e : (a, m) gexpr) :
   in
   let pos_mark_as e = pos_mark (Mark.get e) in
   pos_mark, pos_mark_as
-
-let module_scope_sig scope_sig_ctx scope =
-  let ssctx =
-    List.fold_left
-      (fun ssctx m -> ModuleName.Map.find m ssctx.scope_sigs_modules)
-      scope_sig_ctx (ScopeName.path scope)
-  in
-  ScopeName.Map.find scope ssctx.scope_sigs
 
 let merge_defaults
     ~(is_func : bool)
@@ -257,7 +244,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
     Expr.ematch ~e:e1 ~name ~cases:d_cases m
   | EScopeCall { scope; args } ->
     let pos = Expr.mark_pos m in
-    let sc_sig = module_scope_sig ctx.scopes_parameters scope in
+    let sc_sig = ScopeName.Map.find scope ctx.scopes_parameters in
     let in_var_map =
       ScopeVar.Map.merge
         (fun var_name (str_field : scope_input_var_ctx option) expr ->
@@ -511,10 +498,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm Scopelang.Ast.expr) :
         |> SubScopeName.Map.find (Mark.remove alias)
         |> retrieve_in_and_out_typ_or_any var
       | ELocation (ToplevelVar { name }) -> (
-        let decl_ctx =
-          Program.module_ctx ctx.decl_ctx (TopdefName.path (Mark.remove name))
-        in
-        let typ = TopdefName.Map.find (Mark.remove name) decl_ctx.ctx_topdefs in
+        let typ = TopdefName.Map.find (Mark.remove name) ctx.decl_ctx.ctx_topdefs in
         match Mark.remove typ with
         | TArrow (tin, (tout, _)) -> List.map Mark.remove tin, tout
         | _ ->
@@ -724,7 +708,7 @@ let translate_rule
        could be made more specific to avoid this case, but the added complexity
        didn't seem worth it *)
   | Call (subname, subindex, m) ->
-    let subscope_sig = module_scope_sig ctx.scopes_parameters subname in
+    let subscope_sig = ScopeName.Map.find subname ctx.scopes_parameters in
     let scope_sig_decl =
       ScopeName.Map.find subname
         (Program.module_ctx ctx.decl_ctx (ScopeName.path subname)).ctx_scopes
@@ -946,7 +930,7 @@ let translate_scope_decl
     (sigma : 'm Scopelang.Ast.scope_decl) =
   let sigma_info = ScopeName.get_info sigma.scope_decl_name in
   let scope_sig =
-    ScopeName.Map.find sigma.scope_decl_name ctx.scopes_parameters.scope_sigs
+    ScopeName.Map.find sigma.scope_decl_name ctx.scopes_parameters
   in
   let scope_variables = scope_sig.scope_sig_local_vars in
   let ctx = { ctx with scope_name = Some scope_name } in
@@ -1125,17 +1109,37 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
         scope_sig_in_fields;
       }
     in
-    let rec process_modules prg =
-      let decl_ctx = prg.Scopelang.Ast.program_ctx in
-      {
-        scope_sigs =
-          ScopeName.Map.mapi
-            (fun scope_name (scope_decl, _) ->
-              process_scope_sig decl_ctx scope_name scope_decl)
-            prg.Scopelang.Ast.program_scopes;
-        scope_sigs_modules =
-          ModuleName.Map.map process_modules prg.Scopelang.Ast.program_modules;
-      }
+
+    
+    let rec process_modules seen mname prg =
+      match ModuleName.Map.find_opt mname seen with
+      | Some sig_ctx -> seen, sig_ctx
+      | None ->
+        let decl_ctx = prg.Scopelang.Ast.program_ctx in
+        let seen, scope_sigs_modules =
+          ModuleName.Map.fold (fun mname prg_modules (seen, modules) ->
+              let seen, m = process_modules seen mname prg_modules in
+              seen, ModuleName.Map.add mname m modules)
+            prg.Scopelang.Ast.program_modules (seen, ModuleName.Map.empty)
+        in
+        let sigs_ctx =
+          {
+            scope_sigs =
+              ScopeName.Map.mapi
+                (fun scope_name (scope_decl, _) ->
+                   process_scope_sig decl_ctx scope_name scope_decl)
+                prg.Scopelang.Ast.program_scopes;
+            scope_sigs_modules;
+          }
+        in
+        ModuleName.Map.add mname sigs_ctx seen,
+        sigs_ctx
+    in
+    let _seen, scope_sigs_modules =
+      ModuleName.Map.fold (fun mname prg_modules (seen, modules) ->
+          let seen, m = process_modules seen mname prg_modules in
+          seen, ModuleName.Map.add mname m modules)
+        prgm.Scopelang.Ast.program_modules (ModuleName.Map.empty, ModuleName.Map.empty)
     in
     {
       scope_sigs =
@@ -1143,8 +1147,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
           (fun scope_name (scope_decl, _) ->
             process_scope_sig decl_ctx scope_name scope_decl)
           prgm.Scopelang.Ast.program_scopes;
-      scope_sigs_modules =
-        ModuleName.Map.map process_modules prgm.Scopelang.Ast.program_modules;
+      scope_sigs_modules;
     }
   in
   let add_scope_in_structs scope_sigs structs =

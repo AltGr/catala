@@ -17,7 +17,6 @@
 (** Typing for the default calculus. Because of the error terms, we perform type
     inference using the classical W algorithm with union-find unification. *)
 
-open Catala_utils
 open Definitions
 
 module Env : sig
@@ -28,8 +27,6 @@ module Env : sig
   val add_toplevel_var : TopdefName.t -> typ -> 'e t -> 'e t
   val add_scope_var : ScopeVar.t -> typ -> 'e t -> 'e t
   val add_scope : ScopeName.t -> vars:typ ScopeVar.Map.t -> 'e t -> 'e t
-  val add_module : ModuleName.t -> module_env:'e t -> 'e t -> 'e t
-  val module_env : Uid.Path.t -> 'e t -> 'e t
   val open_scope : ScopeName.t -> 'e t -> 'e t
 
   val dump : Format.formatter -> 'e t -> unit
@@ -55,7 +52,10 @@ val expr :
     still done, but with unification with the existing annotations at every
     step. This can be used for double-checking after AST transformations and
     filling the gaps ([TAny]) if any. Use [Expr.untype] first if this is not
-    what you want. *)
+    what you want.
+
+    Note that typing also transparently performs disambiguation of constructors: [EDStructAccess] nodes are translated into [EStructAccess] with the suitable structure and field idents (this only concerns [desugared] expressions).
+*)
 
 val check_expr :
   leave_unresolved:bool ->

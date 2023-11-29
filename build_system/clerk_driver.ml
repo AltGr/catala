@@ -702,6 +702,7 @@ let gen_build_statements
                 diff; it should actually be an output for the cases when we
                 reset but that shouldn't cause trouble. *)
              Nj.build "post-test" ~inputs:[reference; test_out]
+               ~implicit_in:["always"]
                ~outputs:[reference ^ "@post"]
           :: acc)
         [] item.legacy_tests
@@ -728,7 +729,8 @@ let gen_build_statements
             ~outputs:[inc (srcv ^ "@test")]
             ~inputs:[srcv; inc (srcv ^ "@out")]
             ~implicit_in:
-              (List.map
+              ("always" ::
+               List.map
                  (fun test -> legacy_test_reference test ^ "@post")
                  item.legacy_tests);
           results;
@@ -809,7 +811,8 @@ let gen_ninja_file catala_exe catala_flags build_dir include_dirs dir =
   @+ List.to_seq (base_bindings catala_exe catala_flags build_dir include_dirs)
   @+ Seq.return (Nj.Comment "\n- Base rules - #\n")
   @+ List.to_seq static_base_rules
-  @+ Seq.return (Nj.Comment "- Project-specific build statements - #")
+  @+ Seq.return (Nj.build "phony" ~outputs:["always"])
+  @+ Seq.return (Nj.Comment "\n- Project-specific build statements - #")
   @+ build_statements include_dirs dir
   @+ Seq.return (Nj.build "phony" ~outputs:["test"] ~inputs:[".@test"])
 

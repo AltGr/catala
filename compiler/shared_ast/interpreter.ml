@@ -548,7 +548,6 @@ let rec evaluate_expr :
     in
     let ty =
       try
-        let ctx = Program.module_ctx ctx path in
         match Mark.remove name with
         | External_value name -> TopdefName.Map.find name ctx.ctx_topdefs
         | External_scope name ->
@@ -933,12 +932,13 @@ let load_runtime_modules prg =
     let obj_file =
       Dynlink.adapt_filename
         File.(
-          (Pos.get_file (ModuleName.pos m) /../ ModuleName.to_string m) ^ ".cmo")
+          (Pos.get_file (Mark.get (ModuleName.get_info m))
+           /../ ModuleName.to_string m) ^ ".cmo")
     in
     if not (Sys.file_exists obj_file) then
       Message.raise_spanned_error
         ~span_msg:(fun ppf -> Format.pp_print_string ppf "Module defined here")
-        (ModuleName.pos m)
+        (Mark.get (ModuleName.get_info m))
         "Compiled OCaml object %a not found. Make sure it has been suitably \
          compiled."
         File.format obj_file
@@ -950,20 +950,20 @@ let load_runtime_modules prg =
           obj_file Format.pp_print_text
           (Dynlink.error_message dl_err)
   in
-  let rec aux loaded decl_ctx =
-    ModuleName.Map.fold
-      (fun mname sub_decl_ctx loaded ->
-        if ModuleName.Set.mem mname loaded then loaded
-        else
-          let loaded = ModuleName.Set.add mname loaded in
-          let loaded = aux loaded sub_decl_ctx in
-          load mname;
-          loaded)
-      decl_ctx.ctx_modules loaded
+  let modules_list_topo =
+    let rec aux acc (M mtree) =
+      ModuleName.Map.fold
+        (fun mname sub acc ->
+           if List.mem mname acc then acc else
+             let acc = mname :: aux acc sub in
+             load mname;
+             acc)
+        mtree acc
+    in
+    List.rev (aux [] prg.decl_ctx.ctx_modules)
   in
-  if not (ModuleName.Map.is_empty prg.decl_ctx.ctx_modules) then
+  if modules_list_topo <> [] then
     Message.emit_debug "Loading shared modules... %a"
-      (fun ppf -> ModuleName.Map.format_keys ppf)
-      prg.decl_ctx.ctx_modules;
-  let (_loaded : ModuleName.Set.t) = aux ModuleName.Set.empty prg.decl_ctx in
-  ()
+      (Format.pp_print_list ~pp_sep:Format.pp_print_space ModuleName.format)
+      modules_list_topo;
+  List.iter load modules_list_topo

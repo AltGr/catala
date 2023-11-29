@@ -15,7 +15,6 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
-open Catala_utils
 open Definitions
 
 let map_exprs ~f ~varf { code_items; decl_ctx; lang; module_name } =
@@ -33,21 +32,13 @@ let empty_ctx =
   {
     ctx_enums = EnumName.Map.empty;
     ctx_structs = StructName.Map.empty;
-    ctx_struct_fields = Ident.Map.empty;
     ctx_scopes = ScopeName.Map.empty;
     ctx_topdefs = TopdefName.Map.empty;
-    ctx_modules = ModuleName.Map.empty;
+    ctx_struct_fields = Ident.Map.empty;
+    ctx_enum_constrs = Ident.Map.empty;
+    ctx_scope_index = Ident.Map.empty;
+    ctx_modules = M ModuleName.Map.empty;
   }
-
-let module_ctx ctx path =
-  try
-    List.fold_left (fun ctx m -> ModuleName.Map.find m ctx.ctx_modules) ctx path
-  with ModuleName.Map.Not_found m ->
-    Message.raise_internal_error
-      "Module %a not found in path %a (existing modules: %a)"
-      ModuleName.format m
-      Uid.Path.format path
-      (ModuleName.Map.format_keys ~pp_sep:Format.pp_print_space) ctx.ctx_modules
 
 let get_scope_body { code_items; _ } scope =
   match

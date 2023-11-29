@@ -317,15 +317,19 @@ and interface = {
   intf_code: code_block;
   (** Invariant: an interface shall only contain [*Decl] elements, or [Topdef]
       elements with [topdef_expr = None] *)
-  intf_submodules: (uident Mark.pos * interface) list;
+  intf_submodules: module_use list;
+}
+
+and module_use = {
+  mod_use_name: uident Mark.pos;
+  mod_use_alias: uident Mark.pos;
 }
 
 and program = {
   program_module_name : uident Mark.pos option;
   program_items : law_structure list;
   program_source_files : (string[@opaque]) list;
-  program_modules : (uident Mark.pos * interface) list;
-  (** Modules being used by the program (under the given aliases) *)
+  program_used_modules : module_use list;
   program_lang : Cli.backend_lang; [@opaque]
 }
 

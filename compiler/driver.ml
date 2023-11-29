@@ -29,78 +29,86 @@ let modname_of_file f =
 let load_module_interfaces options includes program =
   (* Recurse into program modules, looking up files in [using] and loading
      them *)
+  if program.Surface.Ast.program_used_modules <> [] then
+    Message.emit_debug "Loading module interfaces...";
   let includes =
     includes
     |> List.map (fun d -> File.Tree.build (options.Cli.path_rewrite d))
     |> List.fold_left File.Tree.union File.Tree.empty
   in
   let err_req_pos chain =
-    List.map (fun m -> Some "Module required from", ModuleName.pos m) chain
+    List.map (fun mpos -> Some "Module required from", mpos) chain
   in
-  let find_module req_chain m =
-    let fname_base = ModuleName.to_string m in
-    let required_from_file = Pos.get_file (ModuleName.pos m) in
+  let find_module req_chain (mname, mpos) =
+    let required_from_file = Pos.get_file mpos in
     let includes =
       File.Tree.union includes
         (File.Tree.build (File.dirname required_from_file))
     in
     match
       List.filter_map
-        (fun (ext, _) -> File.Tree.lookup includes (fname_base ^ ext))
+        (fun (ext, _) -> File.Tree.lookup includes (mname ^ ext))
         extensions
     with
     | [] ->
       Message.raise_multispanned_error
-        (err_req_pos (m :: req_chain))
-        "Required module not found: %a" ModuleName.format m
+        (err_req_pos (mpos :: req_chain))
+        "Required module not found: @{<blue>%s@}" mname
     | [f] -> f
     | ms ->
       Message.raise_multispanned_error
-        (err_req_pos (m :: req_chain))
-        "Required module %a matches multiple files: %a" ModuleName.format m
+        (err_req_pos (mpos :: req_chain))
+        "Required module @{<blue>%s@} matches multiple files:@;<1 2>%a" mname
         (Format.pp_print_list ~pp_sep:Format.pp_print_space File.format)
         ms
   in
-  let load_module req_chain m =
-    let f = find_module req_chain m in
-    let intf = Surface.Parser_driver.load_interface (Cli.FileName f) in
-    if not (ModuleName.equal m (ModuleName.of_string intf.Surface.Ast.intf_modname)) then
-      Message.raise_multispanned_error
-        ((Some "Module name declaration", Mark.get intf.Surface.Ast.intf_modname)
-         :: err_req_pos (m :: req_chain))
-        "Mismatching module name declaration:";
-    intf
-  in
-  let rec aux req_chain loaded_modules modules =
-    List.fold_left_map (fun loaded_modules (alias, intf) ->
-        let modname = ModuleName.of_string intf.Surface.Ast.intf_modname in
-        match ModuleName.Map.find_opt modname loaded_modules with
-        | Some (Some intf) -> loaded_modules, (alias, intf)
+  (* modulename * program * (id -> modulename) *)
+  let rec aux req_chain seen uses =
+    List.fold_left (fun (seen, use_map) use ->
+        let f = find_module req_chain use.Surface.Ast.mod_use_name in
+        match File.Map.find_opt f seen with
+        | Some (Some (modname, _, _)) ->
+          seen,
+          Ident.Map.add
+            (Mark.remove use.Surface.Ast.mod_use_alias) modname use_map
         | Some None ->
           Message.raise_multispanned_error
-            (err_req_pos (modname :: req_chain))
+            (err_req_pos (Mark.get use.Surface.Ast.mod_use_name :: req_chain))
             "Circular module dependency"
         | None ->
-          let intf = load_module req_chain modname in
-          let loaded_modules = ModuleName.Map.add modname None loaded_modules in
-          let loaded_modules, intf_submodules =
-            aux (modname :: req_chain) loaded_modules intf.Surface.Ast.intf_submodules
+          let intf = Surface.Parser_driver.load_interface (Cli.FileName f) in
+          let modname = ModuleName.fresh use.Surface.Ast.mod_use_name in
+          let seen = File.Map.add f None seen in
+          let seen, sub_use_map =
+            aux
+              (Mark.get use.Surface.Ast.mod_use_name :: req_chain)
+              seen
+              intf.Surface.Ast.intf_submodules
           in
-          let intf = { intf with intf_submodules } in
-          let loaded_modules = ModuleName.Map.add modname (Some intf) loaded_modules in
-          loaded_modules, (alias, intf)
-      )
-      loaded_modules modules
+          File.Map.add f (Some (modname, intf, sub_use_map)) seen,
+          Ident.Map.add
+            (Mark.remove use.Surface.Ast.mod_use_alias) modname use_map)
+      (seen, Ident.Map.empty) uses
   in
-  let loaded_modules =
+  let seen =
     match program.Surface.Ast.program_module_name with
-    | Some m -> ModuleName.Map.singleton (ModuleName.of_string m) None
-    | None -> ModuleName.Map.empty
+    | Some m ->
+      let file = Pos.get_file (Mark.get m) in
+      File.Map.singleton file None
+    | None -> File.Map.empty
   in
-  let _loaded_modules, program_modules =
-    aux [] loaded_modules program.Surface.Ast.program_modules
+  let file_module_map, root_uses =
+    aux [] seen program.Surface.Ast.program_used_modules
   in
-  { program with program_modules }
+  let modules =
+    File.Map.fold
+      (fun _ info acc -> match info with
+         | None -> acc
+         | Some (mname, intf, use_map) ->
+           ModuleName.Map.add mname (intf, use_map) acc)
+      file_module_map ModuleName.Map.empty
+  in
+  root_uses, modules
 
 module Passes = struct
   (* Each pass takes only its cli options, then calls upon its dependent passes
@@ -110,20 +118,20 @@ module Passes = struct
     Message.emit_debug "@{<bold;magenta>=@} @{<bold>%s@} @{<bold;magenta>=@}"
       (String.uppercase_ascii s)
 
-  let surface options ~includes : Surface.Ast.program =
+  let surface options : Surface.Ast.program =
     debug_pass_name "surface";
     let prg =
       Surface.Parser_driver.parse_top_level_file options.Cli.input_src
     in
-    let prg = Surface.Fill_positions.fill_pos_with_legislative_info prg in
-    load_module_interfaces options includes prg
+    Surface.Fill_positions.fill_pos_with_legislative_info prg
 
   let desugared options ~includes :
-      Desugared.Ast.program * Desugared.Name_resolution.context =
-    let prg = surface options ~includes in
+      Desugared.Ast.program =
+    let prg = surface options in
+    let mod_uses, modules = load_module_interfaces options includes prg in
     debug_pass_name "desugared";
     Message.emit_debug "Name resolution...";
-    let ctx = Desugared.Name_resolution.form_context prg in
+    let ctx = Desugared.Name_resolution.form_context (prg, mod_uses) modules in
     (* let scope_uid = get_scope_uid options backend ctx in
      * (\* This uid is a Desugared identifier *\)
      * let variable_uid = get_variable_uid options backend ctx scope_uid in *)
@@ -133,10 +141,7 @@ module Passes = struct
     let prg = Desugared.Disambiguate.program prg in
     Message.emit_debug "Linting...";
     Desugared.Linting.lint_program prg;
-    prg, ctx
-  (* Note: we forward the name resolution context throughout in order to locate
-     uids from strings. Maybe a reduced form should be included directly in
-     [prg] for that purpose *)
+    prg
 
   let scopelang options ~includes :
       untyped Scopelang.Ast.program
@@ -263,8 +268,10 @@ module Commands = struct
   open Cmdliner
 
   let get_scope_uid (ctxt : Desugared.Name_resolution.context) (scope : string)
-      =
-    match Ident.Map.find_opt scope ctxt.typedefs with
+    =
+    if String.contains scope '.' then
+      Message.raise_error "Only references to the top-level module are allowed";
+    match Ident.Map.find_opt scope ctxt.local.typedefs with
     | Some (Desugared.Name_resolution.TScope (uid, _)) -> uid
     | _ ->
       Message.raise_error
@@ -279,7 +286,7 @@ module Commands = struct
           (fun _ -> function
             | Desugared.Name_resolution.TScope (uid, _) -> Some uid
             | _ -> None)
-          ctxt.typedefs
+          ctxt.local.typedefs
         |> Shared_ast.Ident.Map.choose
       with Not_found ->
         Message.raise_error "There isn't any scope inside the program."
@@ -363,7 +370,7 @@ module Commands = struct
       ~output_file ?ext ()
 
   let makefile options output =
-    let prg = Passes.surface options ~includes:[] in
+    let prg = Passes.surface options in
     let backend_extensions_list = [".tex"] in
     let source_file = Cli.input_src_file options.Cli.input_src in
     let output_file, with_output = get_output options ~ext:".d" output in
@@ -389,7 +396,7 @@ module Commands = struct
       Term.(const makefile $ Cli.Flags.Global.options $ Cli.Flags.output)
 
   let html options output print_only_law wrap_weaved_output =
-    let prg = Passes.surface options ~includes:[] in
+    let prg = Passes.surface options in
     Message.emit_debug "Weaving literate program into HTML";
     let output_file, with_output =
       get_output_format options ~ext:".html" output
@@ -418,7 +425,7 @@ module Commands = struct
         $ Cli.Flags.wrap_weaved_output)
 
   let latex options output print_only_law wrap_weaved_output =
-    let prg = Passes.surface options ~includes:[] in
+    let prg = Passes.surface options in
     Message.emit_debug "Weaving literate program into LaTeX";
     let output_file, with_output =
       get_output_format options ~ext:".tex" output
