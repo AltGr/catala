@@ -59,11 +59,6 @@ let rec translate_expr (ctx : ctx) (e : D.expr) : untyped Ast.expr boxed =
   | ELocation (SubScopeVar { scope; alias; var }) ->
     (* When referring to a subscope variable in an expression, we are referring
        to the output, hence we take the last state. *)
-    let ctx =
-      List.fold_left
-        (fun ctx m -> snd (ModuleName.Map.find m ctx.modules))
-        ctx (ScopeName.path scope)
-    in
     let var =
       match ScopeVar.Map.find (Mark.remove var) ctx.scope_var_mapping with
       | WholeVar new_s_var -> Mark.copy var new_s_var
@@ -758,75 +753,57 @@ let translate_program
       desugared.D.program_modules
       (add_scope_mappings (desugared.D.program_root) ctx)
   in
-  let rec gather_scope_vars acc modules =
-    ModuleName.Map.fold
-      (fun _modname (_, mctx) acc ->
-        let acc = gather_scope_vars acc mctx.modules in
-        ScopeVar.Map.union (fun _ v _ -> Some v) acc mctx.scope_var_mapping)
-      modules acc
-  in
-  let ctx =
-    {
-      ctx with
-      scope_var_mapping = gather_scope_vars ctx.scope_var_mapping ctx.modules;
-      (* (does not need to be propagated to submodule ctx) *)
-    }
-  in
-  let rec init_decl_ctx ctx decl_ctx =
+  let decl_ctx =
     let ctx_scopes =
       ScopeName.Map.map
         (fun out_str ->
-          let out_struct_fields =
-            ScopeVar.Map.fold
-              (fun var fld out_map ->
-                let var' =
-                  match ScopeVar.Map.find var ctx.scope_var_mapping with
-                  | WholeVar v -> v
-                  | States l -> snd (List.hd (List.rev l))
-                in
-                ScopeVar.Map.add var' fld out_map)
-              out_str.out_struct_fields ScopeVar.Map.empty
-          in
-          { out_str with out_struct_fields })
-        decl_ctx.ctx_scopes
+           let out_struct_fields =
+             ScopeVar.Map.fold
+               (fun var fld out_map ->
+                  let var' =
+                    match ScopeVar.Map.find var ctx.scope_var_mapping with
+                    | WholeVar v -> v
+                    | States l -> snd (List.hd (List.rev l))
+                  in
+                  ScopeVar.Map.add var' fld out_map)
+               out_str.out_struct_fields ScopeVar.Map.empty
+           in
+           { out_str with out_struct_fields })
+        desugared.program_ctx.ctx_scopes
     in
-    let modules =
-      ModuleName.Map.mapi
-        (fun alias (mname, m) ctx -> mname, init_decl_ctx ctx (ModuleName.Map.find alias decl_ctx.ctx_modules))
-        ctx.modules
-    in
-    { ctx with
-      modules;
-      decl_ctx (* = {
-       *   decl_ctx with
-       *   ctx_modules = ModuleName.Map.map (fun ctx -> { ctx.decl_ctx} ) modules;
-       *   ctx_scopes;
-       * } *);
-    }
+    { desugared.program_ctx with ctx_scopes }
   in
-  let rec process_modules ctx desugared =
-    ModuleName.Map.mapi
-      (fun modname m_desugared ->
-        let ctx = ModuleName.Map.find modname ctx.modules in
-        let program_ctx = ctx.decl_ctx in
-        {
-          Ast.program_module_name = Some modname;
-          Ast.program_topdefs = TopdefName.Map.empty;
-          program_scopes =
-            ScopeName.Map.map
-              (translate_scope_interface ctx)
-              m_desugared.D.program_scopes;
-          program_ctx;
-          program_modules =
-            process_modules
-              ctx
-              m_desugared;
-          Ast.program_lang = desugared.program_lang;
-        })
+  let ctx = { ctx with decl_ctx }in
+  (* let rec process_modules ctx desugared =
+   *   ModuleName.Map.mapi
+   *     (fun modname m_desugared ->
+   *       let ctx = ModuleName.Map.find modname ctx.modules in
+   *       let program_ctx = ctx.decl_ctx in
+   *       {
+   *         Ast.program_module_name = Some modname;
+   *         Ast.program_topdefs = TopdefName.Map.empty;
+   *         program_scopes =
+   *           ScopeName.Map.map
+   *             (translate_scope_interface ctx)
+   *             m_desugared.D.program_scopes;
+   *         program_ctx;
+   *         program_modules =
+   *           process_modules
+   *             ctx
+   *             m_desugared;
+   *         Ast.program_lang = desugared.program_lang;
+   *       })
+   *     desugared.D.program_modules
+   * in
+   * let ctx = init_decl_ctx ctx desugared.program_ctx in
+   * let program_modules = process_modules ctx desugared in *)
+  let program_modules =
+    ModuleName.Map.map (fun m ->
+        ScopeName.Map.map
+          (translate_scope_interface ctx)
+          m.D.module_scopes)
       desugared.D.program_modules
   in
-  let ctx = init_decl_ctx ctx desugared.program_ctx in
-  let program_modules = process_modules ctx desugared in
   let program_topdefs =
     TopdefName.Map.mapi
       (fun id -> function
@@ -834,15 +811,15 @@ let translate_program
         | None, (_, pos) ->
           Message.raise_spanned_error pos "No definition found for %a"
             TopdefName.format id)
-      desugared.program_topdefs
+      desugared.program_root.module_topdefs
   in
   let program_scopes =
     ScopeName.Map.map
       (translate_scope ctx exc_graphs)
-      desugared.D.program_scopes
+      desugared.D.program_root.module_scopes
   in
   {
-    Ast.program_module_name = desugared.D.program_module_name;
+    Ast.program_module_name = Option.map ModuleName.fresh desugared.D.program_module_name;
     Ast.program_topdefs;
     Ast.program_scopes;
     Ast.program_ctx = ctx.decl_ctx;

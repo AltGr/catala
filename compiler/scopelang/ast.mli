@@ -43,19 +43,15 @@ type 'm scope_decl = {
   scope_options : Desugared.Ast.catala_option Mark.pos list;
 }
 
-type 'm modul = {
-  module_scopes : 'm scope_decl Mark.pos ScopeName.Map.t;
-  module_topdefs : ('m expr * typ) TopdefName.Map.t;
-}
-
 type 'm program = {
   program_module_name : ModuleName.t option;
   program_ctx : decl_ctx;
-  program_modules : nil modul ModuleName.Map.t;
+  program_modules : nil scope_decl Mark.pos ScopeName.Map.t ModuleName.Map.t;
   (* Using [nil] here ensure that program interfaces don't contain any
      expressions. They won't contain any rules or topdefs, but will still have
      the scope signatures needed to respect the call convention *)
-  program_root : 'm modul;
+  program_scopes : 'm scope_decl Mark.pos ScopeName.Map.t;
+  program_topdefs : ('m expr * typ) TopdefName.Map.t;
   program_lang : Cli.backend_lang;
 }
 val type_program : 'm program -> typed program

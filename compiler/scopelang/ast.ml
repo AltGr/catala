@@ -50,16 +50,12 @@ type 'm scope_decl = {
   scope_options : Desugared.Ast.catala_option Mark.pos list;
 }
 
-type 'm modul = {
-  module_scopes : 'm scope_decl Mark.pos ScopeName.Map.t;
-  module_topdefs : ('m expr * typ) TopdefName.Map.t;
-}
-
 type 'm program = {
   program_module_name : ModuleName.t option;
   program_ctx : decl_ctx;
-  program_modules : nil modul ModuleName.Map.t;
-  program_root : 'm modul;
+  program_modules : nil scope_decl Mark.pos ScopeName.Map.t ModuleName.Map.t;
+  program_scopes : 'm scope_decl Mark.pos ScopeName.Map.t;
+  program_topdefs : ('m expr * typ) TopdefName.Map.t;
   program_lang : Cli.backend_lang;
 }
 
@@ -87,30 +83,27 @@ let type_program (type m) (prg : m program) : typed program =
   let env =
     ScopeName.Map.fold
       (fun scope_name _info env ->
-         let get_sig modul =
-           let scope = ScopeName.Map.find scope_name modul.module_scopes in
-           (Mark.remove scope).scope_sig
-         in
          let scope_sig =
            match ScopeName.path scope_name with
-           | [] -> get_sig prg.program_root
+           | [] -> (Mark.remove (ScopeName.Map.find scope_name prg.program_scopes)).scope_sig
            | p ->
              let m = List.hd (List.rev p) in
-             get_sig (ModuleName.Map.find m prg.program_modules)
+             let scope = ScopeName.Map.find scope_name (ModuleName.Map.find m prg.program_modules) in
+             (Mark.remove scope).scope_sig
          in
          let vars = ScopeVar.Map.map (fun (ty, _io) -> ty) scope_sig in
          Typing.Env.add_scope scope_name ~vars env)
       prg.program_ctx.ctx_scopes env
   in
-  let module_topdefs =
+  let program_topdefs =
     TopdefName.Map.map
       (fun (expr, typ) ->
         ( Expr.unbox
             (Typing.expr prg.program_ctx ~leave_unresolved:false ~env ~typ expr),
           typ ))
-      prg.program_root.module_topdefs
+      prg.program_topdefs
   in
-  let module_scopes =
+  let program_scopes =
     ScopeName.Map.map
       (Mark.map (fun scope_decl ->
            let env =
@@ -124,6 +117,6 @@ let type_program (type m) (prg : m program) : typed program =
                scope_decl.scope_decl_rules
            in
            { scope_decl with scope_decl_rules }))
-      prg.program_root.module_scopes
+      prg.program_scopes
   in
-  { prg with program_root = { module_topdefs; module_scopes } }
+  { prg with program_topdefs; program_scopes }

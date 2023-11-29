@@ -109,12 +109,12 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
   let g =
     TopdefName.Map.fold
       (fun v _ g -> SDependencies.add_vertex g (Topdef v))
-      prgm.program_root.module_topdefs g
+      prgm.program_topdefs g
   in
   let g =
     ScopeName.Map.fold
       (fun v _ g -> SDependencies.add_vertex g (Scope v))
-      prgm.program_root.module_scopes g
+      prgm.program_scopes g
   in
   let g =
     TopdefName.Map.fold
@@ -131,7 +131,7 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
             let edge = SDependencies.E.create def pos (Topdef glo_name) in
             SDependencies.add_edge_e g edge)
           used_defs g)
-      prgm.program_root.module_topdefs g
+      prgm.program_topdefs g
   in
   ScopeName.Map.fold
     (fun scope_name (scope, _) g ->
@@ -152,7 +152,7 @@ let build_program_dep_graph (prgm : 'm Ast.program) : SDependencies.t =
               SDependencies.add_edge_e g edge)
             used_defs g)
         g scope.Ast.scope_decl_rules)
-    prgm.program_root.module_scopes g
+    prgm.program_scopes g
 
 let check_for_cycle_in_defs (g : SDependencies.t) : unit =
   (* if there is a cycle, there will be an strongly connected component of
