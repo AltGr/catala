@@ -92,7 +92,7 @@ js_build:
 	dune build $(COMPILER_DIR)/catala_web_interpreter.bc.js
 
 #> doc					: Generates the HTML OCaml documentation
-doc:
+doc: syntax
 	dune build @doc
 	ln -sf $(PWD)/_build/default/_doc/_html/index.html doc/odoc.html
 
