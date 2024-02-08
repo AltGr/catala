@@ -286,10 +286,10 @@ let rec generate_verification_conditions_scope_body_expr
     (scope_body_expr : 'm expr scope_body_expr) :
     ctx * verification_condition list * typed expr list =
   match scope_body_expr with
-  | Result _ -> ctx, [], []
-  | ScopeLet scope_let ->
+  | Last e -> ctx, [], []
+  | Cons (scope_let, scope_let_next) ->
     let scope_let_var, scope_let_next =
-      Bindlib.unbind scope_let.scope_let_next
+      Bindlib.unbind scope_let_next
     in
     let new_ctx, vc_list, assert_list =
       match scope_let.scope_let_kind with

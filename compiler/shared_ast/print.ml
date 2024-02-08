@@ -782,30 +782,22 @@ let scope_let_kind ?debug:(_debug = true) _ctx fmt k =
   | DestructuringSubScopeResults -> keyword fmt "sub_get"
   | Assertion -> keyword fmt "assert"
 
-let[@ocamlformat "disable"] rec
+let[@ocamlformat "disable"]
   scope_body_expr ?(debug = false) ctx fmt b : unit =
-  match b with
-  | Result e -> Format.fprintf fmt "%a %a" keyword "return" (expr ~debug ()) e
-  | ScopeLet
-      {
-        scope_let_kind = kind;
-        scope_let_typ;
-        scope_let_expr;
-        scope_let_next;
-        _;
-      } ->
-    let x, next = Bindlib.unbind scope_let_next in
+  let print_scope_let x sl =
     Format.fprintf fmt
-      "@[<hv 2>@[<hov 4>%a %a %a %a@ %a@ %a@]@ %a@;<1 -2>%a@]@,%a"
+      "@[<hv 2>@[<hov 4>%a %a %a %a@ %a@ %a@]@ %a@;<1 -2>%a@]@,"
       keyword "let"
-      (scope_let_kind ~debug ctx) kind
+      (scope_let_kind ~debug ctx) sl.scope_let_kind
       (if debug then var_debug else var) x
       punctuation ":"
-      (typ ctx) scope_let_typ
+      (typ ctx) sl.scope_let_typ
       punctuation "="
-      (expr ~debug ()) scope_let_expr
+      (expr ~debug ()) sl.scope_let_expr
       keyword "in"
-      (scope_body_expr ~debug ctx) next
+  in
+  let last = BoundList.iter ~f:print_scope_let b in
+  Format.fprintf fmt "%a %a" keyword "return" (expr ~debug ()) last
 
 let scope_body ?(debug = false) ctx fmt (n, l) : unit =
   let {
@@ -936,16 +928,10 @@ let code_item ?(debug = false) ?name decl_ctx fmt c =
       "let topval" TopdefName.format n op_style ":" (typ decl_ctx) ty op_style
       "=" (expr ~debug ()) e
 
-let rec code_item_list ?(debug = false) decl_ctx fmt c =
-  match c with
-  | Nil -> ()
-  | Cons (c, b) ->
-    let x, cl = Bindlib.unbind b in
-    Format.fprintf fmt "%a @.%a"
-      (code_item ~debug ~name:(Format.asprintf "%a" var_debug x) decl_ctx)
-      c
-      (code_item_list ~debug decl_ctx)
-      cl
+let code_item_list ?(debug = false) decl_ctx fmt c =
+  BoundList.iter c ~f:(fun x item ->
+      code_item ~debug ~name:(Format.asprintf "%a" var_debug x) decl_ctx fmt item;
+      Format.pp_print_newline fmt ())
 
 let program ?(debug = false) fmt p =
   decl_ctx ~debug p.decl_ctx fmt p.decl_ctx;

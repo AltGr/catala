@@ -642,14 +642,14 @@ let translate_rule
     ( (fun next ->
         Bindlib.box_apply2
           (fun next merged_expr ->
-            ScopeLet
-              {
-                scope_let_next = next;
-                scope_let_typ = tau;
-                scope_let_expr = merged_expr;
-                scope_let_kind = ScopeVarDefinition;
-                scope_let_pos = Mark.get a;
-              })
+             Cons
+               ({
+                 scope_let_typ = tau;
+                 scope_let_expr = merged_expr;
+                 scope_let_kind = ScopeVarDefinition;
+                 scope_let_pos = Mark.get a;
+               },
+                 next))
           (Bindlib.bind_var a_var next)
           (Expr.Box.lift merged_expr)),
       {
@@ -691,14 +691,13 @@ let translate_rule
     ( (fun next ->
         Bindlib.box_apply2
           (fun next thunked_or_nonempty_new_e ->
-            ScopeLet
+            Cons (
               {
-                scope_let_next = next;
                 scope_let_pos = Mark.get a_name;
                 scope_let_typ = input_var_typ (Mark.remove tau) a_io;
                 scope_let_expr = thunked_or_nonempty_new_e;
                 scope_let_kind = SubScopeVarDefinition;
-              })
+              }, next))
           (Bindlib.bind_var a_var next)
           (Expr.Box.lift thunked_or_nonempty_new_e)),
       {
@@ -836,14 +835,13 @@ let translate_rule
     let call_scope_let next =
       Bindlib.box_apply2
         (fun next call_expr ->
-          ScopeLet
+          Cons (
             {
-              scope_let_next = next;
               scope_let_pos = pos_sigma;
               scope_let_kind = CallingSubScope;
               scope_let_typ = result_tuple_typ;
               scope_let_expr = call_expr;
-            })
+            }, next))
         (Bindlib.bind_var result_tuple_var next)
         (Expr.Box.lift call_expr)
     in
@@ -856,9 +854,7 @@ let translate_rule
           in
           Bindlib.box_apply2
             (fun next r ->
-              ScopeLet
-                {
-                  scope_let_next = next;
+               Cons ({
                   scope_let_pos = pos_sigma;
                   scope_let_typ = var_ctx.scope_var_typ, pos_sigma;
                   scope_let_kind = DestructuringSubScopeResults;
@@ -866,7 +862,7 @@ let translate_rule
                     ( EStructAccess
                         { name = called_scope_return_struct; e = r; field },
                       mark_tany m pos_sigma );
-                })
+                }, next))
             (Bindlib.bind_var v next)
             (Expr.Box.lift
                (Expr.make_var result_tuple_var (mark_tany m pos_sigma))))
@@ -892,9 +888,8 @@ let translate_rule
     ( (fun next ->
         Bindlib.box_apply2
           (fun next new_e ->
-            ScopeLet
+            Cons (
               {
-                scope_let_next = next;
                 scope_let_pos;
                 scope_let_typ;
                 scope_let_expr =
@@ -902,7 +897,7 @@ let translate_rule
                     (Expr.map_ty (fun _ -> scope_let_typ) (Mark.get e))
                     (EAssert new_e);
                 scope_let_kind = Assertion;
-              })
+              }, next))
           (Bindlib.bind_var (Var.make "_") next)
           (Expr.Box.lift new_e)),
       ctx )
@@ -944,7 +939,7 @@ let translate_rules
   in
   ( scope_lets
       (Bindlib.box_apply
-         (fun return_exp -> Result return_exp)
+         (fun return_exp -> Last return_exp)
          (Expr.Box.lift return_exp)),
     new_ctx )
 
@@ -1042,10 +1037,9 @@ let translate_scope_decl
         in
         Bindlib.box_apply2
           (fun next r ->
-            ScopeLet
+            Cons(
               {
                 scope_let_kind = DestructuringInputStruct;
-                scope_let_next = next;
                 scope_let_pos = pos_sigma;
                 scope_let_typ =
                   input_var_typ var_ctx.scope_var_typ var_ctx.scope_var_io;
@@ -1053,7 +1047,7 @@ let translate_scope_decl
                   ( EStructAccess
                       { name = scope_input_struct_name; e = r; field },
                     mark_tany scope_mark pos_sigma );
-              })
+              }, next))
           (Bindlib.bind_var v next)
           (Expr.Box.lift
              (Expr.make_var scope_input_var (mark_tany scope_mark pos_sigma))))
@@ -1182,7 +1176,7 @@ let translate_program (prgm : 'm Scopelang.Ast.program) : 'm Ast.program =
      ending with the top-level scope. The decl_ctx is filled in left-to-right
      order, then the chained scopes aggregated from the right. *)
   let rec translate_defs = function
-    | [] -> Bindlib.box Nil
+    | [] -> Bindlib.box (Last ())
     | def :: next ->
       let dvar, def =
         match def with

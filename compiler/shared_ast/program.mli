@@ -23,16 +23,23 @@ val empty_ctx : decl_ctx
 
 (** {2 Transformations} *)
 
+val map_decl_ctx : f:(typ -> typ) -> decl_ctx -> decl_ctx
+
 val map_exprs :
+  ?typ:(typ -> typ) ->
   f:('expr1 -> 'expr2 boxed) ->
   varf:('expr1 Var.t -> 'expr2 Var.t) ->
   'expr1 program ->
-  'expr2 program Bindlib.box
+  'expr2 program
+(** If [typ] is specified, definitions in [decl_ctx] are also processed *)
 
-val fold_left_exprs :
+val fold_left :
   f:('a -> 'expr code_item -> 'a) -> init:'a -> 'expr program -> 'a
 
-val fold_right_exprs :
+val fold_exprs :
+  f:('a -> 'expr -> typ -> 'a) -> init:'a -> 'expr program -> 'a
+
+val fold_right :
   f:('expr code_item -> 'a -> 'a) -> init:'a -> 'expr program -> 'a
 
 val get_scope_body :
@@ -44,7 +51,3 @@ val to_expr : ((_ any, _) gexpr as 'e) program -> ScopeName.t -> 'e boxed
 (** Usage: [build_whole_program_expr program main_scope] builds an expression
     corresponding to the main program and returning the main scope as a
     function. *)
-
-val equal :
-  (('a any, _) gexpr as 'e) program -> (('a any, _) gexpr as 'e) program -> bool
-(** Warning / todo: only compares program scopes at the moment *)
