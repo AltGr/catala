@@ -974,6 +974,63 @@ let rec size : type a. (a, 't) gexpr -> int =
   | EScopeCall { args; _ } ->
     ScopeVar.Map.fold (fun _ e acc -> acc + 1 + size e) args 1
 
+(* let hash_lit = function
+ *   | LBool b -> Bool.to_int b
+ *   | LInt i -> i
+ *   | LRat r -> (Z.hash r.Q.num) lxor (Z.hash r.Q.den)
+ *   | LMoney m -> Z.hash m
+ *   | LUnit -> 0
+ *   | LDate t ->
+ *     let y,m,d = Dates_calc.Dates.date_to_ymd d in
+ *     y lxor m lxor d
+ *   | LDuration dt ->
+ *     let y,m, d = Dates_calc.Dates.period_to_ymds dt in
+ *     y lxor m lxor d
+ * 
+ * let rec full_hash : type a. (a, 't) gexpr -> int =
+ *  fun e ->
+ *   match Mark.remove e with
+ *   | EVar v  -> Bindlib.hash_var v
+ *   | EExternal { name = External_value n, _ } -> TopdefName.hash n
+ *   | EExternal { name = External_scope n, _ } -> ScopeName.hash n
+ *   | ELit (LBool b) -> Bool.to_int b
+ *   | ELit
+ *   | EEmpty | ECustom _ -> 1
+ *   | ETuple args -> List.fold_left (fun acc arg -> acc + size arg) 1 args
+ *   | EArray args -> List.fold_left (fun acc arg -> acc + size arg) 1 args
+ *   | ETupleAccess { e; _ } -> size e + 1
+ *   | EInj { e; _ } -> size e + 1
+ *   | EAssert e -> size e + 1
+ *   | EFatalError _ -> 1
+ *   | EErrorOnEmpty e -> size e + 1
+ *   | EPureDefault e -> size e + 1
+ *   | EApp { f; args; _ } ->
+ *     List.fold_left (fun acc arg -> acc + size arg) (1 + size f) args
+ *   | EAppOp { args; _ } -> List.fold_left (fun acc arg -> acc + size arg) 2 args
+ *   | EAbs { binder; _ } ->
+ *     let _, body = Bindlib.unmbind binder in
+ *     1 + size body
+ *   | EIfThenElse { cond; etrue; efalse } ->
+ *     1 + size cond + size etrue + size efalse
+ *   | EDefault { excepts; just; cons } ->
+ *     List.fold_left
+ *       (fun acc except -> acc + size except)
+ *       (1 + size just + size cons)
+ *       excepts
+ *   | ERaiseEmpty -> 1
+ *   | ECatchEmpty { body; handler } -> 1 + size body + size handler
+ *   | ELocation _ -> 1
+ *   | EStruct { fields; _ } ->
+ *     StructField.Map.fold (fun _ e acc -> acc + 1 + size e) fields 0
+ *   | EDStructAmend { e; fields; _ } ->
+ *     1 + size e + Ident.Map.fold (fun _ e acc -> acc + 1 + size e) fields 0
+ *   | EDStructAccess { e; _ } -> 1 + size e
+ *   | EStructAccess { e; _ } -> 1 + size e
+ *   | EMatch { e; cases; _ } ->
+ *     EnumConstructor.Map.fold (fun _ e acc -> acc + 1 + size e) cases (size e)
+ *   | EScopeCall { args; _ } ->
+ *     ScopeVar.Map.fold (fun _ e acc -> acc + 1 + size e) args 1 *)
+
 (* - Expression building helpers - *)
 
 let make_var v mark = evar v mark

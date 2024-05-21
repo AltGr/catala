@@ -21,6 +21,7 @@ module type Info = sig
   val format : Format.formatter -> info -> unit
   val equal : info -> info -> bool
   val compare : info -> info -> int
+  val hash : info -> int
 end
 
 module type Id = sig
@@ -34,6 +35,7 @@ module type Id = sig
   val format : Format.formatter -> t -> unit
   val to_string : t -> string
   val hash : t -> int
+  val strhash : t -> int
 
   module Set : Set.S with type elt = t
   module Map : Map.S with type key = t
@@ -70,6 +72,7 @@ module Make (X : Info) (S : Style) () : Id with type info = X.info = struct
   let get_info (uid : t) : X.info = uid.info
   let hash (x : t) : int = x.id
   let to_string t = X.to_string t.info
+  let strhash t = X.hash t.info
 
   module Set = Set.Make (Ordering)
   module Map = Map.Make (Ordering)
@@ -84,6 +87,7 @@ module MarkedString = struct
   let format fmt i = String.format fmt (to_string i)
   let equal = Mark.equal String.equal
   let compare = Mark.compare String.compare
+  let hash = Mark.hash String.hash
 end
 
 module Gen (S : Style) () = Make (MarkedString) (S) ()
@@ -125,6 +129,8 @@ module QualifiedMarkedString = struct
 
   let compare (p1, i1) (p2, i2) =
     match Path.compare p1 p2 with 0 -> MarkedString.compare i1 i2 | n -> n
+
+  let hash (p, i) = List.fold_left (fun acc m -> Hashtbl.hash acc lxor Module.strhash m) (MarkedString.hash i) p
 end
 
 module Gen_qualified (S : Style) () = struct

@@ -254,6 +254,65 @@ type program = {
   program_lang : Global.backend_lang;
 }
 
+module Hash = struct
+  type t = int
+
+  (* The combination of hashes needs to avoid quite a few pitfalls ; the following makes use of the code used internally for that by the OCaml stdlib, which is not exported as OCaml functions. The first two argument 'count' and 'size' are of little importance here (as long as > 0) since we know the value will be an integer.
+
+     NOTE: OCaml's hashes are on 30 bits only (for compat with 32 bit platforms...)
+  *)
+  external seeded_hash_param :
+    int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
+  let mix (h1: t) (h2: t) : t = seeded_hash_param 1 1 h1 h2
+
+  (* A simpler, but much more naive implem could be:
+   * let mix h1 h2 =
+   *   (\* not just lxor because we don't want commutativity or associativity.
+   *      Always accumulate on the left ! *\)
+   *   Hashtbl.hash h1 lxor (Hashtbl.hash h2 lxor key) *)
+
+  let ( % ) = mix
+
+  let ( ! ) = Hashtbl.hash
+
+  let var_or_state = function
+    | WholeVar -> 0
+    | States s -> List.fold_left (fun acc st -> acc % StateName.hash st) 0 s
+
+  let typ = ...
+
+  let scope_decl d =
+    (* scope_def_rules is ignored (not part of the interface) *)
+    typ d.scope_def_typ %
+    (match d.scope_def_parameters with
+     | None -> 0
+     | Some (lst, _) -> List.fold_left (fun acc (name, ty) ->
+         acc % Uid.MarkedString.hash name % typ ty)
+         0 lst) %
+    Hashtbl.hash d.scope_def_is_condition %
+    io d.scope_def_io
+
+  let scope s =
+    ScopeVar.Map.fold
+      (fun v vs acc -> acc % ScopeVar.hash v % var_or_state vs)
+      s.scope_vars %
+    ScopeVar.Map.fold
+      (fun v s acc -> acc % ScopeVar.hash v % ScopeName.hash s)
+      s.scope_sub_scopes %
+    (* or ignore path ? Uid.MarkedString.hash (ScopeName.get_info s.scope_uid) *)
+    ScopeName.hash s.scope_uid %
+    scope_decls s.scope_defs
+
+  let modul =
+    let h1 =
+      ScopeName.Map.fold (fun name sc acc ->
+          acc %
+          ScopeName.hash scope %
+          scope sc)
+
+
+end
+
 let rec locations_used e : LocationSet.t =
   match e with
   | ELocation l, m -> LocationSet.singleton (l, Expr.mark_pos m)

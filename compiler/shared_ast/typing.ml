@@ -31,6 +31,7 @@ module Any =
       let format fmt () = Format.fprintf fmt "any"
       let equal () () = true
       let compare () () = 0
+      let hash () = 0
     end)
     (struct
       let style = Ocolor_types.(Fg (C4 hi_magenta))
