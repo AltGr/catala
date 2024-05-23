@@ -51,7 +51,7 @@ module type Id = sig
   val equal : t -> t -> bool
   val format : Format.formatter -> t -> unit
   val to_string : t -> string
-  val hash : t -> int
+  val id : t -> int
   (** Returns the unique ID of the identifier *)
 
   val strhash : t -> int
@@ -95,4 +95,6 @@ module Gen_qualified (_ : Style) () : sig
   val fresh : Path.t -> MarkedString.info -> t
   val path : t -> Path.t
   val get_info : t -> MarkedString.info
+  val strhash : strip:int -> t -> int
+    (* [strip] strips that number of elements from the start of the path before hashing *)
 end

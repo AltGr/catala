@@ -716,17 +716,20 @@ let commands = if commands = [] then entry_scopes else commands
         name format_var var name)
     scopes_with_no_input
 
-let reexport_used_modules fmt modules =
+let check_and_reexport_used_modules fmt ~hash_to_string modules =
   List.iter
-    (fun m ->
+    (fun (m, hash) ->
+       Format.fprintf fmt "@[<hv 2>let () =@ @[<hov 2>Runtime_ocaml.Runtime.check_module %S %S@]@]@,"
+         (ModuleName.to_string m) (hash_to_string hash);
       Format.fprintf fmt "@[<hv 2>module %a@ = %a@]@," ModuleName.format m
         ModuleName.format m)
     modules
 
 let format_module_registration
     fmt
+    ~hash_to_string
     (bnd : ('m Ast.expr Var.t * _) String.Map.t)
-    modname =
+    modname hash =
   Format.pp_open_vbox fmt 2;
   Format.pp_print_string fmt "let () =";
   Format.pp_print_space fmt ();
@@ -743,11 +746,12 @@ let format_module_registration
     (fun fmt (id, (var, _)) ->
       Format.fprintf fmt "@[<hov 2>%S,@ Obj.repr %a@]" id format_var var)
     fmt (String.Map.to_seq bnd);
+  (* TODO: pass the visibility info down from desugared, and filter what is exported here *)
   Format.pp_close_box fmt ();
   Format.pp_print_char fmt ' ';
   Format.pp_print_string fmt "]";
   Format.pp_print_space fmt ();
-  Format.pp_print_string fmt "\"todo-module-hash\"";
+  Format.fprintf fmt "%S" (hash_to_string hash);
   Format.pp_close_box fmt ();
   Format.pp_close_box fmt ();
   Format.pp_print_newline fmt ()
@@ -766,17 +770,18 @@ let format_program
     (fmt : Format.formatter)
     ?exec_scope
     ?(exec_args = true)
+    ~(hash_to_string: module_hash -> string)
     (p : 'm Ast.program)
     (type_ordering : Scopelang.Dependency.TVertex.t list) : unit =
   Format.pp_open_vbox fmt 0;
   Format.pp_print_string fmt header;
-  reexport_used_modules fmt (Program.modules_to_list p.decl_ctx.ctx_modules);
+  check_and_reexport_used_modules fmt ~hash_to_string (Program.modules_to_list p.decl_ctx.ctx_modules);
   format_ctx type_ordering fmt p.decl_ctx;
   let bnd = format_code_items p.decl_ctx fmt p.code_items in
   Format.pp_print_cut fmt ();
   let () =
     match p.module_name, exec_scope with
-    | Some modname, None -> format_module_registration fmt bnd modname
+    | Some (modname, hash), None -> format_module_registration fmt ~hash_to_string bnd modname hash
     | None, Some scope_name ->
       let scope_body = Program.get_scope_body p scope_name in
       format_scope_exec p.decl_ctx fmt bnd scope_name scope_body

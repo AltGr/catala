@@ -72,11 +72,12 @@ module ScopeDef = struct
       format_kind ppf k
 
     let hash_kind = function
-      | Var None -> 0
-      | Var (Some st) -> StateName.hash st
-      | SubScopeInput { var_within_origin_scope = v; _ } -> ScopeVar.hash v
+      | Var None -> Hashtbl.hash `VarNone
+      | Var (Some st) -> Hashtbl.hash (`VarSome (StateName.id st))
+      | SubScopeInput { var_within_origin_scope = v; _ } ->
+        Hashtbl.hash (`SubScopeInput (ScopeVar.id v))
 
-    let hash (v, k) = Int.logxor (ScopeVar.hash (Mark.remove v)) (hash_kind k)
+    let hash (v, k) = Hashtbl.hash (ScopeVar.id (Mark.remove v), hash_kind k)
   end
 
   include Base
@@ -231,6 +232,7 @@ type scope_def = {
 
 type var_or_states = WholeVar | States of StateName.t list
 
+(* If fields are added, make sure to consider including them in the hash computations below *)
 type scope = {
   scope_vars : var_or_states ScopeVar.Map.t;
   scope_sub_scopes : ScopeName.t ScopeVar.Map.t;
@@ -239,15 +241,22 @@ type scope = {
   scope_assertions : assertion AssertionName.Map.t;
   scope_options : catala_option Mark.pos list;
   scope_meta_assertions : meta_assertion list;
+  scope_visibility : visibility;
+}
+
+type topdef = {
+  topdef_expr : expr option;
+  topdef_type : typ;
+  topdef_visibility : visibility;
 }
 
 type modul = {
   module_scopes : scope ScopeName.Map.t;
-  module_topdefs : (expr option * typ) TopdefName.Map.t;
+  module_topdefs : topdef TopdefName.Map.t;
 }
 
 type program = {
-  program_module_name : Ident.t Mark.pos option;
+  program_module_name : (ModuleName.t * module_hash) option;
   program_ctx : decl_ctx;
   program_modules : modul ModuleName.Map.t;
   program_root : modul;
@@ -257,59 +266,122 @@ type program = {
 module Hash = struct
   type t = int
 
-  (* The combination of hashes needs to avoid quite a few pitfalls ; the following makes use of the code used internally for that by the OCaml stdlib, which is not exported as OCaml functions. The first two argument 'count' and 'size' are of little importance here (as long as > 0) since we know the value will be an integer.
-
-     NOTE: OCaml's hashes are on 30 bits only (for compat with 32 bit platforms...)
-  *)
-  external seeded_hash_param :
-    int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
-  let mix (h1: t) (h2: t) : t = seeded_hash_param 1 1 h1 h2
-
-  (* A simpler, but much more naive implem could be:
-   * let mix h1 h2 =
-   *   (\* not just lxor because we don't want commutativity or associativity.
-   *      Always accumulate on the left ! *\)
-   *   Hashtbl.hash h1 lxor (Hashtbl.hash h2 lxor key) *)
+  let mix (h1: t) (h2: t) : t = Hashtbl.hash (h1, h2)
 
   let ( % ) = mix
 
+  (* Shortcut to the built-in hashing function. This is ok on simple types, but (i) it would include AST node marks and (ii) it has limited depth, so it can't be used on our recursive types. When used on a non-literal, we explicit the operand type to justify this condition. *)
   let ( ! ) = Hashtbl.hash
 
+  let option f = function
+    | None -> !`None
+    | Some x -> !`Some % f x
+
   let var_or_state = function
-    | WholeVar -> 0
-    | States s -> List.fold_left (fun acc st -> acc % StateName.hash st) 0 s
+    | WholeVar -> !`WholeVar
+    | States s -> List.fold_left (fun acc st -> acc % StateName.strhash st) !`States s
 
-  let typ = ...
+  (* [!`Foo] is just a fancy way to generate a constant for discriminating constructions *)
+  let rec typ ~strip ty = match Mark.remove ty with
+    | TLit l -> !`TLit % !(l: typ_lit)
+    | TTuple tl -> List.fold_left (fun acc ty -> acc % typ ~strip ty) !`TTuple tl
+    | TStruct n -> !`TStruct % StructName.strhash ~strip n
+    | TEnum n -> !`TEnum % EnumName.strhash ~strip n
+    | TOption ty -> !`TOption % typ ~strip ty
+    | TArrow (tl, ty) -> !`TArrow % List.fold_left (fun acc ty -> acc % typ ~strip ty) (typ ~strip ty) tl
+    | TArray ty -> !`TArray % typ ~strip ty
+    | TDefault ty -> !`TDefault % typ ~strip ty
+    | TAny -> !`TAny
+    | TClosureEnv -> !`TClosureEnv
 
-  let scope_decl d =
+  let io x =
+    !(Mark.remove x.io_input: Runtime.io_input) % !(Mark.remove x.io_output: bool)
+
+  let scope_decl ~strip d =
     (* scope_def_rules is ignored (not part of the interface) *)
-    typ d.scope_def_typ %
-    (match d.scope_def_parameters with
-     | None -> 0
-     | Some (lst, _) -> List.fold_left (fun acc (name, ty) ->
-         acc % Uid.MarkedString.hash name % typ ty)
-         0 lst) %
-    Hashtbl.hash d.scope_def_is_condition %
+    typ ~strip d.scope_def_typ %
+    option (fun (lst, _) ->
+         List.fold_left (fun acc (name, ty) ->
+             acc % Uid.MarkedString.hash name % typ ~strip ty)
+           !`SDparams lst)
+      d.scope_def_parameters %
+    !(d.scope_def_is_condition : bool) %
     io d.scope_def_io
 
-  let scope s =
-    ScopeVar.Map.fold
-      (fun v vs acc -> acc % ScopeVar.hash v % var_or_state vs)
-      s.scope_vars %
-    ScopeVar.Map.fold
-      (fun v s acc -> acc % ScopeVar.hash v % ScopeName.hash s)
-      s.scope_sub_scopes %
-    (* or ignore path ? Uid.MarkedString.hash (ScopeName.get_info s.scope_uid) *)
-    ScopeName.hash s.scope_uid %
-    scope_decls s.scope_defs
+  let scope_def ~strip (var, kind) =
+    ScopeVar.strhash (Mark.remove var) % match kind with
+    | ScopeDef.Var st -> option StateName.strhash st
+    | ScopeDef.SubScopeInput { name; var_within_origin_scope } ->
+      ScopeName.strhash ~strip name % ScopeVar.strhash var_within_origin_scope
 
-  let modul =
-    let h1 =
-      ScopeName.Map.fold (fun name sc acc ->
-          acc %
-          ScopeName.hash scope %
-          scope sc)
+  let scope ~strip s =
+    (* We use raw `lxor` on maps because order doesn't matter there, and a key can't be repeated *)
+    ScopeVar.Map.fold
+      (fun v vs acc -> acc lxor (ScopeVar.strhash v % var_or_state vs))
+      s.scope_vars !`ScopeVars %
+    ScopeVar.Map.fold
+      (fun v s acc -> acc lxor (ScopeVar.strhash v % ScopeName.strhash ~strip s))
+      s.scope_sub_scopes !`SubScopes %
+    ScopeName.strhash ~strip s.scope_uid %
+    ScopeDef.Map.fold
+      (fun def decl acc -> acc lxor (scope_def ~strip def % scope_decl ~strip decl))
+      s.scope_defs
+      !`ScopeDefs
+  (* assertions, options, etc. are not expected to be part of interfaces *)
 
+  let modul ?(strip = 0) m =
+    ScopeName.Map.fold (fun sn s acc ->
+        match s.scope_visibility with
+        | Public -> acc lxor (ScopeName.strhash ~strip sn % scope ~strip s)
+        | Private -> acc)
+      m.module_scopes !`ModuleScopes %
+    TopdefName.Map.fold (fun tdn td acc ->
+        match td.topdef_visibility with
+        | Public ->
+          (* Message.debug "> %a ⇒ %08x xxx %08x"
+           *   TopdefName.format tdn
+           *   (TopdefName.strhash ~strip tdn)
+           *   (typ ~strip td.topdef_type); *)
+          acc lxor (TopdefName.strhash ~strip tdn % typ ~strip td.topdef_type)
+        | Private ->
+          acc)
+      m.module_topdefs !`ModuleTopdefs
+
+  let module_binding ?(root=false) modname m =
+    (* Message.debug "HASH MB %a" ModuleName.format modname; *)
+    ModuleName.strhash modname % modul ~strip:(if root then 0 else 1) m
+    (* |> fun r -> Message.debug "     => %08x xxx %08x"
+     *   (ModuleName.strhash modname) (modul ~strip:(if root then 0 else 1) m)
+     *           ; r *)
+
+  (* let program p =
+   *   option (fun id -> Ident.hash (Mark.remove id)) p.program_module_name %
+   *   ModuleName.Map.fold (fun name m acc -> acc lxor ())
+   *     p.program_modules
+   * 
+   *   let h1 =
+   *     ScopeName.Map.fold (fun name sc acc ->
+   *         acc %
+   *         ScopeName.strhash scope %
+   *         scope sc) *)
+
+  let flagsk k ~avoid_exceptions ~closure_conversion ~monomorphize_types =
+    (* Should not affect the call convention or actual interfaces: include, optimize, check_invariants, typed *)
+    !(avoid_exceptions: bool) %
+    !(closure_conversion: bool) %
+    !(monomorphize_types: bool) %
+    (* The following may not affect the call convention, but we want it set in an homogeneous way *)
+    !(Global.options.trace: bool) %
+    !(Global.options.max_prec_digits: int)
+    |> k
+
+  let flags = flagsk (fun r -> r)
+
+  let to_string ~flags_hash module_hash  =
+    Printf.sprintf "CM0$%08x$%08x$%08x"
+      !(Version.v: string)
+      flags_hash
+      module_hash
 
 end
 
@@ -370,5 +442,5 @@ let fold_exprs ~(f : 'a -> expr -> 'a) ~(init : 'a) (p : program) : 'a =
       p.program_root.module_scopes init
   in
   TopdefName.Map.fold
-    (fun _ (e, _) acc -> Option.fold ~none:acc ~some:(f acc) e)
+    (fun _ tdef acc -> Option.fold ~none:acc ~some:(f acc) tdef.topdef_expr)
     p.program_root.module_topdefs acc

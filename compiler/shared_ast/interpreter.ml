@@ -1155,8 +1155,9 @@ let interpret_program_dcalc p s : (Uid.MarkedString.info * ('a, 'm) gexpr) list
    reflect that. *)
 let evaluate_expr ctx lang e = evaluate_expr ctx lang (addcustom e)
 
-let load_runtime_modules prg =
-  let load m =
+let load_runtime_modules ~hash_to_string prg =
+  let load (m, mod_hash) =
+    let hash = hash_to_string mod_hash in
     let obj_file =
       Dynlink.adapt_filename
         File.(Pos.get_file (Mark.get (ModuleName.get_info m)) -.- "cmo")
@@ -1169,15 +1170,26 @@ let load_runtime_modules prg =
          compiled."
         File.format obj_file
     else
-      try Dynlink.loadfile obj_file
-      with Dynlink.Error dl_err ->
-        Message.error "Error loading compiled module from %a:@;<1 2>@[<hov>%a@]"
-          File.format obj_file Format.pp_print_text
-          (Dynlink.error_message dl_err)
+      (try Dynlink.loadfile obj_file
+       with Dynlink.Error dl_err ->
+         Message.error "While loading compiled module from %a:@;<1 2>@[<hov>%a@]"
+           File.format obj_file Format.pp_print_text
+           (Dynlink.error_message dl_err));
+    match Runtime.check_module (ModuleName.to_string m) hash with
+    | true -> ()
+    | false ->
+      Message.debug "Expected module hash for %a: %S" ModuleName.format m hash;
+      Message.error "Module %a@ needs@ recompiling:@ %a@ was@ likely@ compiled@ from@ an@ older@ version@ or@ with@ incompatible@ Catala@ options."
+        ModuleName.format m
+        File.format obj_file
+    | exception Not_found ->
+      Message.error "Module %a@ was loaded from file %a but did not register properly, there is something wrong in its code"
+        ModuleName.format m
+        File.format obj_file
   in
   let modules_list_topo = Program.modules_to_list prg.decl_ctx.ctx_modules in
   if modules_list_topo <> [] then
     Message.debug "Loading shared modules... %a"
       (Format.pp_print_list ~pp_sep:Format.pp_print_space ModuleName.format)
-      modules_list_topo;
+      (List.map fst modules_list_topo);
   List.iter load modules_list_topo

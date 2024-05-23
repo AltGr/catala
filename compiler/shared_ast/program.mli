@@ -53,5 +53,5 @@ val to_expr : ((_ any, _) gexpr as 'e) program -> ScopeName.t -> 'e boxed
 
 val find_scope : ScopeName.t -> 'e code_item_list -> 'e scope_body
 
-val modules_to_list : module_tree -> ModuleName.t list
+val modules_to_list : module_tree -> (ModuleName.t * module_hash) list
 (** Returns a list of used modules, in topological order *)

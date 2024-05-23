@@ -62,6 +62,6 @@ val delcustom :
 (** Runtime check that the term contains no custom terms (raises
     [Invalid_argument] if that is the case *)
 
-val load_runtime_modules : _ program -> unit
+val load_runtime_modules : hash_to_string:(module_hash -> string) -> _ program -> unit
 (** Dynlink the runtime modules required by the given program, in order to make
     them callable by the interpreter. *)

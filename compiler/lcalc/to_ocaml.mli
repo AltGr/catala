@@ -40,6 +40,7 @@ val format_program :
   Format.formatter ->
   ?exec_scope:ScopeName.t ->
   ?exec_args:bool ->
+  hash_to_string:(int -> string) ->
   'm Ast.program ->
   Scopelang.Dependency.TVertex.t list ->
   unit

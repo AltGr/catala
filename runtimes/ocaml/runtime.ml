@@ -895,6 +895,7 @@ let values_table : (string list * string, Obj.t) Hashtbl.t = Hashtbl.create 13
 
 let register_module modname values hash =
   Hashtbl.add modules_table modname hash;
+  (* Printf.eprintf "REGISTER MODULE: %-12s %s\n%!" modname hash; *)
   List.iter (fun (id, v) -> Hashtbl.add values_table ([modname], id) v) values
 
 let check_module m h = String.equal (Hashtbl.find modules_table m) h

@@ -167,7 +167,7 @@ let rec format_typ
     format_typ ~colors fmt t1;
     Format.pp_print_as fmt 1 "⟩"
   | TAny v ->
-    if Global.options.debug then Format.fprintf fmt "<a%d>" (Any.hash v)
+    if Global.options.debug then Format.fprintf fmt "<a%d>" (Any.id v)
     else Format.pp_print_string fmt "<any>"
   | TClosureEnv -> Format.fprintf fmt "closure_env"
 

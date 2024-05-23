@@ -123,22 +123,56 @@ type scope = {
       (** empty outside of the root module *)
   scope_options : catala_option Mark.pos list;
   scope_meta_assertions : meta_assertion list;
+  scope_visibility : visibility;
+}
+
+type topdef = {
+  topdef_expr : expr option; (** Always [None] outside of the root module *)
+  topdef_type : typ;
+  topdef_visibility : visibility; (** Necessarily [Public] outside of the root module *)
 }
 
 type modul = {
   module_scopes : scope ScopeName.Map.t;
-  module_topdefs : (expr option * typ) TopdefName.Map.t;
-      (** the expr is [None] outside of the root module *)
+  module_topdefs : topdef TopdefName.Map.t;
 }
 
 type program = {
-  program_module_name : Ident.t Mark.pos option;
+  program_module_name : (ModuleName.t * module_hash) option;
   program_ctx : decl_ctx;
   program_modules : modul ModuleName.Map.t;
       (** Contains all submodules of the program, in a flattened structure *)
   program_root : modul;
   program_lang : Global.backend_lang;
 }
+
+(** {1 Interface hash computations} *)
+
+(** These hashes are computed on interfaces: only signatures are considered. In contrast with OCaml's basic `Hashtbl.hash`, they process the full depth of terms. Any meaningful interface change in a module should only be in hash collision with a 1/2^30 probability. *)
+module Hash: sig
+  type t = module_hash
+  (** Native Hasthbl.hash hashes, value is truncated to 30 bits whatever the architecture (positive 31-bit integers) *)
+
+  val ( % ): t -> t -> t
+  (** Safe combination of two hashes (non commutative or associative, etc.) *)
+
+  (** The [strip] argument below strips as many leading path components before hashing *)
+
+  val typ: strip: int -> typ -> t
+  val scope: strip: int -> scope -> t
+  val modul: ?strip: int -> modul -> t
+
+  val module_binding: ?root:bool -> ModuleName.t -> modul -> t
+  (** This strips 1 path component by default unless [root] is [true] *)
+
+  val flags: avoid_exceptions:bool -> closure_conversion:bool -> monomorphize_types:bool -> t
+
+  val flagsk: (t -> 'a) -> avoid_exceptions:bool -> closure_conversion:bool -> monomorphize_types:bool -> 'a
+  (** CPS version of [flags], for arguments forwarding *)
+
+  val to_string: flags_hash:t -> t -> string
+  (** Generates a "full" compilation hash from the current Catala version, the given flags hash and module hash (as obtained from [module_binding] *)
+end
 
 (** {1 Helpers} *)
 
