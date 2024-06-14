@@ -451,6 +451,7 @@ module Var = struct
 
   let ninja_required_version = make "ninja_required_version"
   let builddir = make "builddir"
+  let color = make "color"
   let clerk_exe = make "CLERK_EXE"
   let catala_exe = make "CATALA_EXE"
   let catala_flags = make "CATALA_FLAGS"
@@ -507,6 +508,7 @@ let base_bindings catala_exe catala_flags build_dir include_dirs test_flags =
     Nj.binding Var.ninja_required_version ["1.7"];
     (* use of implicit outputs *)
     Nj.binding Var.builddir [build_dir];
+    Nj.binding Var.color [if Message.has_color stdout then "always" else "never"];
     Nj.binding Var.clerk_exe [Lazy.force Poll.clerk_exe];
     Nj.binding Var.catala_exe
       [
@@ -609,7 +611,7 @@ let[@ocamlformat "disable"] static_base_rules =
 
     Nj.rule "test-report"
       ~command:[
-        !clerk_exe; "report"; "--color="^if Message.has_color stdout then "always" else "never"; "--columns="^string_of_int (Message.terminal_columns ()); "--build-dir=" ^ !Var.builddir; !input;
+        !clerk_exe; "report"; "--color=" ^ !Var.color; "--columns="^string_of_int (Message.terminal_columns ()); "--build-dir=" ^ !Var.builddir; !input;
       ]
       ~description:["<test>"; !output];
   ]
