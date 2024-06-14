@@ -80,7 +80,27 @@ module Cli = struct
              NOTE: if this is set, all inline tests that are $(i,not) \
              $(b,catala test-scope) are skipped to avoid redundant testing.")
 
+  let runtest_report =
+    Arg.(
+      value
+      & opt (some string) None
+      & info ["report"] ~docv:"FILE"
+        ~doc:
+          "If set, $(i,clerk runtest) will output a tests result summary in binary format to the given $(b,FILE)")
+
+  let runtest_out =
+    Arg.(
+      value
+      & pos 1 (some string) None
+      & info [] ~docv:"OUTFILE"
+        ~doc:
+          "Write the test outcome to file $(b,OUTFILE) instead of stdout.")
+
   module Global : sig
+    val color: Catala_utils.Global.when_enum Term.t
+
+    val debug: bool Term.t
+
     val term :
       (chdir:File.t option ->
       catala_exe:File.t option ->
@@ -220,6 +240,12 @@ module Cli = struct
         (if has_ignore then ["-k0"] else []) @ number_of_jobs
     in
     Term.(const makeflags_to_ninja_flags $ makeflags)
+
+  let columns =
+    Arg.(
+      value
+      & opt (some int) None
+      & info ["columns"] ~doc:"Number of screen columns to use for display")
 
   let info =
     let doc =
@@ -435,6 +461,7 @@ module Var = struct
   let ocamlopt_exe = make "OCAMLOPT_EXE"
   let ocaml_flags = make "OCAML_FLAGS"
   let runtime_ocaml_libs = make "RUNTIME_OCAML_LIBS"
+  (* the next two are now only used by legacy tests *)
   let diff = make "DIFF"
   let post_test = make "POST_TEST"
 
@@ -506,7 +533,6 @@ let base_bindings catala_exe catala_flags build_dir include_dirs test_flags =
 
 let[@ocamlformat "disable"] static_base_rules =
   let open Var in
-  let color = Message.has_color stdout in
   let shellout l = Format.sprintf "$$(%s)" (String.concat " " l) in
   [
     Nj.rule "copy"
@@ -545,6 +571,7 @@ let[@ocamlformat "disable"] static_base_rules =
                 !input; "-o"; !output]
       ~description:["<catala>"; "python"; "⇒"; !output];
 
+    (* Maybe integrate these legacy tests into a specific subcommand of `clerk runtest` *)
     Nj.rule "out-test"
       ~command: [
         !catala_exe; !test_command; "--plugin-dir="; "-o -"; !catala_flags;
@@ -559,8 +586,8 @@ let[@ocamlformat "disable"] static_base_rules =
 
     Nj.rule "inline-tests"
       ~command:
-        [!clerk_exe; "runtest"; !clerk_flags; !input; ">"; !output; "2>&1";
-         "||"; "true"]
+        [!clerk_exe; "runtest"; !clerk_flags; !input;
+         "--report"; !output;]
       ~description:["<catala>"; "inline-tests"; "⇐"; !input];
 
     Nj.rule "post-test"
@@ -580,36 +607,11 @@ let[@ocamlformat "disable"] static_base_rules =
       ~command:["cat"; !input; ">"; !output; ";"]
       ~description:["<test>"; !test_id];
 
-    Nj.rule "test-results"
+    Nj.rule "test-report"
       ~command:[
-        "out=" ^ !output; ";";
-        "success=$$("; "tr"; "-cd"; "0"; "<"; !input; "|"; "wc"; "-c"; ")"; ";";
-        "total=$$("; "wc"; "-c"; "<"; !input; ")"; ";";
-        "pass=$$(";  ")"; ";";
-        "if"; "test"; "\"$$success\""; "-eq"; "\"$$total\""; ";"; "then";
-          "printf";
-          (if color then "\"\\n[\\033[32mPASS\\033[m] \\033[1m%s\\033[m: \
-                          \\033[32m%3d\\033[m/\\033[32m%d\\033[m\\n\""
-           else "\"\\n[PASS] %s: %3d/%d\\n\"");
-          "$${out%@test}"; "$$success"; "$$total"; ";";
-        "else";
-          "printf";
-          (if color then "\"\\n[\\033[31mFAIL\\033[m] \\033[1m%s\\033[m: \
-                          \\033[31m%3d\\033[m/\\033[32m%d\\033[m\\n\""
-           else "\"\\n[FAIL] %s: %3d/%d\\n\"");
-          "$${out%@test}"; "$$success"; "$$total"; ";";
-          "return"; "1"; ";";
-        "fi";
+        !clerk_exe; "report"; "--color="^if Message.has_color stdout then "always" else "never"; "--columns="^string_of_int (Message.terminal_columns ()); "--build-dir=" ^ !Var.builddir; !input;
       ]
       ~description:["<test>"; !output];
-  (* Note: this last rule looks horrible, but the processing is pretty simple:
-     in the rules above, we output the returning code of diffing individual
-     tests to a [<testfile>@test] file, then the rules for directories just
-     concat these files. What this last rule does is then just count the number
-     of `0` and the total number of characters in the file, and print a readable
-     message. Instead of this disgusting shell code embedded in the ninja file,
-     this could be a specialised subcommand of clerk, e.g. `clerk
-     test-diagnostic <results-file@test>` *)
   ]
 
 let gen_build_statements
@@ -753,28 +755,28 @@ let gen_build_statements
           Nj.build "inline-tests"
             ~inputs:[inc srcv]
             ~implicit_in:(!Var.clerk_exe :: interp_deps)
-            ~outputs:[(!Var.builddir / srcv) ^ "@out"];
+            ~outputs:[inc srcv ^ "@test"; inc srcv ^ "@out"];
         ]
     in
     let tests =
       let results =
-        Nj.build "test-results"
+        Nj.build "test-report"
           ~outputs:[srcv ^ "@test"]
           ~inputs:[inc (srcv ^ "@test")]
       in
-      let inline_test label =
-        Nj.build "post-test"
-          ~outputs:[inc (srcv ^ label)]
-          ~inputs:[srcv; inc (srcv ^ "@out")]
-          ~implicit_in:["always"]
-          ~vars:[Var.test_id, [srcv]]
-      in
+      (* let inline_test label =
+       *   Nj.build "post-test"
+       *     ~outputs:[inc (srcv ^ label)]
+       *     ~inputs:[srcv; inc (srcv ^ "@out")]
+       *     ~implicit_in:["always"]
+       *     ~vars:[Var.test_id, [srcv]]
+       * in *)
       match item.legacy_tests with
       | [] ->
-        if item.has_inline_tests then [inline_test "@test"; results] else []
+        if item.has_inline_tests then [(* inline_test "@test"; *) results] else []
       | legacy ->
         let inline =
-          if item.has_inline_tests then [inline_test "@inline"] else []
+          if item.has_inline_tests then [(* inline_test "@inline" *)] else []
         in
         inline
         @ [
@@ -839,7 +841,7 @@ let dir_test_rules dir subdirs items =
         ~outputs:[(Var.(!builddir) / dir) ^ "@test"]
         ~inputs
         ~vars:[Var.test_id, [dir]];
-      Nj.build "test-results"
+      Nj.build "test-report"
         ~outputs:[dir ^ "@test"]
         ~inputs:[(Var.(!builddir) / dir) ^ "@test"];
     ]
@@ -1055,15 +1057,15 @@ let run_cmd =
       $ Cli.ninja_flags)
 
 let runtest_cmd =
-  let run catala_exe catala_opts include_dirs test_flags file =
+  let run catala_exe catala_opts include_dirs test_flags report out file =
     let catala_opts =
       List.fold_left
         (fun opts dir -> "-I" :: dir :: opts)
         catala_opts include_dirs
     in
     Clerk_runtest.run_inline_tests
-      (Option.value ~default:"catala" catala_exe)
-      catala_opts test_flags file;
+      ~catala_exe:(Option.value ~default:"catala" catala_exe)
+      ~catala_opts ~test_flags ~report ~out file;
     0
   in
   let doc =
@@ -1077,9 +1079,34 @@ let runtest_cmd =
       $ Cli.catala_opts
       $ Cli.include_dirs
       $ Cli.test_flags
+      $ Cli.runtest_report
+      $ Cli.runtest_out
       $ Cli.single_file)
 
-let main_cmd = Cmd.group Cli.info [build_cmd; test_cmd; run_cmd; runtest_cmd]
+let report_cmd =
+  let run color debug columns build_dir file =
+    let _options = Catala_utils.Global.enforce_options ~debug ~color () in
+    let build_dir = Option.value ~default:"_build" build_dir in
+    let open Clerk_report in
+    let tests = read_many file in
+    let columns = match columns with Some c -> c | None -> Message.terminal_columns () in
+    let success = summary ~columns ~build_dir tests in
+    exit (if success then 0 else 1)
+  in
+  let doc =
+    "Mainly for internal purposes. Reads a test report file and displays a summary of the results, returning 0 on success and 1 if any test failed."
+  in
+  Cmd.v (Cmd.info ~doc "report")
+    Term.(
+      const run
+      $ Cli.Global.color
+      $ Cli.Global.debug
+      $ Cli.columns
+      $ Cli.build_dir
+      $ Cli.single_file)
+
+
+let main_cmd = Cmd.group Cli.info [build_cmd; test_cmd; run_cmd; runtest_cmd; report_cmd]
 
 let main () =
   try exit (Cmdliner.Cmd.eval' ~catch:false main_cmd) with

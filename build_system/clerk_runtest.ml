@@ -16,6 +16,38 @@
 
 open Catala_utils
 
+type output_buf = { oc: out_channel; mutable pos: Lexing.position }
+
+let with_output file_opt f =
+  let pos0 pos_fname =
+    { Lexing.
+      pos_fname;
+      pos_cnum = 0;
+      pos_lnum = 1;
+      pos_bol = 0;
+    }
+  in
+  match file_opt with
+  | Some file ->
+    File.with_out_channel file @@ fun oc ->
+    f { oc; pos = pos0 file }
+  | None ->
+    f { oc = stdout; pos = pos0 "<stdout>" }
+
+let out_line output_buf str =
+  let len = String.length str in
+  let has_nl = str <> "" && str.[len - 1] = '\n' in
+  output_string output_buf.oc str;
+  if not has_nl then output_char output_buf.oc '\n';
+  let pos_cnum = output_buf.pos.pos_cnum + len + if has_nl then 0 else 1 in
+  output_buf.pos <- {
+    output_buf.pos with
+    Lexing.
+    pos_cnum;
+    pos_lnum = output_buf.pos.pos_lnum + 1;
+    pos_bol = pos_cnum;
+  }
+
 let sanitize =
   let re_endtest = Re.(compile @@ seq [bol; str "```"]) in
   let re_modhash =
@@ -37,11 +69,7 @@ let sanitize =
     |> Re.replace_string re_endtest ~by:"\\```"
     |> Re.replace_string re_modhash ~by:"\"CMX|XXXXXXXX|XXXXXXXX|XXXXXXXX\""
 
-let run_catala_test test_flags catala_exe catala_opts file program args oc =
-  let cmd_in_rd, cmd_in_wr = Unix.pipe ~cloexec:true () in
-  let cmd_out_rd, cmd_out_wr = Unix.pipe ~cloexec:true () in
-  let command_oc = Unix.out_channel_of_descr cmd_in_wr in
-  let command_ic = Unix.in_channel_of_descr cmd_out_rd in
+let catala_test_command test_flags catala_exe catala_opts args out =
   let catala_exe =
     (* If the exe name contains directories, make it absolute. Otherwise don't
        modify it so that it can be looked up in PATH. *)
@@ -49,40 +77,49 @@ let run_catala_test test_flags catala_exe catala_opts file program args oc =
       Unix.realpath catala_exe
     else catala_exe
   in
-  let cmd =
-    match args with
-    | cmd0 :: flags ->
-      let cmd0, flags =
-        match String.lowercase_ascii cmd0, flags, test_flags with
-        | "test-scope", scope_name :: flags, test_flags ->
-          "interpret", (("--scope=" ^ scope_name) :: flags) @ test_flags
-        | "test-scope", [], _ ->
-          output_string oc
-            "[INVALID TEST] Invalid test command syntax, the 'test-scope' \
-             pseudo-command takes a scope name as first argument\n";
-          "interpret", test_flags
-        | cmd0, flags, [] -> cmd0, flags
-        | _, _, _ :: _ ->
-          raise Exit (* Skip other tests when test-flags is specified *)
-      in
-      Array.of_list
-        ((catala_exe :: cmd0 :: catala_opts) @ flags @ ["--name=" ^ file; "-"])
-    | [] -> Array.of_list ((catala_exe :: catala_opts) @ [file])
-  in
-  let env =
-    Unix.environment ()
-    |> Array.to_seq
-    |> Seq.filter (fun s ->
-           not
-             (String.starts_with ~prefix:"OCAMLRUNPARAM=" s
-             || String.starts_with ~prefix:"CATALA_" s))
-    |> Seq.cons "CATALA_OUT=-"
-    (* |> Seq.cons "CATALA_COLOR=never" *)
-    |> Seq.cons "CATALA_PLUGINS="
-    |> Array.of_seq
-  in
+  match args with
+  | cmd0 :: flags ->
+    (try
+       let cmd0, flags =
+         match String.lowercase_ascii cmd0, flags, test_flags with
+         | "test-scope", scope_name :: flags, test_flags ->
+           "interpret", (("--scope=" ^ scope_name) :: flags) @ test_flags
+         | "test-scope", [], _ ->
+           out_line out
+             "[INVALID TEST] Invalid test command syntax, the 'test-scope' \
+              pseudo-command takes a scope name as first argument\n";
+           "interpret", test_flags
+         | cmd0, flags, [] -> cmd0, flags
+         | _, _, _ :: _ ->
+           raise Exit (* Skip other tests when test-flags is specified *)
+       in
+       Some (Array.of_list
+               ((catala_exe :: cmd0 :: catala_opts) @ flags))
+     with Exit -> None)
+  | [] -> Some (Array.of_list (catala_exe :: catala_opts))
+
+let catala_test_env () =
+  Unix.environment ()
+  |> Array.to_seq
+  |> Seq.filter (fun s ->
+      not
+        (String.starts_with ~prefix:"OCAMLRUNPARAM=" s
+         || String.starts_with ~prefix:"CATALA_" s))
+  |> Seq.cons "CATALA_OUT=-"
+  (* |> Seq.cons "CATALA_COLOR=never" *)
+  |> Seq.cons "CATALA_PLUGINS="
+  |> Array.of_seq
+
+
+let run_catala_test filename cmd program expected out =
+  let cmd_in_rd, cmd_in_wr = Unix.pipe ~cloexec:true () in
+  let cmd_out_rd, cmd_out_wr = Unix.pipe ~cloexec:true () in
+  let command_oc = Unix.out_channel_of_descr cmd_in_wr in
+  let command_ic = Unix.in_channel_of_descr cmd_out_rd in
+  let env = catala_test_env () in
+  let cmd = Array.append cmd [|"--name=" ^ filename; "-"|] in
   let pid =
-    Unix.create_process_env catala_exe cmd env cmd_in_rd cmd_out_wr cmd_out_wr
+    Unix.create_process_env cmd.(0) cmd env cmd_in_rd cmd_out_wr cmd_out_wr
   in
   Unix.close cmd_in_rd;
   Unix.close cmd_out_wr;
@@ -91,21 +128,38 @@ let run_catala_test test_flags catala_exe catala_opts file program args oc =
   let out_lines =
     Seq.of_dispenser (fun () -> In_channel.input_line command_ic)
   in
-  Seq.iter
-    (fun line ->
-      output_string oc (sanitize line);
-      output_char oc '\n')
-    out_lines;
+  let success, expected =
+    Seq.fold_left
+      (fun (success, expected) result_line ->
+         let result_line = sanitize result_line ^ "\n" in
+         out_line out result_line;
+         match Seq.uncons expected with
+         | Some ((l, _, _), expected) ->
+           (success && String.equal result_line l), expected
+         | None -> false, expected)
+      (true, List.to_seq expected)
+      out_lines
+  in
   let return_code =
     match Unix.waitpid [] pid with
     | _, Unix.WEXITED n -> n
     | _, (Unix.WSIGNALED n | Unix.WSTOPPED n) -> 128 - n
   in
-  if return_code <> 0 then Printf.fprintf oc "#return code %d#\n" return_code
+  let success, expected =
+    if return_code = 0 then success, expected else
+      let line = Printf.sprintf "#return code %d#\n" return_code in
+      out_line out line;
+      match Seq.uncons expected with
+      | Some ((l, _, _), expected) when String.equal l line -> success, expected;
+      | Some (_, expected) ->
+        false, expected
+      | None -> false, expected
+  in
+  (success && Seq.is_empty expected)
 
 (** Directly runs the test (not using ninja, this will be called by ninja rules
     through the "clerk runtest" command) *)
-let run_inline_tests catala_exe catala_opts test_flags filename =
+let run_inline_tests ~catala_exe ~catala_opts ~test_flags ~report ~out filename =
   let module L = Surface.Lexer_common in
   let lang =
     match Clerk_scan.get_lang filename with
@@ -115,30 +169,70 @@ let run_inline_tests catala_exe catala_opts test_flags filename =
         File.format filename
   in
   let lines = Surface.Parser_driver.lines filename lang in
-  let oc = stdout in
+  with_output out @@ fun out ->
   let lines_until_now = Queue.create () in
-  let push str =
-    output_string oc str;
-    Queue.add str lines_until_now
+  let push_line str =
+    out_line out str;
+    Queue.add str lines_until_now;
+  in
+  let rtests : Clerk_report.test list ref = ref [] in
+  let rec skip_block acc lines =
+    let return lines acc =
+      let endpos = match acc with (_,_,(_, epos))::_ -> epos | [] -> { Lexing.dummy_pos with pos_fname = filename } in
+      let block = List.rev acc in
+      let startpos = match block with (_,_,(spos, _))::_ -> spos | [] -> { Lexing.dummy_pos with pos_fname = filename } in
+      lines, block, (startpos, endpos)
+    in
+    match Seq.uncons lines with
+    | None -> return lines acc
+    | Some ((_, L.LINE_BLOCK_END, _), lines) ->
+      return lines acc
+    | Some ((str, _, _) as li, lines) ->
+      Queue.add str lines_until_now;
+      (* Note: removing the above line would make the tests more stable (positions no longer depend on the length of the output of previous tests), but would also make the reported positions incorrect in the actual source file *)
+      skip_block (li::acc) lines
   in
   let rec run_test lines =
+    let broken_test msg =
+      let opos_start = out.pos in
+      push_line msg;
+      {
+        Clerk_report.success = false;
+        command_line = [];
+        expected = { Lexing.dummy_pos with pos_fname = filename },
+                   { Lexing.dummy_pos with pos_fname = filename };
+        result = opos_start, out.pos;
+      }
+    in
     match Seq.uncons lines with
     | None ->
-      output_string oc
-        "[INVALID TEST] Missing test command, use '$ catala <args>'\n"
-    | Some ((str, L.LINE_BLOCK_END), lines) ->
-      output_string oc
-        "[INVALID TEST] Missing test command, use '$ catala <args>'\n";
-      push str;
+      let t =
+        broken_test
+          "[INVALID TEST] Missing test command, use '$ catala <args>'\n"
+      in rtests := t :: !rtests
+    | Some ((str, L.LINE_BLOCK_END, _), lines) ->
+      let t =
+        broken_test
+          "[INVALID TEST] Missing test command, use '$ catala <args>'\n"
+      in
+      rtests := t :: !rtests;
+      push_line str;
       process lines
-    | Some ((str, _), lines) -> (
-      push str;
-      match Clerk_scan.test_command_args str with
-      | None ->
-        output_string oc
-          "[INVALID TEST] Invalid test command syntax, must match '$ catala \
-           <args>'\n";
-        skip_block lines
+    | Some ((str, _, _), lines) -> (
+        push_line str;
+        match Clerk_scan.test_command_args str with
+        | None ->
+          let t =
+            broken_test
+            "[INVALID TEST] Invalid test command syntax, must match '$ catala \
+             <args>'\n"
+        in
+        let lines, _, ipos = skip_block [] lines in
+        push_line "```";
+        rtests :=
+          { t with Clerk_report.expected = ipos }
+          :: !rtests;
+        process lines
       | Some args -> (
         let args = String.split_on_char ' ' args in
         let program =
@@ -152,29 +246,53 @@ let run_inline_tests catala_exe catala_opts test_flags filename =
           in
           Queue.to_seq lines_until_now |> drop_last |> drop_last
         in
+        let opos_start = out.pos in
         match
-          run_catala_test test_flags catala_exe catala_opts filename program
-            args oc
+          catala_test_command test_flags catala_exe catala_opts args out
         with
-        | () -> skip_block lines
-        | exception Exit -> process lines))
-  and skip_block lines =
-    match Seq.uncons lines with
-    | None -> ()
-    | Some ((str, L.LINE_BLOCK_END), lines) ->
-      push str;
-      process lines
-    | Some ((str, _), lines) ->
-      Queue.add str lines_until_now;
-      skip_block lines
+        | Some cmd ->
+          let lines, expected, ipos = skip_block [] lines in
+          let success = run_catala_test filename cmd program expected out in
+          let opos_end = out.pos in
+          push_line "```";
+          rtests :=
+            { Clerk_report.success;
+              command_line = Array.to_list cmd @ [filename];
+              result = opos_start, opos_end;
+              expected = ipos }
+            :: !rtests;
+          process lines
+        | None ->
+          let rec skip lines = match Seq.uncons lines with
+            | Some ((l, tok, _), lines) ->
+              out_line out l; if tok = L.LINE_BLOCK_END then process lines else skip lines
+            | None -> process lines
+          in
+          skip lines))
   and process lines =
     match Seq.uncons lines with
-    | Some ((str, L.LINE_INLINE_TEST), lines) ->
-      push str;
+    | Some ((str, L.LINE_INLINE_TEST, _), lines) ->
+      push_line str;
       run_test lines
-    | Some ((str, _), lines) ->
-      push str;
+    | Some ((str, _, _), lines) ->
+      push_line str;
       process lines
     | None -> ()
   in
-  process lines
+  process lines;
+  let tests_report =
+    List.fold_left Clerk_report.(fun tests t ->
+        { tests with
+          total = tests.total + 1;
+          successful = tests.successful + if t.success then 1 else 0;
+          tests = t :: tests.tests }
+      )
+      { Clerk_report.name = filename;
+        successful = 0;
+        total = 0;
+        tests = [] }
+      !rtests
+  in
+  match report with
+  | Some file -> Clerk_report.write_to file tests_report
+  | None -> ()

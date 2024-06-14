@@ -73,6 +73,11 @@ val unformat : (Format.formatter -> unit) -> string
 val has_color : out_channel -> bool
 val set_terminal_width_function : (unit -> int) -> unit
 
+val terminal_columns : unit -> int
+
+(* val std_ppf : Format.formatter
+ * (\** Standard output formatter with color handling and such. For special purposes only, all console output from the catala compiler should should use the specialised formatting functions below *\) *)
+
 (* {1 More general color-enabled formatting helpers}*)
 
 val formatter_of_out_channel : out_channel -> unit -> Format.formatter

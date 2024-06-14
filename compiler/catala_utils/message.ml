@@ -34,13 +34,13 @@ let unstyle_formatter ppf =
    [Format.sprintf] etc. functions (ignoring them) *)
 let () = ignore (unstyle_formatter Format.str_formatter)
 
-let terminal_columns, set_terminal_width_function =
-  let get_cols = ref (fun () -> 80) in
-  (fun () -> !get_cols ()), fun f -> get_cols := f
-
 (* Note: we could do the same for std_formatter, err_formatter... but we'd
    rather promote the use of the formatting functions of this module and the
    below std_ppf / err_ppf *)
+
+let terminal_columns, set_terminal_width_function =
+  let get_cols = ref (fun () -> 80) in
+  (fun () -> !get_cols ()), fun f -> get_cols := f
 
 let has_color_raw ~(tty : bool Lazy.t) =
   match Global.options.color with
@@ -214,6 +214,8 @@ module Content = struct
       };
     Format.pp_open_vbox ppf 1;
     Format.fprintf ppf "@{<blue>@<2>%s[%t]@<2>%s@}" "┌─" (pp_marker target) "─";
+    (* Format.fprintf ppf "@<0>\r@{<blue>@<2>%s[%t]@<2>%s@}" "┌─"
+     *   (pp_marker target) "─"; *)
     (* Returns true when a finaliser is needed *)
     let print_elt ppf ?(islast = false) = function
       | MainMessage msg ->

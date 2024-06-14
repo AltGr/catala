@@ -215,7 +215,8 @@ let lines (file : File.t) (language : Global.backend_lang) =
     Sedlexing.set_filename lexbuf file;
     let rec aux () =
       match lex_line lexbuf with
-      | Some line -> Seq.Cons (line, aux)
+      | Some (str, tok) ->
+        Seq.Cons ((str, tok, Sedlexing.lexing_bytes_positions lexbuf), aux)
       | None ->
         close_in input;
         Seq.Nil
