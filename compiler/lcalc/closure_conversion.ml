@@ -52,9 +52,6 @@ let join_vars : ('a, 'x) Var.Map.t -> ('a, 'x) Var.Map.t -> ('a, 'x) Var.Map.t =
 
 (** {1 Transforming closures}*)
 
-let build_closure xx =
-  foo
-
 (** Returns the expression with closed closures and the set of free variables
     inside this new expression. Implementation guided by
     http://gallium.inria.fr/~fpottier/mpri/cours04.pdf#page=10
@@ -72,7 +69,6 @@ let rec transform_closures_expr :
       ~f:(transform_closures_expr ctx)
       e
   | EVar v -> (
-      let e0 = e in
     match Var.Map.find_opt v ctx.globally_bound_vars with
     | None -> Var.Map.singleton v m, (Bindlib.box_var v, m)
     | Some (TArrow (targs, tret), _) ->
@@ -81,17 +77,29 @@ let rec transform_closures_expr :
       let args = Array.init (List.length targs) (fun _ -> Var.make "eta_arg") in
       let arg_vars =
         List.map2
-          (fun v ty -> EVar v, (Expr.with_ty m ty))
+          (fun v ty -> Expr.evar v (Expr.with_ty m ty))
           (Array.to_list args) targs
       in
-      build_closure 
-      let _, body =
-        (* Convert directly rather than recurse, as this would be detected as a let-in *)
-        convert_funcall ctx Var.Map.empty (Expr.rebox e) arg_vars targs (Expr.with_ty m tret)
+      let e =
+        Expr.eabs
+          (Expr.bind args
+             (Expr.eapp ~f:(Expr.rebox e) ~args:arg_vars ~tys:targs
+                (Expr.with_ty m tret)))
+          targs m
       in
-      let e = Expr.make_abs args body targs (Expr.mark_pos m) in
-      Message.debug "ETA:@\n%a@\n ==> %a" Expr.format e0 Expr.format (Expr.unbox e);
-      Var.Map.empty, e
+      let boxed =
+        let ctx =
+          (* We hide the type of the toplevel definition so that the function
+             doesn't loop *)
+          {
+            ctx with
+            globally_bound_vars =
+              Var.Map.add v (Expr.maybe_ty m) ctx.globally_bound_vars;
+          }
+        in
+        Bindlib.box_apply (transform_closures_expr ctx) (Expr.Box.lift e)
+      in
+      Bindlib.unbox boxed
     | Some _ -> Var.Map.empty, (Bindlib.box_var v, m))
   | EMatch { e; cases; name } ->
     let free_vars, new_e = (transform_closures_expr ctx) e in
@@ -268,30 +276,23 @@ let rec transform_closures_expr :
         args (Var.Map.empty, [])
     in
     free_vars, Expr.eapp ~f:(Expr.evar v f_m) ~args:new_args ~tys m
-  | EApp { f; args; tys } ->
-    let free_vars, f = (transform_closures_expr ctx) f in
-    convert_funcall ctx free_vars f args tys m
-  | _ -> .
-
-and convert_funcall:
-    type m. m ctx -> (m expr, m mark) Var.Map.t -> m expr boxed -> m expr list -> typ list -> m mark ->
-    (m expr, m mark) Var.Map.t * m expr boxed =
- fun ctx free_vars f args tys m ->
+  | EApp { f = e1; args; tys } ->
+    let free_vars, new_e1 = (transform_closures_expr ctx) e1 in
     let tys = List.map translate_type tys in
     let pos = Expr.mark_pos m in
-    let env_arg_ty = TClosureEnv, Expr.pos f in
+    let env_arg_ty = TClosureEnv, Expr.pos new_e1 in
     let fun_ty = TArrow (env_arg_ty :: tys, Expr.maybe_ty m), pos in
     let code_env_var = Var.make "code_and_env" in
     let code_env_expr =
-      let fpos = Expr.pos f in
+      let pos = Expr.pos e1 in
       Expr.evar code_env_var
-        (Expr.with_ty (Mark.get f)
+        (Expr.with_ty (Mark.get e1)
            ( TTuple
                [
-                 TArrow ((TClosureEnv, pos) :: tys, Expr.maybe_ty m), pos;
-                 TClosureEnv, fpos;
+                 TArrow ((TClosureEnv, pos) :: tys, Expr.maybe_ty m), Expr.pos e;
+                 TClosureEnv, pos;
                ],
-            fpos ))
+             pos ))
     in
     let env_var = Var.make "env" in
     let code_var = Var.make "code" in
@@ -303,7 +304,7 @@ and convert_funcall:
         args (free_vars, [])
     in
     let call_expr =
-      let m1 = Mark.get f in
+      let m1 = Mark.get new_e1 in
       Expr.make_multiple_let_in [| code_var; env_var |] [fun_ty; env_arg_ty]
         [
           Expr.make_tupleaccess code_env_expr 0 2 pos;
@@ -319,8 +320,9 @@ and convert_funcall:
     in
     ( free_vars,
       Expr.make_let_in code_env_var
-        (TAny, pos)
-        f call_expr pos )
+        (TAny, Expr.pos e)
+        new_e1 call_expr (Expr.pos e) )
+  | _ -> .
 
 let transform_closures_scope_let ctx scope_body_expr =
   BoundList.map
