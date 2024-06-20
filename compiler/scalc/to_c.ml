@@ -314,8 +314,10 @@ let format_op (fmt : Format.formatter) (op : operator Mark.pos) : unit =
   | Filter -> Format.pp_print_string fmt "catala_list_filter"
   | Fold -> Format.pp_print_string fmt "catala_list_fold_left"
   | HandleDefault -> Format.pp_print_string fmt "catala_handle_default"
-  | HandleDefaultOpt | FromClosureEnv | ToClosureEnv | Map2 ->
-    failwith "unimplemented"
+  | HandleDefaultOpt -> failwith "unimplemented: HandleDefaultOpt"
+  | FromClosureEnv -> failwith "unimplemented: FromClosureEnv"
+  | ToClosureEnv -> failwith "unimplemented: ToClosureEnv"
+  | Map2 -> failwith "unimplemented: Map2"
 
 let _format_string_list (fmt : Format.formatter) (uids : string list) : unit =
   let sanitize_quotes = Re.compile (Re.char '"') in
