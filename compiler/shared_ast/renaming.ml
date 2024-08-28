@@ -420,16 +420,19 @@ let program
               ScopeVar.Map.map
                 (fun fld -> StructField.Map.find fld fields_map)
                 info.out_struct_fields;
+            visibility = info.visibility;
           }
         in
         let path = ScopeName.path name in
         if path = [] then
           (* Scopes / topdefs in the root module will be renamed through the
              variables binding them in the code_items *)
+          let scopes_map =
           ( pctxmap,
             ScopeName.Map.add name name scopes_map,
             ScopeName.Map.add name info ctx_scopes )
         else
+          (* However, items from other modules are referred to through their uids *)
           let str, pos = ScopeName.get_info name in
           let pctxmap, ctx =
             try pctxmap, PathMap.find path pctxmap
@@ -448,7 +451,7 @@ let program
       (fun name typ (pctxmap, topdefs_map, ctx_topdefs) ->
         let path = TopdefName.path name in
         if path = [] then
-          (* Topdefs / topdefs in the root module will be renamed through the
+          (* Scopes / topdefs in the root module will be renamed through the
              variables binding them in the code_items *)
           ( pctxmap,
             TopdefName.Map.add name name topdefs_map,

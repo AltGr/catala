@@ -662,6 +662,7 @@ type scope_info = {
   in_struct_name : StructName.t;
   out_struct_name : StructName.t;
   out_struct_fields : StructField.t ScopeVar.Map.t;
+  visibility : visibility;
 }
 
 type module_intf_id = { hash : Hash.t; is_external : bool }
@@ -675,7 +676,7 @@ type decl_ctx = {
   ctx_enums : enum_ctx;
   ctx_structs : struct_ctx;
   ctx_scopes : scope_info ScopeName.Map.t;
-  ctx_topdefs : typ TopdefName.Map.t;
+  ctx_topdefs : (typ * visibility) TopdefName.Map.t;
   ctx_struct_fields : StructField.t StructName.Map.t Ident.Map.t;
       (** needed for disambiguation (desugared -> scope) *)
   ctx_enum_constrs : EnumConstructor.t EnumName.Map.t Ident.Map.t;

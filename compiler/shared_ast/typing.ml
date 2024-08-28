@@ -783,7 +783,9 @@ and typecheck_expr_top_down :
       in
       match Mark.remove name with
       | A.External_value name -> (
-        try ast_to_typ (A.TopdefName.Map.find name ctx.ctx_topdefs)
+        try
+          let atyp, _vis = A.TopdefName.Map.find name ctx.ctx_topdefs in
+          ast_to_typ atyp
         with A.TopdefName.Map.Not_found _ ->
           not_found A.TopdefName.format name)
       | A.External_scope name -> (

@@ -506,7 +506,7 @@ let rec translate_expr (ctx : 'm ctx) (e : 'm S.expr) : 'm Ast.expr boxed =
       | ELocation (ScopelangScopeVar { name = var }) ->
         retrieve_out_typ_or_any var ctx.scope_vars
       | ELocation (ToplevelVar { name }) -> (
-        let typ =
+        let typ, _vis =
           TopdefName.Map.find (Mark.remove name) ctx.decl_ctx.ctx_topdefs
         in
         match Mark.remove typ with
