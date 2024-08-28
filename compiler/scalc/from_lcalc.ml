@@ -813,7 +813,7 @@ let translate_program ~(config : translation_config) (p : 'm L.program) :
                   };
               }
             :: rev_items )
-        | Topdef (name, topdef_ty, (EAbs abs, m)) ->
+        | Topdef (name, topdef_ty, _vis, (EAbs abs, m)) ->
           (* Toplevel function def *)
           let (block, expr, _ren_ctx), args_id =
             let args_a, expr, ctxt = unmbind ctxt abs.binder in
@@ -856,7 +856,7 @@ let translate_program ~(config : translation_config) (p : 'm L.program) :
                   };
               }
             :: rev_items )
-        | Topdef (name, topdef_ty, expr) ->
+        | Topdef (name, topdef_ty, _vis, expr) ->
           (* Toplevel constant def *)
           let block, expr, _ren_ctx =
             let ctxt =

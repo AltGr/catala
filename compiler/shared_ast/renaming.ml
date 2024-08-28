@@ -261,13 +261,14 @@ let code_items ctx (scopes : 'e code_item_list) =
               scope_body_output_struct =
                 struct_name ctx body.scope_body_output_struct;
               scope_body_expr;
+              scope_body_visibility = body.scope_body_visibility;
             }
           in
           ScopeDef (name, body))
         scope_body_expr
-    | Topdef (name, ty, e) ->
+    | Topdef (name, ty, visibility, e) -> (* TODO: use [visibility] *)
       Bindlib.box_apply
-        (fun e -> Topdef (name, typ ctx ty, e))
+        (fun e -> Topdef (name, typ ctx ty, visibility, e))
         (Expr.Box.lift (expr ctx e))
   in
   Bindlib.unbox
