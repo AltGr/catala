@@ -111,7 +111,7 @@ let rec typ_gen
     match ctx with
     | None -> StructName.format fmt s
     | Some ctx ->
-      let fields = StructName.Map.find s ctx.ctx_structs in
+      let fields = StructName.Map.find s ctx.ctx_structs in (* <-- *)
       if StructField.Map.is_empty fields then StructName.format fmt s
       else
         Format.fprintf fmt "@[<hv 2>%a %a@,%a@;<0 -2>%a@]" StructName.format s
@@ -909,7 +909,7 @@ let code_item ?(debug = false) id decl_ctx fmt c =
   | ScopeDef (_, b) -> scope ~debug decl_ctx fmt (name, b)
   | Topdef (_, ty, _vis, e) ->
     Format.fprintf fmt "@[<v 2>@[<hov 2>%a@ @{<hi_green>%s@}@ %a@ %a@ %a@]@ %a@]" keyword
-      "let topval" name op_style ":" (typ decl_ctx) ty op_style
+      "let topval" name op_style ":" (typ_debug ) ty op_style
       "=" (expr ~debug ()) e
 
 let code_item_list ?(debug = false) decl_ctx fmt c =
