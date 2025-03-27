@@ -82,6 +82,22 @@ let external_ref fmt er =
   | External_value v -> TopdefName.format fmt v
   | External_scope s -> ScopeName.format fmt s
 
+let attr ppf = function
+  | Pos.Law_pos _ -> ()
+  (* | Surface.Ast.Src (path, value, pos) ->
+   *   Format.fprintf ppf "#[%a"
+   *     (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_char ppf ".")
+   *        Format.pp_print_string)
+   *     path;
+   *   (match value with
+   *    | Surface.Ast.Unit -> ()
+   *    | Surface.Ast.Src _ -> Format.fprintf ppf " = <expr>"
+   *    | Surface.Ast.String str -> Format.fprintf ppf " = %S" str);
+   *   Format.fprintf ppf "]@ " *)
+  | _ -> Format.fprintf ppf "#[.]@ "
+
+let attrs ppf x = List.iter (attr ppf) (Pos.attrs (Mark.get x))
+
 let rec typ_gen
     (ctx : decl_ctx option)
     ~(colors : Ocolor_types.color4 list)
@@ -97,6 +113,7 @@ let rec typ_gen
       pp_color_string (List.hd colors) fmt ")")
     else typ ~colors fmt t
   in
+  attrs fmt ty;
   match Mark.remove ty with
   | TLit l -> tlit fmt l
   | TTuple ts ->

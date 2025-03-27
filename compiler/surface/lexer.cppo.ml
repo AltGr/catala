@@ -406,7 +406,11 @@ let rec lex_code (lexbuf : lexbuf) : token =
       lex_code lexbuf
   | "#[" -> ATTR_START
   | '"' -> lex_string (Buffer.create 73) lexbuf
-  | '#', Star any_but_eol, eol ->
+  | '#', eol ->
+      (* Comments *)
+      L.update_acc lexbuf;
+      lex_code lexbuf
+  | '#', Sub (any_but_eol, '['), Star any_but_eol, eol ->
       (* Comments *)
       L.update_acc lexbuf;
       lex_code lexbuf

@@ -693,6 +693,14 @@ let rec evaluate_expr :
  fun ctx lang e ->
   let m = Mark.get e in
   let pos = Expr.mark_pos m in
+  (if Pos.get_attrs pos (function Pos.Law_pos _ -> None | a -> Some a) <> []
+   then (fun r ->
+     Message.debug "value at %s: %a"
+       (Pos.to_string_shorter pos)
+       (Print.expr ()) r;
+     r)
+   else fun r -> r)
+  @@
   match Mark.remove e with
   | EVar _ ->
     Message.error ~pos "%a" Format.pp_print_text
