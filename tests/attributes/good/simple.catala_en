@@ -36,6 +36,11 @@ declaration enumeration Enu:
   #[constructor = "Bar"]
   -- Bar
 
+scope S:
+  definition x equals $43
+  # Commenting
+  definition o equals $1
+
 ```
 
 ```catala-test-inline

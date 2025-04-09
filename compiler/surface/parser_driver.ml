@@ -211,6 +211,13 @@ module ParserAux (LocalisedLexer : Lexer_common.LocalisedLexer) = struct
       (lexbuf : lexbuf)
       (last_input_needed : 'semantic_value I.env option)
       (checkpoint : 'semantic_value I.checkpoint) : Ast.source_file =
+    let rec next_token lexer_buffer = (* skip comment tokens *)
+      match next lexer_buffer with
+      | lexer_buffer, (Tokens.COMMENT s, _, _) ->
+        Parser_state.add_comment s;
+        next_token lexer_buffer
+      | lexer_buffer, token -> lexer_buffer, token
+    in
     let rec loop
         (lexer_buffer :
           (Tokens.token * Lexing.position * Lexing.position) ring_buffer)
@@ -220,7 +227,10 @@ module ParserAux (LocalisedLexer : Lexer_common.LocalisedLexer) = struct
         (checkpoint : 'semantic_value I.checkpoint) : Ast.source_file =
       match checkpoint with
       | I.InputNeeded env ->
-        let new_lexer_buffer, token = next lexer_buffer in
+        let new_lexer_buffer, token =
+          Parser_state.reset_comments ();
+          next_token lexer_buffer
+        in
         let checkpoint = I.offer checkpoint token in
         loop new_lexer_buffer token_list lexbuf (Some env) checkpoint
       | I.Shifting _ | I.AboutToReduce _ ->

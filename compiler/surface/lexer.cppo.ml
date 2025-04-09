@@ -411,11 +411,14 @@ let rec lex_code (lexbuf : lexbuf) : token =
   | '#', eol ->
       (* Comments *)
       L.update_acc lexbuf;
-      lex_code lexbuf
+      COMMENT ""
   | '#', Sub (any_but_eol, '['), Star any_but_eol, eol ->
       (* Comments *)
+      let s = Utf8.lexeme lexbuf in
       L.update_acc lexbuf;
-      lex_code lexbuf
+      let start = if s.[1] = ' ' then 2 else 1 in
+      let s = String.trim_end (String.sub s start (String.length s - start)) in
+      COMMENT s
   | Star hspace, "```", Star hspace, (eol | eof) ->
       check_fence_space lexbuf;
       (* End of code section *)

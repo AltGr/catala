@@ -149,6 +149,13 @@ let pos(x) ==
 let addpos(x) ==
 | a = x ; { (a, get_pos $loc(a)) }
 
+let with_comments(x) :=
+| ~ = x ; {
+  let c = Parser_state.get_comments() in
+  Message.debug "GOT %d %S" (List.length c) (String.concat "\\" c);
+  x
+}
+
 let attribute_value ==
 | ~ = addpos(STRING); <Shared_ast.String>
 | ~ = expression; <Ast.Expression>
@@ -573,7 +580,7 @@ let exception_to ==
 let definition :=
 | label = ioption(label) ;
   except = ioption(exception_to) ;
-  _def = DEFINITION ;
+  _def = with_comments(DEFINITION) ;
   name = scope_var ;
   params = option(addpos(definition_parameters)) ;
   state = option(state) ;
@@ -944,6 +951,7 @@ let source_file_item :=
   CodeBlock (code, source_repr, true)
 }
 | BEGIN_DIRECTIVE ; ~ = directive ; END_DIRECTIVE ; { directive }
+| COMMENT ; { assert false }
 
 let source_file :=
 | hd = source_file_item ; tl = source_file ; { hd::tl }

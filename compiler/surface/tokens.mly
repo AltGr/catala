@@ -60,4 +60,5 @@
 
 %token ATTR_START
 %token<string> STRING
+%token<string> COMMENT
 %%

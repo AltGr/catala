@@ -19,6 +19,7 @@ open Catala_utils
 type t = {
   current_file : File.t;
   mutable current_heading : Ast.law_heading list;
+  mutable comments : string list;
 }
 
 let state : t list ref = ref []
@@ -32,7 +33,7 @@ let with_state f lexbuf =
   let current_file =
     (fst (Sedlexing.lexing_positions lexbuf)).Lexing.pos_fname
   in
-  let cur_state = { current_file; current_heading = [] } in
+  let cur_state = { current_file; current_heading = []; comments = [] } in
   state := cur_state :: !state;
   let ret = f lexbuf in
   match !state with
@@ -66,6 +67,19 @@ let new_heading heading lpos =
   heading
 
 let get_current_heading () =
+  let state = get_state () in
   List.map
     (fun h -> Mark.remove h.Ast.law_heading_name)
-    (get_state ()).current_heading
+    state.current_heading
+
+let reset_comments () =
+  let state = get_state () in
+  state.comments <- []
+
+let add_comment str =
+  let state = get_state () in
+  state.comments <- str :: state.comments
+
+let get_comments () =
+  let state = get_state () in
+  List.rev state.comments

@@ -16,11 +16,12 @@
 
 (** Our parser crosses the bounds of LR parsing for two features:
     - attaching breadcrumbs to every position (leading titles, subtitles, etc.)
-    - attaching attributes to the directly following node, notwithstanding the
-      normal syntax hierarchy
+    - making the comments available where wanted
 
     for these purposes we maintain a little bit of state and contained
-    side-effects. *)
+    side-effects:
+    -> parser calls MUST be done within the `with_state` function
+ *)
 
 type t
 
@@ -33,3 +34,18 @@ val new_heading :
   Ast.law_heading
 
 val get_current_heading : unit -> string list
+
+(** Comments handling (this doesn't concern attributes):
+
+    In order to not overload the parser with support for a comment token
+    everywhere, the parser driver skips those, but they are registered here
+    using [reset_comments] and [add_comment]. Then, specific parser rules where
+    they make sense can retrieve them using [get_comments].
+
+    Note that the comments are only available to the immediately following
+    token.
+*)
+
+val reset_comments : unit -> unit
+val add_comment : string -> unit
+val get_comments : unit -> string list
