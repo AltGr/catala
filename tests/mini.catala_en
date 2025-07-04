@@ -1,0 +1,111 @@
+```catala
+declaration mult content decimal equals
+    let x equals decimal of 2 * 3. in
+    let y equals 1000. in
+    x * y
+```
+
+(\x . (\y . (x * y)) 1000.) ) (decimal of ...)
+
+```catala-test-cli
+$ catala typecheck
+┌─[RESULT]─
+│ Typechecking successful!
+└─
+```
+
+```catala
+declaration foo1 content list of integer equals
+  map each x among [1] to x + x
+```
+
+```catala-test-cli
+$ catala typecheck
+┌─[RESULT]─
+│ Typechecking successful!
+└─
+```
+
+```catala
+declaration foo2 content list of integer equals
+  map each (x, y) among ([1], [2]) to x + y
+```
+
+```catala-test-cli
+$ catala lcalc
+type Eoption =
+  | ENone of unit
+  | ESome of <ty1>
+
+
+let topval mult : decimal =
+  let x : decimal = (to_rat 2) * 3. in
+  let y : decimal = 1000. in
+  ((x * y))
+
+let topval foo1 : list of integer =
+  map (λ (x: integer) → x + x) [1]
+
+let topval foo2 : list of integer =
+  map (λ (x_y: (integer, integer)) →
+       let x : integer = x_y.0 in
+       let y : integer = x_y.1 in
+       ((x + y)))
+    map2 (λ (x: integer) (y: integer) → (x, y)) [1] [2]
+
+```
+
+
+```catala
+declaration empty content list of anything of type t depends on x content integer equals []
+
+declaration t1 content list of decimal equals empty of 0
+
+declaration t2 content list of money equals empty of 0
+
+declaration scope S:
+  context output x content integer
+```
+
+
+```catala-test-cli
+$ catala lcalc --debug
+[DEBUG] = INIT =
+[DEBUG] = SURFACE =
+[DEBUG] Parsing "tests/mini.catala_en"
+[DEBUG] = DESUGARED =
+[DEBUG] Name resolution...
+[DEBUG] Desugaring...
+[DEBUG] Disambiguating...
+[DEBUG] Linting...
+[DEBUG] = SCOPELANG =
+[DEBUG] = DCALC =
+[DEBUG] Typechecking...
+┌─[ERROR]─
+│
+│  Typing at this point could not be resolved
+│
+├─➤ tests/mini.catala_en:60.27-60.53:
+│    │
+│ 60 │           ((((x: integer) + (y: integer): integer))):
+│    │                           ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+└─
+Raised at Catala_utils__Message.error.(fun) in file "compiler/catala_utils/message.ml", line 517, characters 6-29
+Called from Shared_ast__Typing.get_ty_quantified in file "compiler/shared_ast/typing.ml", line 135, characters 4-103
+Called from Catala_utils__Mark.map_mark in file "compiler/catala_utils/mark.ml", line 27, characters 27-30
+Called from Shared_ast__Expr.map_top_down in file "compiler/shared_ast/expr.ml", line 380, characters 64-69
+Called from Scopelang__Ast.type_program.(fun) in file "compiler/scopelang/ast.ml", line 128, characters 21-65
+Called from Stdlib__Map.Make.map in file "map.ml", line 304, characters 19-22
+Called from Stdlib__Map.Make.map in file "map.ml", line 305, characters 19-26
+Called from Scopelang__Ast.type_program in file "compiler/scopelang/ast.ml", line 126, characters 4-214
+Called from Catala_utils__Message.with_delayed_errors in file "compiler/catala_utils/message.ml", line 557, characters 10-14
+Re-raised at Catala_utils__Message.with_delayed_errors in file "compiler/catala_utils/message.ml", line 570, characters 4-54
+Called from Driver.Passes.dcalc in file "compiler/driver.ml", line 202, characters 8-38
+Called from Driver.Passes.lcalc in file "compiler/driver.ml", line 258, characters 6-74
+Called from Driver.Commands.lcalc in file "compiler/driver.ml", line 874, characters 6-201
+Called from Cmdliner_term.app.(fun) in file "cmdliner_term.ml", line 24, characters 19-24
+Called from Cmdliner_eval.run_parser in file "cmdliner_eval.ml", line 34, characters 37-44
+Called from Cmdliner_eval.eval_value in file "cmdliner_eval.ml", line 202, characters 14-39
+Called from Driver.main in file "compiler/driver.ml", line 1382, characters 8-49
+#return code 123#
+```

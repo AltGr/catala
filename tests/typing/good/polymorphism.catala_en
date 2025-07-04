@@ -1,0 +1,188 @@
+```catala
+declaration empty content list of anything of type t depends on x content integer equals []
+
+declaration t1 content list of decimal equals empty of 0
+
+declaration t2 content list of money equals empty of 0
+```
+
+```catala-test-cli
+$ catala typecheck
+┌─[RESULT]─
+│ Typechecking successful!
+└─
+```
+
+```catala
+declaration impossible content anything of type t
+  depends on unit content anything of type t0
+  equals content of x among [] such that 0 is minimum
+```
+
+```catala-test-cli
+$ catala typecheck
+┌─[RESULT]─
+│ Typechecking successful!
+└─
+```
+
+
+```catala
+declaration identity content anything of type t
+  depends on x content anything of type t
+  equals x
+
+declaration scope S:
+  output a content integer
+  output b content date
+
+scope S:
+  definition a equals identity of 12
+  definition b equals identity of |2025-01-01|
+```
+
+
+
+```catala-test-cli
+$ catala test-scope S
+┌─[RESULT]─ S ─
+│ a = 12
+│ b = 2025-01-01
+└─
+```
+
+```catala-test-cli
+$ catala lcalc --debug
+[DEBUG] = INIT =
+[DEBUG] = SURFACE =
+[DEBUG] Parsing "tests/typing/good/polymorphism.catala_en"
+[DEBUG] = DESUGARED =
+[DEBUG] Name resolution...
+[DEBUG] Desugaring...
+[DEBUG] Disambiguating...
+[DEBUG] Linting...
+[DEBUG] = SCOPELANG =
+[DEBUG] = DCALC =
+[DEBUG] Typechecking...
+[DEBUG] Translating to default calculus...
+[DEBUG] Typechecking again...
+[DEBUG] = LCALC =
+[DEBUG] Retyping lambda calculus...
+[DEBUG] Writing to stdout
+type Eoption =
+  | ENone of unit
+  | ESome of <ty1_0>
+
+type S_in = {  }
+
+type S = { a: integer; b: date; }
+
+let topval empty_822 : ∀<t_823>. integer → list of <t_823> =
+  λ (x_824: integer) →
+  []
+
+let topval impossible_825 : ∀<t_826>. ∀<t0_827>. <t0_827> → <t_826> =
+  λ (unit_828: <t0_527>) →
+  (let weights_829 : list of (∀<ty1_830>. <ty1_830>, integer) =
+     map (λ (x_831: ∀<ty1_832>. <ty1_832>) →
+          (x_831, let x__1_833 : ∀<ty1_834>. <ty1_834> = x_831 in
+                  0))
+       []
+   in
+   reduce
+     (λ (x1_835: (∀<ty1_837>. <ty1_837>, integer))
+          (x2_836: (∀<ty1_838>. <ty1_838>, integer))
+      →
+      if x1_835.1 <! x2_836.1 then x1_835 else x2_836)
+     (λ () →
+      let x_840 : ∀<ty1_841>. <ty1_841> = error ListEmpty in
+      (x_840, let x__1_842 : ∀<ty1_843>. <ty1_843> = x_840 in
+              0))
+     weights_829).0
+
+let topval identity_844 : ∀<t_845>. <t_845> → <t_845> =
+  λ (x_846: ∀<t_847>. <t_847>) →
+  x_846
+
+let topval t2_848 : list of money =
+  empty_822 0
+
+let topval t1_849 : list of decimal =
+  empty_822 0
+
+let scope s_850 (s_in_851: S_in): S =
+  let set a_852 : integer =
+    match (ESome (identity_844 12, <polymorphism:40.23-37>)) with
+    | ENone → error NoValue
+    | ESome arg_854 → arg_854.0
+  in
+  let set b_855 : date =
+    match (ESome (identity_844 2025-01-01, <polymorphism:41.23-47>)) with
+    | ENone → error NoValue
+    | ESome arg_857 → arg_857.0
+  in
+  return { S a = a_852; b = b_855; }
+
+```
+
+
+```catala
+declaration scope S2:
+  output a content date
+
+scope S2:
+  definition a equals identity of 12
+
+```
+
+
+```catala-test-cli
+$ catala test-scope S2
+┌─[ERROR]─ 1/2 ─
+│
+│  Internal Error, please report to https://github.com/CatalaLang/catala/issues.
+│
+│  Error during typechecking, incompatible types:
+│  ─➤ date
+│  ─➤ integer
+│
+│ While typechecking the following expression:
+├─➤ tests/typing/good/polymorphism.catala_en:134.35-134.37:
+│     │
+│ 134 │   definition a equals identity of 12
+│     │                                   ‾‾
+│
+│ Type date is coming from:
+├─➤ tests/typing/good/polymorphism.catala_en:131.20-131.24:
+│     │
+│ 131 │   output a content date
+│     │                    ‾‾‾‾
+│
+│ Type integer is coming from:
+├─➤ tests/typing/good/polymorphism.catala_en:134.35-134.37:
+│     │
+│ 134 │   definition a equals identity of 12
+│     │                                   ‾‾
+└─
+┌─[ERROR]─ 2/2 ─
+│
+│  Internal Error, please report to https://github.com/CatalaLang/catala/issues.
+│
+│  Error during typechecking, incompatible types:
+│  ─➤ integer
+│  ─➤ date
+│
+│ This expression has type integer:
+├─➤ tests/typing/good/polymorphism.catala_en:134.35-134.37:
+│     │
+│ 134 │   definition a equals identity of 12
+│     │                                   ‾‾
+│
+│ Expected type date coming from expression:
+├─➤ tests/typing/good/polymorphism.catala_en:131.20-131.24:
+│     │
+│ 131 │   output a content date
+│     │                    ‾‾‾‾
+└─
+#return code 123#
+```
