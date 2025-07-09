@@ -165,6 +165,9 @@ let rec translate_expr (ctx : ctx) (e : D.expr) : untyped Ast.expr boxed =
              ScopeVar.Map.add v' (p, e') args')
            args ScopeVar.Map.empty)
       m
+  | EApp { f = EAbs _, _; _ } as e ->
+    (* No detuplification for let-in *)
+    Expr.map ~f:(translate_expr ctx) (e, m)
   | EApp { f; tys; args } -> (
     (* Detuplification of function arguments *)
     let pos = Expr.pos f in
