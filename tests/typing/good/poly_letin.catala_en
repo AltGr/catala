@@ -1,0 +1,8 @@
+```catala
+declaration foo1 content integer
+  equals let a equals (1, 2) in []
+```
+
+```catala-test-cli
+$ catala typecheck
+```
