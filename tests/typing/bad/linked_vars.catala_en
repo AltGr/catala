@@ -1,0 +1,38 @@
+```catala
+declaration many_vars content (list of anything of type a,
+                               list of anything of type b,
+                               list of anything of type c,
+                               list of anything of type d,
+                               list of anything of type c,
+                               list of anything of type b,
+                               list of anything of type e)
+  depends on dummy content anything of type b
+  equals ([], [], [dummy], [], [], [], [])
+```
+
+The message is good, but only detected in dcalc (and therefore marked "internal"
+and not raised by `catala typecheck`)
+
+```catala-test-cli
+$ catala lcalc
+┌─[ERROR]─
+│
+│  This function has type
+│  <b> →
+│    (list of <a>,
+│     list of <b>,
+│     list of <b>,
+│     list of <d>,
+│     list of <b>,
+│     list of <b>,
+│     list of <e>)
+│  which requires that <c> = <b>, while they are both specified as
+│  "anything".
+│
+├─➤ tests/typing/bad/linked_vars.catala_en:3.57-3.58:
+│   │
+│ 3 │                                list of anything of type b,
+│   │                                                         ‾
+└─
+#return code 123#
+```

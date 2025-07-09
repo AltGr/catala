@@ -1,0 +1,22 @@
+```catala
+declaration identity content anything of type a
+  depends on x content anything of type a
+  equals x
+
+declaration foo content integer
+  equals
+  let y equals identity of 12 in
+  1
+```
+
+
+```catala
+declaration em content (list of money,
+                        integer)
+  depends on a content integer
+  equals []
+
+declaration foo1 content list of money
+  equals
+  let a equals em of 1 in []
+```

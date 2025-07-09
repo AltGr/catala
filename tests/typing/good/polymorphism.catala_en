@@ -62,3 +62,52 @@ $ catala typecheck
 │ Typechecking successful!
 └─
 ```
+
+```catala
+declaration many_vars content (list of anything of type a,
+                               list of anything of type b,
+                               list of anything of type c,
+                               list of anything of type d,
+                               list of anything of type c,
+                               list of anything of type b,
+                               list of anything of type e)
+  depends on dummy content anything of type b
+  equals ([], [], [], [], [], [], [])
+
+declaration foo content list of date equals
+  let vs equals many_vars of 0 in
+  []
+#  vs.3 #++ vs.5
+```
+
+```catala-test-cli
+$ catala lcalc
+┌─[ERROR]─
+│
+│  Error during typechecking, incompatible types:
+│  ─➤ (list of <a>) → <ty1>
+│  ─➤ ((list of <a>), (list of integer), (list of <c>), (list of <d>),
+│       (list of <c>), (list of integer), (list of <e>)) → <ty1>
+│
+│ This expression has type (list of <a>) → <ty1>:
+├─➤ tests/typing/good/polymorphism.catala_en:78.3-79.5:
+│    │
+│ 78 │   let vs equals many_vars of 0 in
+│    │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+│ 79 │   []
+│    │   ‾‾
+│
+│ Expected type
+│ ((list of <a>), (list of integer), (list of <c>), (list of <d>),
+│   (list of <c>), (list of integer), (list of <e>)) → <ty1> coming from
+│ expression:
+├─➤ tests/typing/good/polymorphism.catala_en:78.3-79.5:
+│    │
+│ 78 │   let vs equals many_vars of 0 in
+│    │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+│ 79 │   []
+│    │   ‾‾
+└─
+#return code 123#
+```
+

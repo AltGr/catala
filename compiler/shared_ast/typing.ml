@@ -118,6 +118,21 @@ let unification_error env ~pos ?fmt_pos fmt ty1 ty2 =
         (fun acc p -> Pos.Map.add p () acc)
         !(env.Env.printed_errors) pos
 
+(* we use the first named type variable we can find, and otherwithe the min element of the set as canonical representant *)
+let tvar_witness tvset =
+  let r = ref None in
+  let v =
+    try
+      Type.Var.Set.fold (fun v acc ->
+          if (Bindlib.name_of v).[0] = '\''
+          (* this indicates an anonymous type variable *)
+          then (match acc with None -> Some v | some -> some)
+          else (r := Some v; raise Exit))
+        tvset None
+    with Exit -> !r
+  in
+  Option.get v
+
 (* `eqclass` gathers all current aliases of the type ; `seen` is other type
    variables that contain `ty` *)
 let rec get_ty_aux ?(onfreevar = fun _ -> ()) env pos eqclass seen = function
@@ -128,7 +143,7 @@ let rec get_ty_aux ?(onfreevar = fun _ -> ()) env pos eqclass seen = function
       Type.rebox ty
     | Some ty' ->
       if Type.Var.Set.mem v eqclass then
-        Type.rebox (TVar (Type.Var.Set.min_elt eqclass), vpos)
+        Type.rebox (TVar (tvar_witness eqclass), vpos)
       else if Type.Var.Set.mem v seen then (
         unification_error env ~pos:[pos; vpos] "@,A type cannot contain itself."
           ty ty';
@@ -443,8 +458,8 @@ and typecheck_expr_top_down :
     (a, m) gexpr ->
     (a, typ custom) boxed_gexpr =
  fun ctx env tau e ->
-  (* Message.debug "Propagating type %a for naked_expr :@.@[<hov 2>%a@]"
-   *    Type.format tau Expr.format e; *)
+  Message.debug "Propagating type %a for naked_expr :@.@[<hov 2>%a@]"
+     Type.format (get_ty env e tau) Expr.format e; 
   let pos_e = Expr.pos e in
   let flags = env.flags in
   let () =
@@ -1007,8 +1022,8 @@ let expr ctx ?(env = Env.empty ctx) ?typ e =
           | TVar tv', pos ->
             if Type.Var.Set.mem tv' acc then
               Message.delayed_error () ~kind:Typing ~pos
-                "This function@ has type %a,@ which requires that@ %a = %a,@ \
-                 while they are both specified as @{<cyan>anything@}.@,"
+                "@[<hv>This function has type@ %a@ @[<hov>which requires that@ %a = %a,@ \
+                 while@ they@ are@ both@ specified@ as@ \"@{<cyan>anything@}\".@]@]@,"
                 Type.format (expr_ty env e') Type.format (TVar tv, tpos)
                 Type.format (TVar tv', tpos);
             Type.Var.Set.add tv' acc

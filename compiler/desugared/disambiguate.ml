@@ -103,7 +103,9 @@ let program prg =
           def with
           topdef_expr =
             Option.map
-              (fun e -> Expr.unbox (expr prg.program_ctx env (Expr.box e)))
+              (fun e ->
+                 Message.debug "%a" Expr.format e;
+                 Expr.unbox (expr prg.program_ctx env (Expr.box e)))
               def.topdef_expr;
         })
       modul.module_topdefs
