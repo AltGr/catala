@@ -4,7 +4,7 @@
     fence: (fill: rgb(210,130,80), weight: "bold"),
     struct_keyword: (fill: rgb(70,70,180), weight: "bold"),
     keyword: (fill: rgb(60,60,160)),
-    literal: (fill: rgb(20,130,50), weight: "bold"),
+    literal: (fill: rgb(20,130,50)),
     type: (fill: purple.darken(10%)),
     operator: (fill: orange.darken(20%), weight: "bold"),
     punctuation: (fill: luma(100)),
@@ -30,13 +30,17 @@
     show regex("\b(champ\s+d'application|structure|énumération)\b"): override.with(palette.struct_keyword)
     show regex("\b(si|alors|sinon|selon|sous\s+forme|mais\s+en\s+remplaçant|n'importe\s+quel)\b"): override.with(palette.keyword)
     show regex("\b(non|et|ou|bien|accès_\w+|arrondi|(premier|dernier)_jour_du_mois|pour\s+tout|on\s+a|parmi|transforme|en|chaque|contient|existe|tel\s+que|somme|nombre|maximum|minimum|avec|initialement)\b"): text.with(..palette.keyword)
-    show regex("\b(jour|mois|an)\b"): text.with(..palette.literal)
     show regex("\b(booléen|entier|décimal|argent|date|durée|liste)\b"): text.with(..palette.type)
     show regex("\b\p{Lu}[\pL\d_']*\b"): text.with(..palette.uid)
-    show regex("\b(-?[0-9]+(,[0-9]+)?[%€]?|vrai|faux)"): override.with(palette.literal)
-    show regex("[-=><+*/!]+[!.€^]?|\bde\b"): text.with(..palette.operator)
-    show regex("\|[0-9]{4}-[0-9]{2}-[0-9]{2}\|"): override.with(palette.literal)
+    show regex("[-=><+*/!]+[!.€^]?|\bde\b"): override.with(palette.operator)
     show regex("[:;,\[\](){}.]"): text.with(..palette.punctuation)
+    show regex("(\b|-)([0-9]+(,[0-9]*)?[%€]?)"): txt => {
+        show text: text.with(..palette.literal)
+        show regex("[^-0-9,]"): text.with(weight: "bold")
+        txt
+    }
+    show regex("\b(vrai|faux|jour|mois|an)\b"): text.with(..palette.literal, weight: "bold")
+    show regex("\|[0-9]{4}-[0-9]{2}-[0-9]{2}\|"): override.with(palette.literal + (weight: "medium"))
     show regex("--\s+(n'importe\s+quel|[\pL\d_']+)"): txt => {
         show "--": override.with(palette.punctuation + (style: "normal", weight: "medium"))
         show regex("\b\p{Ll}[\pL\d_']*"): text.with(..palette.field)
@@ -72,13 +76,17 @@
     show regex("\b(scope|structure|enumeration)\b"): override.with(palette.struct_keyword)
     show regex("\b(not|and|or|xor|get_\w+|round|(first|last)_day_of_month|for\s+all|we\s+have|among|map\s+each|to|contains|exists|such\s+that|sum|number|maximum|minimum|with|initially)\b"): text.with(..palette.keyword)
     show regex("\b(if|then|else|match|(with\s+pattern)|but\s+replace|anything)\b"): override.with(palette.keyword)
-    show regex("\b(year|month|day)\b"): text.with(..palette.literal)
     show regex("\b(boolean|integer|decimal|money|date|duration|list)\b"): text.with(..palette.type)
     show regex("\b\p{Lu}[\pL\d_']*\b"): text.with(..palette.uid)
-    show regex("\b(\$?-?[0-9,]+(.[0-9,]+)?%?|true|false)"): override.with(palette.literal)
     show regex("[-=><+*/!]+[!.$^]?|\bof\b"): text.with(..palette.operator)
-    show regex("\|[0-9]{4}-[0-9]{2}-[0-9]{2}\|"): override.with(palette.literal)
     show regex("[:;,\[\](){}.]"): text.with(..palette.punctuation)
+    show regex("(\b|\$-?|-)[0-9,]+(\.[0-9,]+)?%?"): txt => {
+        show text: text.with(..palette.literal)
+        show regex("[^-0-9,]"): text.with(weight: "bold")
+        txt
+    }
+    show regex("\b(true|false|year|month|day)\b"): text.with(..palette.literal, weight: "bold")
+    show regex("\|[0-9]{4}-[0-9]{2}-[0-9]{2}\|"): override.with(palette.literal + (weight: "medium"))
     show regex("--\s+[\pL\d_']+"): txt => {
         show "--": override.with(palette.punctuation + (style: "normal", weight: "medium"))
         show regex("\b\p{Ll}[\pL\d_']*"): text.with(..palette.field)

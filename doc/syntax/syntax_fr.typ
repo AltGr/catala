@@ -85,7 +85,7 @@ argent
 date
 ```,
 ```catala-fr-code
-254 jour     4 mois     1 an
+254 jour     -4 mois     1 an
 ```,
 ```catala-fr-code
 durée
@@ -104,7 +104,7 @@ liste de entier
 ```,
 ```catala-fr-code
 f de x, y égal à
-  x * y / 12,0€
+  y * x / 12,0€
 ```,
 ```catala-fr-code
 décimal dépend de
@@ -339,7 +339,7 @@ combine tout x parmi lst
 #grid(
     columns: (1fr, 1fr, 1fr),
     gutter: 0pt,
-    stroke: (x, y) => if x > 0 { (left: 0.1pt + black) },
+    stroke: (x, y) => if x > 0 { (left: 0.2pt + black) },
     inset: (x, y) => if x > 0 { (left: 6pt) } + if x < 2 { (right: 6pt) },
     [ #prog_lit #v(1fr) #lit_types #v(1fr) #operators ],
     grid.vline(),
