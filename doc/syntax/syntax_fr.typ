@@ -1,6 +1,6 @@
 #set page(paper: "a4", flipped: true, margin: 1cm)
-#set text(font: "DejaVu Sans", size: 7pt)
-#show raw: text.with(font: "DejaVu Sans Mono", size: 7pt)
+#set text(font: "Roboto", size: 7pt)
+#show raw: text.with(font: "Annotation Mono", size: 7pt)
 
 #import "catala_syntax_hl.typ": setup
 #show: setup
@@ -256,11 +256,8 @@ définition var1
 ```catala-fr-code
 règle var2
   sous condition var1 >= 2
-  conséquence rempli
+  conséquence ·non· rempli
 ```, [Règle\ (définition de condition)],
-```catala-fr-code
-  conséquence non rempli
-```, [Règle négative],
 ```catala-fr-code
 définition f de x, y égal à ...
 ```, [Déf./règle fonction],
@@ -274,15 +271,14 @@ exception étq1 définition var1 ...
 exception définition var1 ...
 ```, [Exception à implicite],
 ```catala-fr-code
-définition var1
-  état avant
+définition var1 état avant
   égal à ...
 ```, [Définition d'états],
 ```catala-fr-code
 assertion ...
 ```, [Assertion],
 ```catala-fr-code
-date arrondi décroissant
+date arrondi dé·croissant
 ```, [Mode arrondi dates]
 )
 
@@ -323,7 +319,7 @@ nombre de lst
 ```catala-fr-code
 maximum de lst
   ou si liste vide alors -1
-```, [Extremums\ (optionnel: défaut)],
+```, [Extremum\ (optionnel: défaut)],
 ```catala-fr-code
 contenu de x parmi lst
   tel que x * x est minimum

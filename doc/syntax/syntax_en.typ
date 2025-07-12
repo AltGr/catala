@@ -1,6 +1,6 @@
 #set page(paper: "a4", flipped: true, margin: 1cm)
-#set text(font: "DejaVu Sans", size: 7pt)
-#show raw: text.with(font: "DejaVu Sans Mono", size: 7pt)
+#set text(font: "Roboto", size: 7pt)
+#show raw: text.with(font: "Annotation Mono", size: 7pt)
 
 #import "catala_syntax_hl.typ": setup
 #show: setup
@@ -249,11 +249,8 @@ definition var1
 ```catala-en-code
 rule var2
   under condition var1 >= 2
-  consequence fulfilled
+  consequence ·not· fulfilled
 ```, [Rule (definition for conditions)],
-```catala-en-code
-  consequence not fulfilled
-```, [Negative rule],
 ```catala-en-code
 definition f of x, y equals ...
 ```, [Function def. or rule],
@@ -267,15 +264,14 @@ exception lbl1 definition var1 ...
 exception definition var1 ...
 ```, [Exception to implicit],
 ```catala-en-code
-definition var1
-  state before
+definition var1 state before
   equals ...
 ```, [State definition],
 ```catala-en-code
 assertion ...
 ```, [Assertion],
 ```catala-en-code
-date round decreasing
+date round in·decreasing
 ```, [Date rounding mode]
 )
 
