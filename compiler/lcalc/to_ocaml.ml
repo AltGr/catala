@@ -413,7 +413,7 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
       Runtime.(error_to_string AssertionFailed)
       format_pos (Expr.pos e')
   | EFatalError er ->
-    Format.fprintf fmt "raise@ (Runtime_ocaml.Runtime.Error (%a, [%a]))"
+    Format.fprintf fmt "raise@ (Runtime.Error (%a, [%a]))"
       Print.runtime_error er format_pos (Expr.pos e)
   | EPos p -> format_pos fmt p
   | _ -> .
@@ -681,7 +681,7 @@ let commands = if commands = [] then test_scopes else commands
         (File.basename (Filename.remove_extension filename))
   in
   Format.pp_open_vbox fmt 0;
-  Format.fprintf fmt "open Runtime_ocaml.Runtime@,";
+  Format.fprintf fmt "open Runtime@,";
   Format.fprintf fmt "open %s@,@," modname;
   List.iter
     (fun (scope, e) ->
@@ -701,7 +701,7 @@ let check_and_reexport_used_modules ppml ppi ~hashf modules =
   List.iter
     (fun (m, intf_id) ->
       pp [ppml]
-        "@[<hv 2>let () =@ @[<hov 2>match Runtime_ocaml.Runtime.check_module \
+        "@[<hv 2>let () =@ @[<hov 2>match Runtime.check_module \
          %S \"%a\"@ with@]@,\
          | Ok () -> ()@,\
          @[<hv 2>| Error h -> failwith \"Hash mismatch for module %a, it may \
@@ -721,7 +721,7 @@ let format_module_registration ctx fmt exports modname hash is_external =
   Format.pp_print_string fmt "let () =";
   Format.pp_print_space fmt ();
   Format.pp_open_hvbox fmt 2;
-  Format.fprintf fmt "Runtime_ocaml.Runtime.register_module \"%a\""
+  Format.fprintf fmt "Runtime.register_module \"%a\""
     ModuleName.format modname;
   Format.pp_print_space fmt ();
   Format.pp_open_vbox fmt 2;
@@ -767,7 +767,7 @@ let header () =
   in
   comment
   ^ "\n\n\
-     open Runtime_ocaml.Runtime\n\n\
+     open Runtime\n\n\
      [@@@ocaml.warning \"-4-26-27-32-41-42\"]\n\n"
 
 let format_program
