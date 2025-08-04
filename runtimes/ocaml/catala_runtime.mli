@@ -385,13 +385,19 @@ module Oper : sig
   val o_add_int_int : integer -> integer -> integer
   val o_add_rat_rat : decimal -> decimal -> decimal
   val o_add_mon_mon : money -> money -> money
-  val o_add_dat_dur : date_rounding -> code_location -> date -> duration -> date
+
+  val o_add_dat_dur :
+    date_rounding -> code_location -> date -> duration -> date
+
   val o_add_dur_dur : duration -> duration -> duration
   val o_sub_int_int : integer -> integer -> integer
   val o_sub_rat_rat : decimal -> decimal -> decimal
   val o_sub_mon_mon : money -> money -> money
   val o_sub_dat_dat : date -> date -> duration
-  val o_sub_dat_dur : date_rounding -> code_location -> date -> duration -> date
+
+  val o_sub_dat_dur :
+    date_rounding -> code_location -> date -> duration -> date
+
   val o_sub_dur_dur : duration -> duration -> duration
   val o_mult_int_int : integer -> integer -> integer
   val o_mult_rat_rat : decimal -> decimal -> decimal

@@ -429,8 +429,8 @@ module BufferedJson = struct
          }|}
         (String.concat "." name) io_log io runtime_value value
     | DecisionTaken source_pos ->
-      Printf.bprintf buf {|{"event": "DecisionTaken", "pos": %a}|} code_location
-        source_pos
+      Printf.bprintf buf {|{"event": "DecisionTaken", "pos": %a}|}
+        code_location source_pos
 end
 
 module Json = struct
