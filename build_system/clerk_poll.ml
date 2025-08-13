@@ -27,7 +27,7 @@ open Catala_utils
 let root = lazy (Sys.getcwd ())
 
 (** Scans for a parent directory being the root of the Catala source repo *)
-let catala_project_root : File.t option Lazy.t =
+let catala_source_tree_root : File.t option Lazy.t =
   let isroot d =
     File.(exists (d / "catala.opam") && exists (d / "dune-project"))
   in
@@ -53,7 +53,7 @@ let catala_exe : File.t Lazy.t =
     (let f = File.(exec_dir / "catala") in
      if Sys.file_exists f then Unix.realpath f
      else
-       match catala_project_root with
+       match catala_source_tree_root with
        | (lazy (Some root)) ->
          Unix.realpath
            File.(root / "_build" / "default" / "compiler" / "catala.exe")
@@ -77,10 +77,11 @@ let ocaml_libdir : File.t Lazy.t =
 let ocaml_runtime_dir : File.t Lazy.t =
   lazy
     (let d =
-       match Lazy.force catala_project_root with
+       match Lazy.force catala_source_tree_root with
        | Some root ->
          (* Relative dir when running from catala source *)
          File.(
+           clean_path @@
            root
            / "_build"
            / "default"
@@ -91,8 +92,8 @@ let ocaml_runtime_dir : File.t Lazy.t =
            File.check_directory
              File.(exec_dir /../ "lib" / "catala" / "runtime" / "ocaml")
          with
-         | Some d -> d
-         | None -> File.(Lazy.force ocaml_libdir / "catala" / "runtime" / "ocaml"))
+         | Some d -> File.clean_path d
+         | None -> File.(clean_path (Lazy.force ocaml_libdir / "catala" / "runtime" / "ocaml")))
      in
      match File.check_directory d with
      | Some dir ->
@@ -127,17 +128,14 @@ let ocaml_include_and_lib_flags : (string list * string list) Lazy.t =
      ( List.concat includes
        @
        (let runtime = Lazy.force ocaml_runtime_dir in
-        if String.ends_with runtime ~suffix:"_build/default/runtimes/ocaml"
-        then
-          (* hack to handle in-catala source tree builds, for testing without a properly installed runtime + stdlib *)
+        match catala_source_tree_root with
+        | lazy (Some root) ->
           [
             "-I"; runtime;
             "-I"; File.(runtime / ".runtime.objs" / "byte" (* dune nonsense, the cmi is hidden there *));
-            "-I"; File.(dirname runtime /../ "stdlib"/"catala_stdlib"/"ocaml")
+            "-I"; File.(root / "_build"/ "default" / "stdlib"/"catala_stdlib"/"ocaml")
           ]
-        else [
-          "-I"; runtime;
-        ])
+        | _ -> [ "-I"; runtime; ])
        ,
        libs
        @ [

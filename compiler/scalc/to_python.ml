@@ -647,7 +647,8 @@ let format_program
   Format.pp_print_list Format.pp_print_string fmt header;
   ModuleName.Map.iter
     (fun m _ ->
-      Format.fprintf fmt "from . import %a as %a@," ModuleName.format m
+       Message.warning "IMPORT %a / %s" ModuleName.format m (Pos.to_string_short (snd (ModuleName.get_info m)));
+       Format.fprintf fmt "from . import %a as %a@," ModuleName.format m
         VarName.format (ModuleName.Map.find m p.ctx.modules))
     p.ctx.decl_ctx.ctx_modules;
   Format.pp_print_cut fmt ();

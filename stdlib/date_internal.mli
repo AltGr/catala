@@ -1,7 +1,7 @@
 open Catala_runtime
 
 (** Toplevel definition of_ymd *)
-val of_ymd : integer -> integer -> integer -> date
+val of_ymd : code_location -> integer -> integer -> integer -> date
 
 (** Toplevel definition to_ymd *)
 val to_ymd : date -> (integer * integer * integer)
