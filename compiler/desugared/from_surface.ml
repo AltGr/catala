@@ -154,15 +154,15 @@ let raise_error_cons_not_found
 
 let rec disambiguate_constructor
     (ctxt : Name_resolution.context)
-    (constructor0 : (S.path * S.uident Mark.pos) Mark.pos list)
+    (constructor0 : S.enum_constr Mark.pos list)
     (pos : Pos.t) : EnumName.t * EnumConstructor.t =
-  let path, constructor =
-    match constructor0 with
-    | [c] -> Mark.remove c
-    | _ ->
-      Message.error ~pos
-        "The deep pattern matching syntactic sugar is not yet supported."
-  in
+  match constructor0 with
+  | [CBuiltin Present, _] -> Expr.option_enum, Expr.some_constr
+  | [CBuiltin Absent, _] -> Expr.option_enum, Expr.none_constr
+  | [] | _::_::_ ->
+    Message.error ~pos
+      "The deep pattern matching syntactic sugar is not yet supported."
+  | [CConstr (path, constructor), _] ->
   let possible_c_uids =
     try Ident.Map.find (Mark.remove constructor) ctxt.local.constructor_idmap
     with Ident.Map.Not_found _ -> raise_error_cons_not_found ctxt constructor
@@ -205,7 +205,7 @@ let rec disambiguate_constructor
         (Mark.remove enum) (Mark.remove constructor))
   | mod_id :: path ->
     let constructor =
-      List.map (Mark.map (fun (_, c) -> path, c)) constructor0
+      [ S.CConstr (path, constructor), pos ]
     in
     disambiguate_constructor
       (Name_resolution.get_module_ctx ctxt mod_id)
@@ -530,11 +530,6 @@ let rec translate_expr
       | S.ToMoney -> Op.ToMoney, Mark.remove (Type.any pos)
       | S.Round -> Op.Round, Mark.remove (Type.any pos)
       | S.Cardinal -> Op.Length, TArray (Type.any pos)
-      | S.GetDay -> Op.GetDay, TLit TDate
-      | S.GetMonth -> Op.GetMonth, TLit TDate
-      | S.GetYear -> Op.GetYear, TLit TDate
-      | S.FirstDayOfMonth -> Op.FirstDayOfMonth, TLit TDate
-      | S.LastDayOfMonth -> Op.LastDayOfMonth, TLit TDate
       | S.Impossible -> assert false
     in
     Expr.eappop ~op:(op, pos) ~tys:[ty, pos] ~args:[rec_helper arg] emark
@@ -679,7 +674,19 @@ let rec translate_expr
               expected_s_fields));
 
     Expr.estruct ~name:s_uid ~fields:s_fields emark
-  | EnumInject (((path, (constructor, pos_constructor)), _), payload) -> (
+  | EnumInject ((CBuiltin (Present | Absent as c), cpos), payload) -> (
+      let payload = Option.map rec_helper payload in
+      let e_uid, c_uid = match c with
+        | Present -> Expr.option_enum, Expr.some_constr
+        | Absent -> Expr.option_enum, Expr.none_constr
+      in
+      Expr.einj
+        ~e:
+          (match payload with
+           | Some e' -> e'
+           | None -> Expr.elit LUnit (Untyped {pos = cpos}))
+        ~cons:c_uid ~name:e_uid emark)
+  | EnumInject ((CConstr (path, (constructor, pos_constructor)), _), payload) -> (
     let get_possible_c_uids ctxt =
       try
         let possible =
