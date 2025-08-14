@@ -1,0 +1,18 @@
+
+```catala-metadata
+declaration need_position content integer
+  depends on #[implicit_position_argument] pos content code_location,
+             foo content integer
+equals foo
+```
+
+
+```catala-test-cli
+$ catala lcalc
+
+
+let topval need_position : (source_position, integer) → integer =
+  λ (pos: source_position) (foo: integer) →
+  foo
+
+```

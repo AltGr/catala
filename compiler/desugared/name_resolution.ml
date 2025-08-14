@@ -211,6 +211,26 @@ let translate_attr ~context = function
         Message.warning ~pos:ppos "Unknown doc sub-attribute \"%s\""
           (String.concat "." ps);
         None)
+    | "implicit_position_argument" -> (
+      match ps with
+      | [] -> (
+        if context = Expression then (
+          Message.warning ~pos
+            "Attribute @{<magenta>#[doc]@} is not allowed in this context";
+          None)
+        else
+          match v with
+          | String (s, _) -> Some (Doc s)
+          | _ ->
+            Message.warning ~pos
+              "Invalid value for the @{<magenta>#[doc]@} attribute: expecting \
+               a string";
+            None)
+      | ps ->
+        Message.warning ~pos:ppos "Unknown implicit_position_argument sub-attribute \"%s\""
+          (String.concat "." ps);
+        None)
+      )
     | "passthrough" ->
       (* This special case is used for internal testing: the rest of the
          attribute is kept as Src. See
