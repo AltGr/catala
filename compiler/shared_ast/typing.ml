@@ -881,24 +881,14 @@ and typecheck_expr_top_down :
       | [] -> List.map (fun _ -> Type.fresh_var (Expr.pos e)) args
       | tys -> tys
     in
-    let args' = List.map2 (typecheck_expr_top_down ctx env) t_args args in
-    let t_args =
-      match args, t_args, tys with
-      | [e], [t], [] -> (
-        (* Handles typing before detuplification: if [tys] was not yet set, we
-           are allowed to destruct a tuple into multiple arguments (see
-           [Scopelang.from_desugared] for the corresponding code
-           transformation) *)
-        match get_ty env e t with TTuple tys, _ -> tys | _ -> t_args)
-      | _ ->
-        if List.length t_args <> List.length args' then
-          Message.error ~pos:(Expr.pos e)
-            (match e1 with
-            | EAbs _, _ -> "This binds %d variables, but %d were provided."
-            | _ -> "This function application has %d arguments, but expects %d.")
-            (List.length t_args) (List.length args');
-        t_args
-    in
+    let args' =
+      List.map2 (typecheck_expr_top_down ctx env) t_args args in
+    if List.length t_args <> List.length args' then
+      Message.error ~pos:(Expr.pos e)
+        (match e1 with
+         | EAbs _, _ -> "This binds %d variables, but %d were provided."
+         | _ -> "This function application has %d arguments, but expects %d.")
+        (List.length t_args) (List.length args');
     let t_func = TArrow (t_args, tau), Expr.pos e1 in
     let e1' = typecheck_expr_top_down ctx env t_func e1 in
     let tys =

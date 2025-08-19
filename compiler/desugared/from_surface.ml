@@ -210,6 +210,35 @@ let rec disambiguate_constructor
         (Name_resolution.get_module_ctx ctxt mod_id)
         constructor pos)
 
+let detuplify_application args tys mkapp =
+  match args, tys with
+  | [arg], [_] -> mkapp [arg]
+  | [arg], tys ->
+    (match Expr.unbox arg with
+     | ETuple args, _ ->
+       (* Literal tuple is directly exploded *)
+       mkapp (List.map Expr.rebox args)
+     | EVar _, _ ->
+       (* Explicit variable is indexed to instanciate each argument *)
+       let size = List.length tys in
+       let args =
+         List.init size (fun index -> Expr.etupleaccess ~e:arg ~size ~index (Mark.get arg))
+       in
+       mkapp args
+     | _ ->
+       (* Anything else is put in an intermediate variable and treated like the case above *)
+       let size = List.length tys in
+       let v = Var.make "args" in
+       let args =
+         let e = Expr.evar v (Mark.get arg) in
+         List.init size (fun index -> Expr.etupleaccess ~e ~size ~index (Mark.get arg))
+       in
+       Expr.make_let_in (Mark.ghost v) (TTuple tys, Expr.pos arg) arg
+         (mkapp args)
+         (Expr.pos arg))
+  | args, _ ->
+    mkapp args
+
 let int100 = Runtime.integer_of_int 100
 let rat100 = Runtime.decimal_of_integer int100
 
@@ -550,7 +579,7 @@ let rec translate_expr
           (ScopeVar.Map.find (Mark.remove name) ctxt.Name_resolution.var_typs).var_sig_typ
       | _ -> None
     in
-    (match fty with
+    (match Option.map Type.unquantify fty with
      | Some (TArrow (tys, _), _) -> (
        let is_implicit ty = Pos.has_attr (Mark.get ty) ImplicitPosArg in
        let add_implicit_args args =
@@ -565,35 +594,14 @@ let rec translate_expr
        in
        let explicit_tys = List.filter (fun ty -> not (is_implicit ty)) tys in
        (* Proceed with detuplification *)
-       match explicit_args, explicit_tys with
-       | [arg], [_] -> Expr.eapp ~f ~tys emark ~args:(add_implicit_args [arg])
-       | [arg], explicit_tys ->
-         (match Expr.unbox arg with
-          | ETuple explicit_args, _ ->
-            (* Literal tuple is directly exploded *)
-            Expr.eapp ~f ~tys emark ~args:(add_implicit_args (List.map Expr.rebox explicit_args))
-          | EVar _, _ ->
-            (* Explicit variable is indexed to instanciate each argument *)
-            let size = List.length explicit_tys in
-            let explicit_args =
-              List.init size (fun index -> Expr.etupleaccess ~e:arg ~size ~index emark)
-            in
-            Expr.eapp ~f ~tys emark ~args:(add_implicit_args explicit_args)
-          | _ ->
-            (* Anything else is put in an intermediate variable and treated like the case above *)
-            let size = List.length explicit_tys in
-            let v = Var.make "args" in
-            let explicit_args =
-              let e = Expr.evar v (Mark.get arg) in
-              List.init size (fun index -> Expr.etupleaccess ~e ~size ~index emark)
-            in
-            Expr.make_let_in (Mark.ghost v) (TTuple explicit_tys, pos) arg
-              (Expr.eapp ~f ~tys emark ~args:(add_implicit_args explicit_args))
-              pos)
-       | explicit_args, _ ->
-         Expr.eapp ~f ~tys emark ~args:(add_implicit_args explicit_args))
+       detuplify_application explicit_args explicit_tys
+         (fun args ->
+            Expr.eapp ~f ~tys emark ~args:(add_implicit_args args)))
      | _ ->
-       Message.debug "Error desugaring fun call: not a function, leaving as is, the typer will report";
+       Message.debug
+         ~pos
+         "Error desugaring fun call: not a function, leaving as is, the typer will report.@ \
+          Type: (%a)@,Expr: (%a)" (Format.pp_print_option Print.typ) fty Expr.format (Expr.unbox (Expr.eapp ~f ~args:explicit_args ~tys:[] emark));
        Expr.eapp ~f ~args:explicit_args ~tys:[] emark)
   | ScopeCall (((path, id), _), fields) ->
     if scope = None then
@@ -651,15 +659,11 @@ let rec translate_expr
           Ident.Map.add (Mark.remove x) (Mark.remove v) local_vars)
         local_vars xs m_xs
     in
-    let taus = List.map (fun x -> Type.any (Mark.get x)) xs in
+    let tys = List.map (fun x -> Type.any (Mark.get x)) xs in
     (* This type will be resolved in Scopelang.Desambiguation *)
-    let f = Expr.make_abs m_xs (rec_helper ~local_vars e2) taus pos in
-    let tys =
-      match xs with
-      | [(_, pos)] -> [Type.any pos] (* No detuplification in this case *)
-      | _ -> [] (* This is an "exploding" let-in, enable detuplification *)
-    in
-    Expr.eapp ~f ~args:[rec_helper e1] ~tys emark
+    let f = Expr.make_abs m_xs (rec_helper ~local_vars e2) tys pos in
+    detuplify_application [rec_helper e1] tys
+      (fun args -> Expr.eapp ~f ~args ~tys emark)
   | StructReplace (e, fields) ->
     let fields =
       List.fold_left
@@ -883,11 +887,10 @@ let rec translate_expr
         pos
     in
     let f_pred =
-      (* Detuplification (TODO: check if we couldn't fit this in the general
-         detuplification later) *)
-      match List.length param_names with
-      | 1 -> f_pred
-      | nb_args ->
+      (* Detuplification *)
+      match param_names with
+      | [_] -> f_pred
+      | _ ->
         let v =
           Var.make (String.concat "_" (List.map Mark.remove param_names))
         in
@@ -895,10 +898,9 @@ let rec translate_expr
         let tys = List.map (fun _ -> Type.any pos) param_names in
         Expr.make_abs
           [Mark.add Pos.void v]
-          (Expr.make_app f_pred
-             (List.init nb_args (fun i ->
-                  Expr.etupleaccess ~e:x ~index:i ~size:nb_args emark))
-             tys pos)
+          (detuplify_application [x] tys
+             (fun args -> Expr.make_app f_pred args
+                 tys pos))
           [Type.any pos]
           pos
     in
