@@ -44,6 +44,15 @@ let tag_with_log_entry
       ~args:[e] (Mark.get e)
   else e
 
+(* Once implicit arguments have been inserted, the tag should be removed because
+   it changes the behaviour of the typer on function applications*)
+let untag_implicit_args targs =
+  List.map (Mark.map_mark (fun pos -> Pos.rem_attr pos ImplicitPosArg)) targs
+
+let untag_implicit_args_arrow = function
+  | TArrow (targs, tret), pos -> TArrow (untag_implicit_args targs, tret), pos
+  | ty -> ty
+
 let rec translate_expr (ctx : ctx) (e : D.expr) : untyped Ast.expr boxed =
   let m = Mark.get e in
   match Mark.remove e with
@@ -57,6 +66,7 @@ let rec translate_expr (ctx : ctx) (e : D.expr) : untyped Ast.expr boxed =
           { ctx with var_mapping = Var.Map.add var new_var ctx.var_mapping })
         ctx (Array.to_list vars) (Array.to_list new_vars)
     in
+    let tys = untag_implicit_args tys in
     Expr.eabs (Expr.bind new_vars (translate_expr ctx body)) pos tys m
   | ELocation (DesugaredScopeVar { name; state = None }) ->
     Expr.elocation
@@ -181,9 +191,7 @@ let rec translate_expr (ctx : ctx) (e : D.expr) : untyped Ast.expr boxed =
       in
       if tys_implicit = [] then args else aux args tys
     in
-    let tys =
-      List.map (Mark.map_mark (fun pos -> Pos.rem_attr pos ImplicitPosArg)) tys
-    in
+    let tys = untag_implicit_args tys in
     Expr.detuplify_application
       (List.map (translate_expr ctx) args)
       tys_explicit
@@ -955,7 +963,12 @@ let translate_program
           { out_str with out_struct_fields })
         desugared.program_ctx.ctx_scopes
     in
-    { desugared.program_ctx with ctx_scopes }
+    let ctx_topdefs =
+      TopdefName.Map.map
+        (fun (typ, vis) -> untag_implicit_args_arrow typ, vis)
+        desugared.program_ctx.ctx_topdefs
+    in
+    { desugared.program_ctx with ctx_scopes; ctx_topdefs }
   in
   let ctx = { ctx with decl_ctx } in
   let program_modules =
@@ -980,6 +993,7 @@ let translate_program
               topdef_external = ext;
               _;
             } ->
+            let ty = untag_implicit_args_arrow ty in
             Some (Expr.unbox (translate_expr ctx e), ty, vis, ext)
           | { D.topdef_expr = None; topdef_external = true; _ } -> None
           | {
