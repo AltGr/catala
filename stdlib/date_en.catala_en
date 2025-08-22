@@ -3,6 +3,20 @@
 > Using Date_internal as D
 
 ```catala-metadata
+## Returns the earlier of two dates
+declaration min content date
+  depends on x content date,
+             y content date
+  equals
+  if x <= y then x else y
+
+## Returns the latter of two dates
+declaration max content date
+  depends on x content date,
+             y content date
+  equals
+  if x >= y then x else y
+
 declaration of_year_month_day content date
   depends on #[implicit_position_argument] pos content code_location,
              dyear content integer,

@@ -5,7 +5,9 @@ open Dates_calc
 let of_ymd : code_location -> integer -> integer -> integer -> date =
  fun pos y m d ->
   try Dates.make_date ~year:(Z.to_int y) ~month:(Z.to_int m) ~day:(Z.to_int d)
-  with Dates.InvalidDate -> raise (Error (AmbiguousDateRounding, [pos]))
+  with Dates.InvalidDate ->
+    (* FIXME: add specific error *)
+    raise (Error (UncomparableDurations, [pos]))
 
 (* Toplevel def to_ymd *)
 let to_ymd : date -> integer * integer * integer =

@@ -1,7 +1,7 @@
 /* this is a basic unit test for the runtime. */
 
 #include <stdio.h>
-#include <runtime.h>
+#include <catala_runtime.h>
 #include <assert.h>
 
 void* test()
