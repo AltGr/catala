@@ -31,7 +31,7 @@ const CATALA_ARRAY(CATALA_TUPLE(CATALA_DATE;CATALA_DATE))
 
 const CATALA_ARRAY(CATALA_TUPLE(CATALA_DATE;CATALA_DATE))
     PeriodInternal__split_by_year
-    (const CATALA_TUPLE(CATALA_DATE;CATALA_DATE) p)
+    (CATALA_INT start_month, const CATALA_TUPLE(CATALA_DATE;CATALA_DATE) p)
 {
   static const catala_code_position pos[1] =
     {{"stdlib/period_internal.catala_en", 12, 13, 12, 26}};

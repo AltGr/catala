@@ -920,10 +920,14 @@ let decl_ctx ?(debug = false) (fmt : Format.formatter) (ctx : decl_ctx) : unit =
   let { ctx_enums; ctx_structs; _ } = ctx in
   Format.fprintf fmt "@[<v>%a@,%a@,@]"
     (EnumName.Map.format_bindings_i (enum ~debug))
-    (* Remove the Optional type, which is necessarily the first in the ctx *)
-    (EnumName.Map.remove (fst (EnumName.Map.min_binding ctx_enums)) ctx_enums)
+    (EnumName.Map.filter
+       (fun ename _ -> EnumName.path ename = [])
+       (* Remove the Optional type, which is necessarily the first in the ctx *)
+       (EnumName.Map.remove (fst (EnumName.Map.min_binding ctx_enums)) ctx_enums))
     (StructName.Map.format_bindings_i (struct_ ~debug))
-    ctx_structs
+    (StructName.Map.filter
+       (fun sname _ -> StructName.path sname = [])
+       ctx_structs)
 
 let scope
     ?(debug : bool = false)

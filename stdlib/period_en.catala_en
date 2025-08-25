@@ -12,6 +12,20 @@ A period is a starting date and a duration. Equivalently, it can be defined as a
 declaration structure Period:
   data begin content date
   data end content date # The end date is excluded
+
+declaration enumeration Month:
+  -- January
+  -- February
+  -- March
+  -- April
+  -- May
+  -- June
+  -- July
+  -- August
+  -- September
+  -- October
+  -- November
+  -- December
 ```
 
 ```catala
@@ -31,6 +45,23 @@ declaration of_tuple content Period
 declaration of_tuple_list content list of Period
   depends on l content list of (date, date)
   equals map each tpl among l to of_tuple of tpl
+
+declaration month_to_int content integer
+  depends on m content Month
+  equals
+  match m with pattern
+  -- January: 1
+  -- February: 2
+  -- March: 3
+  -- April: 4
+  -- May: 5
+  -- June: 6
+  -- July: 7
+  -- August: 8
+  -- September: 9
+  -- October: 10
+  -- November: 11
+  -- December: 12
 ```
 
 ```catala-metadata
@@ -45,11 +76,11 @@ declaration valid content optional of Period
   depends on p content Period
   equals
     if p.end <= p.begin then Absent
-    else Present of p
+    else Present content p
 
 ## Sorts the given periods by starting day
 declaration sort_by_date content list of Period
-  depends on l content Period
+  depends on l content list of Period
   equals
     of_tuple_list of Period_internal.sort of to_tuple_list of l
 
@@ -57,13 +88,19 @@ declaration sort_by_date content list of Period
 ## and last elements may be non-whole months.
 declaration split_by_month content list of Period
   depends on p content Period
-  equals Period_internal.split_by_month of p
+  equals of_tuple_list of Period_internal.split_by_month of to_tuple of p
 
-## Splits the given period, returning one period per calendar year. The first
-## and last elements may be non-whole years.
+## Splits the given period, returning one period per year, split on the first
+## of the given month. The first and last elements returned may be non-whole
+## years.
 declaration split_by_year content list of Period
-  depends on p content Period
-  equals Period_internal.split_by_year of p
+  depends on starting_month content Month,
+             p content Period
+  equals
+  of_tuple_list of
+    Period_internal.split_by_year of
+      (month_to_int of starting_month),
+      to_tuple of p
 
 ## Two periods are adjacent if the second one starts when the first stops
 declaration are_adjacent content boolean
