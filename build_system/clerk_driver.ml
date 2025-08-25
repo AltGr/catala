@@ -175,7 +175,7 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
         (link_deps item)
     @ [
         target -.- "cmx";
-        Filename.remove_extension target ^ "+main.cmx";
+        target -.- "+main.cmx";
         "-o";
         target -.- "exe";
       ]
@@ -186,7 +186,7 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
           let f = Scan.target_file_name it in
           (build_dir / dirname f / "c" / basename f) ^ ".o")
         (link_deps item)
-    @ [target -.- "o"; Filename.remove_extension target ^ "+main.o"]
+    @ [target -.- "o"; target -.- "+main.o"]
     @ get_var var_bindings Var.c_flags
     @ get_var var_bindings Var.c_include
     @ get_var var_bindings Var.runtime_c_libs
