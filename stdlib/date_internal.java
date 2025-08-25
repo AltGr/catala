@@ -3,7 +3,7 @@
 import catala.runtime.*;
 import catala.runtime.exception.*;
 
-public class date_internal {
+public class Date_internal {
     
     public static class Globals {
         
