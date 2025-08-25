@@ -33,6 +33,8 @@ let backend_from_config = function
   | Clerk_config.Java -> Java
   | _ -> invalid_arg __FUNCTION__
 
+let runtime_subdir = "libcatala"
+
 (** Ninja variable names *)
 module Var = struct
   include Nj.Var
@@ -62,18 +64,15 @@ module Var = struct
   let ocamlopt_exe = make "OCAMLOPT_EXE"
   let ocaml_flags = make "OCAML_FLAGS"
   let ocaml_include = make "OCAML_INCLUDE"
-  let runtime_ocaml_libs = make "RUNTIME_OCAML_LIBS"
+  let runtime = make "CATALA_RUNTIME"
   let cc_exe = make "CC"
   let c_flags = make "CFLAGS"
   let c_include = make "C_INCLUDE_FLAGS"
-  let runtime_c_libs = make "RUNTIME_C_LIBS"
   let python = make "PYTHON"
-  let runtime_python_dir = make "RUNTIME_PYTHON"
   let javac = make "JAVAC"
   let javac_flags = make "JAVAC_FLAGS"
   let jar = make "jar"
   let java = make "JAVA"
-  let runtime_java_jar = make "RUNTIME_JAVA_JAR"
   let all_vars = all_vars_ref.contents
 
   (* Definition spreading different rules *)
@@ -194,14 +193,12 @@ let base_bindings ~autotest ~enabled_backends ~config =
          def Var.ocaml_include
            (lazy
              (Lazy.force Poll.ocaml_include_flags @ includes ~backend:"ocaml" ()));
-         def Var.runtime_ocaml_libs (lazy (Lazy.force Poll.ocaml_link_flags));
        ]
      else [])
   @ (if List.mem Python enabled_backends then
        [
          def Var.catala_flags_python (lazy catala_flags_python);
          def Var.python (lazy ["python3"]);
-         def Var.runtime_python_dir (lazy [Lazy.force Poll.python_runtime_dir]);
        ]
      else [])
   @ (if List.mem Java enabled_backends then
@@ -211,28 +208,13 @@ let base_bindings ~autotest ~enabled_backends ~config =
          def Var.javac (lazy ["javac"]);
          def Var.jar (lazy ["jar"]);
          def Var.javac_flags (lazy ["-implicit:none"]);
-         def Var.runtime_java_jar (lazy [Lazy.force Poll.java_runtime]);
        ]
      else [])
   @
   if List.mem C enabled_backends then
-    let dirs =
-      lazy
-        (let runtime = Lazy.force Poll.c_runtime_dir in
-         runtime
-         ::
-         (match Poll.catala_source_tree_root with
-         | (lazy (Some _)) ->
-           [File.(dirname runtime /../ "stdlib" / "catala_stdlib" / "c")]
-         | _ -> []))
-    in
     [
       def Var.catala_flags_c (lazy catala_flags_c);
       def Var.cc_exe (lazy ["cc"]);
-      def Var.runtime_c_libs
-        (lazy
-          (List.map (fun d -> "-L" ^ d) (Lazy.force dirs)
-          @ ["-lcatala_runtime"; "-lgmp"]));
       def Var.c_flags
         (lazy
           [
@@ -246,9 +228,7 @@ let base_bindings ~autotest ~enabled_backends ~config =
             "-g";
           ]);
       def Var.c_include
-        (lazy
-          (List.map (fun d -> "-I" ^ d) (Lazy.force dirs)
-          @ includes ~backend:"c" ()));
+        (lazy (includes ~backend:"c" ()));
     ]
   else []
 
@@ -314,7 +294,7 @@ let[@ocamlformat "disable"] static_base_rules enabled_backends =
                   "-o"; !output; "--"; !input]
         ~description:["<catala>"; "java"; "⇒"; !output];
       Nj.rule "java-class"
-        ~command:[!javac; "-cp"; !runtime_java_jar ^":" ^ !class_path; !javac_flags; !input ]
+        ~command:[!javac; !javac_flags; !input]
         ~description:["<catala>"; "java"; "⇒"; !output];
     ] else []) @
   (if List.mem Tests enabled_backends then
@@ -873,6 +853,48 @@ let with_ninja_process
     wait ();
     callback_ret
 
+let copy_runtime config enabled_backends =
+  let open File in
+  let filter_ext exts f = List.mem (extension f) exts in
+  let dstdir = config.Clerk_cli.options.global.build_dir / runtime_subdir in
+  match Lazy.force Clerk_poll.catala_source_tree_root with
+  | Some root ->
+    copy_dir ()
+      ~filter:(filter_ext ["catala_en"; "catala_fr"; "catala_pl"])
+      ~newer_only:true
+      ~src:(root/"stdlib")
+      ~dst:dstdir;
+    if List.mem OCaml enabled_backends then
+      (copy_dir ()
+         ~filter:(filter_ext ["ml"; "mli"])
+         ~newer_only:true
+         ~src:(root/"stdlib")
+         ~dst:(dstdir / "ocaml");
+       copy_dir ()
+         ~filter:(filter_ext ["ml"; "mli"])
+         ~newer_only:true
+         ~src:(root/"runtimes"/"ocaml")
+         ~dst:(dstdir / "ocaml"));
+    if List.mem C enabled_backends then
+      copy_dir ()
+        ~filter:(filter_ext ["c"; "h"])
+        ~newer_only:true
+        ~src:(root/"runtimes"/"c")
+        ~dst:(dstdir / "c");
+    if List.mem Python enabled_backends then
+      copy_dir ()
+        ~filter:(filter_ext ["py"])
+        ~newer_only:true
+        ~src:(root/"runtimes"/"python"/"src"/"catala")
+        ~dst:(dstdir / "python");
+    if List.mem Java enabled_backends then
+      copy_dir ()
+        ~filter:(filter_ext ["java"])
+        ~newer_only:true
+        ~src:(root/"runtimes"/"java")
+        ~dst:(dstdir / "java");
+  | None -> failwith "TODO"
+
 let run_ninja
     ~config
     ?(enabled_backends = all_backends)
@@ -883,6 +905,7 @@ let run_ninja
   let enabled_backends =
     if autotest then OCaml :: enabled_backends else enabled_backends
   in
+  copy_runtime config enabled_backends;
   let var_bindings = base_bindings ~config ~enabled_backends ~autotest in
   with_ninja_process ~config ~clean_up_env ~ninja_flags (fun nin_ppf ->
       let item_tree = Scan.tree "." in
