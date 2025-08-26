@@ -601,7 +601,7 @@ let gen_build_statements
        but then we could use the already resolved target files directly and get
        rid of these aliases. *)
     match item.module_def with
-    | Some m when List.mem (dirname src) include_dirs ->
+    | Some m when not (Filename.is_relative dir) || List.mem dir include_dirs ->
       let modname = Mark.remove m in
       Nj.build "phony" ~outputs:[modname ^ "@src"] ~inputs:[catala_src]
       ::
@@ -688,6 +688,7 @@ let gen_build_statements_dir
     | None -> String.Map.add s fname seen
   in
   let _names = List.fold_left check_conflicts String.Map.empty items in
+  let dir = if Filename.is_relative dir then dir else "libcatala" in
   let open File in
   let ( ! ) = Var.( ! ) in
   Seq.cons (Nj.comment "")
@@ -926,10 +927,21 @@ let run_ninja
   copy_runtime config enabled_backends;
   let var_bindings = base_bindings ~config ~enabled_backends ~autotest in
   with_ninja_process ~config ~clean_up_env ~ninja_flags (fun nin_ppf ->
-      let item_tree = Scan.tree "." in
+      let stdlib = Scan.tree "/tmp/libcatala" in
+      let item_tree =
+        Scan.tree "." |> Seq.map (fun (f, fl, items) ->
+            f, fl, (List.map (fun it ->
+                let used_modules =
+                  match Scan.get_lang it.Scan.file_name with
+                  | Some lg -> ("Stdlib_" ^ Cli.language_code lg, Pos.from_info f 0 0 0 0) :: it.Scan.used_modules
+                  | None -> it.Scan.used_modules
+                in
+                { it with Scan.used_modules }
+              ) items))
+      in
       let items =
         output_ninja_file nin_ppf ~config ~enabled_backends ~autotest
-          ~var_bindings item_tree
+          ~var_bindings (Seq.append stdlib item_tree)
       in
       let ret = callback nin_ppf (List.of_seq items) var_bindings in
       Format.pp_print_newline nin_ppf ();

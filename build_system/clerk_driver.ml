@@ -460,11 +460,12 @@ let build_clerk_target
         let inputs =
           List.map
             (fun module_item ->
-              build_dir
-              / dirname module_item.Scan.file_name
-              / backend_subdir OCaml
-              / (Option.get module_item.module_def |> Mark.remove)
-              -.- "cmx")
+               let target = Scan.target_file_name module_item in
+               build_dir
+               / dirname target
+               / backend_subdir OCaml
+               / basename target
+               -.- "cmx")
             all_modules_deps
         in
         Nj.format nin_ppf
