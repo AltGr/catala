@@ -25,6 +25,7 @@ type item = {
   included_files : File.t Mark.pos list;
   has_inline_tests : bool;
   has_scope_tests : bool Lazy.t;
+  flags : string list;
 }
 
 let catala_suffix_regex =
@@ -104,6 +105,7 @@ let catala_file (file : File.t) (lang : Catala_utils.Global.backend_lang) : item
         included_files = [];
         has_inline_tests = false;
         has_scope_tests = lazy false;
+        flags = [];
       }
   in
   let has_scope_tests =

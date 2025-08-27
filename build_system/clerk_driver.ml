@@ -121,6 +121,7 @@ let linking_dependencies items =
       List.fold_left
         (fun acc m ->
           let it = String.Map.find (Mark.remove m) modules in
+           Message.debug "> %s" (Mark.remove m);
           traverse (it :: acc) it)
         acc item.Scan.used_modules
     in
@@ -165,9 +166,11 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
   match backend with
   | `OCaml ->
     get_var var_bindings Var.ocamlopt_exe
+    @ ["-I"; "+../zarith"; "zarith.cmxa"]
+    @ ["-I"; "+../dates_calc"; "dates_calc.cmxa"]
+    @ [build_dir / "libcatala" / "ocaml" / "catala_runtime.cmx"]
     @ get_var var_bindings Var.ocaml_flags
     @ get_var var_bindings Var.ocaml_include
-    @ get_var var_bindings Var.runtime_ocaml_libs
     @ List.map
         (fun it ->
           let f = Scan.target_file_name it in
@@ -175,7 +178,7 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
         (link_deps item)
     @ [
         target -.- "cmx";
-        target -.- "+main.cmx";
+        Filename.remove_extension target ^ "+main.cmx";
         "-o";
         target -.- "exe";
       ]
@@ -189,7 +192,6 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
     @ [target -.- "o"; target -.- "+main.o"]
     @ get_var var_bindings Var.c_flags
     @ get_var var_bindings Var.c_include
-    @ get_var var_bindings Var.runtime_c_libs
     @ ["-o"; target -.- "exe"]
   | `Python ->
     (* a "linked" python module is a "Module.py" folder containing the module
@@ -444,35 +446,12 @@ let build_clerk_target
             else [target]
           in
           targets @ acc)
-        [] all_target_files
+        ["@runtime-cmx"]
+        all_target_files
       |> List.rev
     in
     let install_targets =
       List.map (fun ((_item, _target, bk), file) -> bk, file) all_target_files
-    in
-    let all_targets, install_targets =
-      (* Link modules into an OCaml library *)
-      let open File in
-      if List.mem Config.OCaml target.backends then (
-        let lib =
-          (build_dir / backend_subdir OCaml / target.tname) -.- "cmxa"
-        in
-        let inputs =
-          List.map
-            (fun module_item ->
-               let target = Scan.target_file_name module_item in
-               build_dir
-               / dirname target
-               / backend_subdir OCaml
-               / basename target
-               -.- "cmx")
-            all_modules_deps
-        in
-        Nj.format nin_ppf
-          (List.to_seq
-             [Nj.build "ocaml-lib" ~inputs ~outputs:[lib]; Nj.comment ""]);
-        all_targets @ [lib], install_targets @ [OCaml, lib; OCaml, lib -.- "a"])
-      else all_targets, install_targets
     in
     Nj.format_def nin_ppf (Nj.Default (Nj.Default.make all_targets));
     install_targets, all_modules_deps
@@ -677,10 +656,10 @@ let build_direct_targets
           exec_targets
       in
       let final_ninja_targets =
+        "@runtime-cmx" ::
         List.sort_uniq Stdlib.compare (object_exec_targets @ ninja_targets)
       in
-      if final_ninja_targets <> [] then
-        Nj.format_def nin_ppf (Nj.Default (Nj.Default.make final_ninja_targets));
+      Nj.format_def nin_ppf (Nj.Default (Nj.Default.make final_ninja_targets));
       ninja_targets, exec_targets, var_bindings, link_deps
     in
     let link_cmd = linking_command ~build_dir ~var_bindings link_deps in
@@ -841,7 +820,7 @@ let run_artifact ~backend ~var_bindings ?scope src =
         | _ -> []
       in
       String.concat ":"
-        ((File.dirname src :: get_var var_bindings Var.runtime_python_dir)
+        ((File.dirname src :: (* get_var var_bindings Var.runtime_python_dir *) [])
         @ in_catala_tree_stdlib
         @ [Option.value ~default:"" (Sys.getenv_opt "PYTHONPATH")])
     in
@@ -851,7 +830,7 @@ let run_artifact ~backend ~var_bindings ?scope src =
   | `Java ->
     let jars =
       String.concat ":"
-        (get_var var_bindings Var.runtime_java_jar @ [src -.- "jar"])
+        ((* get_var var_bindings Var.runtime_java_jar *)[] @ [src -.- "jar"])
     in
     let target_main = Filename.basename src |> Filename.chop_extension in
     let cmd = get_var var_bindings Var.java @ ["-cp"; jars; target_main] in
@@ -893,10 +872,13 @@ let build_test_deps ~config ~backend files_or_folders nin_ppf items var_bindings
   in
   let link_deps = linking_dependencies items in
   let ninja_targets =
-    let backend =
+    let backend, targets =
       match backend with
-      | `Interpret -> `Interpret_module
-      | (`C | `OCaml | `Python | `Java) as b -> b
+      | `Interpret -> `Interpret_module, String.Set.empty
+      | `OCaml -> `OCaml, String.Set.singleton "@runtime-cmx"
+      | `C -> `C, String.Set.singleton "@runtime-o"
+      | `Python -> `Python, String.Set.singleton "@runtime-py" (*?*)
+      | `Java -> `Java, String.Set.singleton "@runtime-class"
     in
     List.fold_left
       (fun acc (it, t) ->
@@ -920,7 +902,7 @@ let build_test_deps ~config ~backend files_or_folders nin_ppf items var_bindings
             (fun acc it ->
               String.Set.add (make_target ~build_dir ~backend it) acc)
             acc (link_deps it))
-      String.Set.empty base_targets
+      targets base_targets
     |> String.Set.elements
   in
   Nj.format_def nin_ppf (Nj.Default (Nj.Default.make ninja_targets));
@@ -1319,6 +1301,7 @@ let main_cmd =
     ]
 
 let main () =
+  Sys.catch_break true;
   try exit (Cmdliner.Cmd.eval' ~catch:false main_cmd) with
   | Catala_utils.Cli.Exit_with n -> exit n
   | Message.CompilerError content ->
@@ -1330,6 +1313,11 @@ let main () =
   | Message.CompilerErrors contents ->
     List.iter (fun c -> Message.Content.emit c Error) contents;
     exit Cmd.Exit.some_error
+  | Sys.Break ->
+    let bt = Printexc.get_raw_backtrace () in
+    Format.fprintf (Message.err_ppf ()) "@.- Interrupted -@.";
+    if Printexc.backtrace_status () then Printexc.print_raw_backtrace stderr bt;
+    exit 130
   | Sys_error msg ->
     let bt = Printexc.get_raw_backtrace () in
     Message.Content.emit
