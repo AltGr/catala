@@ -376,7 +376,7 @@ module Flags = struct
   let stdlib_dir =
     Arg.(
       value
-      & opt ~vopt:None (some dir) (Some "libcatala")
+      & opt ~vopt:None (some dir) (Some File.("_build" / "libcatala"))
       & info ["stdlib"] ~docv:"DIR"
         ~env:(Cmd.Env.info "CATALA_STDLIB")
         ~doc:

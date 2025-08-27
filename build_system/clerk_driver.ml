@@ -121,7 +121,6 @@ let linking_dependencies items =
       List.fold_left
         (fun acc m ->
           let it = String.Map.find (Mark.remove m) modules in
-           Message.debug "> %s" (Mark.remove m);
           traverse (it :: acc) it)
         acc item.Scan.used_modules
     in
@@ -815,7 +814,6 @@ let run_artifact ~backend ~var_bindings ?scope src =
       let in_catala_tree_stdlib =
         match Clerk_poll.catala_source_tree_root with
         | (lazy (Some root)) ->
-          Message.warning "ISB";
           [root / "_build" / "default" / "stdlib" / "catala_stdlib" / "python"]
         | _ -> []
       in

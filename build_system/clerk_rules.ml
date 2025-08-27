@@ -728,43 +728,69 @@ let dir_test_rules dir subdirs enabled_backends items =
       ]
   else Seq.empty
 
-let runtime_build_statements () =
+let runtime_build_statements enabled_backends =
   let open File in
-  let ocaml_base =
-    Var.(!builddir) / runtime_subdir / "ocaml" / "catala_runtime"
-  in
+  let stdbase = Var.(!builddir) / runtime_subdir in
   let ocaml_src =
     match Lazy.force Poll.catala_source_tree_root with
     | Some root -> root / "runtimes" / "ocaml"
-    | None -> assert false (* TODO libdir *)
+    | None -> Lazy.force Poll.ocaml_runtime_dir
   in
-  [
-    Nj.build "phony"
-      ~inputs:[ocaml_base -.- "cmi"; Var.(!catala_exe)]
-      ~outputs:["@runtime-cmi"];
-    Nj.build "phony"
-      ~inputs:[ocaml_base -.- "cmo"; Var.(!catala_exe)]
-      ~outputs:["@runtime-cmo"];
-    Nj.build "phony"
-      ~inputs:[ocaml_base -.- "cmx"]
-      ~outputs:["@runtime-cmx"];
-    Nj.build "copy"
-      ~inputs:[ocaml_src / "catala_runtime.mli"]
-      ~outputs:[ocaml_base -.- "mli"];
-    Nj.build "copy"
-      ~inputs:[ocaml_src / "catala_runtime.ml"]
-      ~outputs:[ocaml_base -.- "ml"];
-    Nj.build "ocaml-bytobject"
-      ~inputs:[ocaml_base -.- "mli"]
-      ~outputs:[ocaml_base -.- "cmi"];
-    Nj.build "ocaml-bytobject"
-      ~inputs:[ocaml_base -.- "ml"; ocaml_base -.- "cmi"]
-      ~outputs:[ocaml_base -.- "cmo"];
-    Nj.build "ocaml-natobject"
-      ~inputs:[ocaml_base -.- "ml"]
-      ~implicit_in:[ocaml_base -.- "cmi"]
-      ~outputs:[ocaml_base -.- "cmx"; ocaml_base -.- "o"];
-  ]
+  let srcdir = dirname ocaml_src in
+  (if List.mem OCaml enabled_backends then
+     let ocaml_base =
+       stdbase / "ocaml" / "catala_runtime"
+     in
+     [
+       Nj.build "phony"
+         ~inputs:[ocaml_base -.- "cmi"; Var.(!catala_exe)]
+         ~outputs:["@runtime-cmi"];
+       Nj.build "phony"
+         ~inputs:[ocaml_base -.- "cmo"; Var.(!catala_exe)]
+         ~outputs:["@runtime-cmo"];
+       Nj.build "phony"
+         ~inputs:[ocaml_base -.- "cmx"]
+         ~outputs:["@runtime-cmx"];
+       Nj.build "copy"
+         ~inputs:[ocaml_src / "catala_runtime.mli"]
+         ~outputs:[ocaml_base -.- "mli"];
+       Nj.build "copy"
+         ~inputs:[ocaml_src / "catala_runtime.ml"]
+         ~outputs:[ocaml_base -.- "ml"];
+       Nj.build "ocaml-bytobject"
+         ~inputs:[ocaml_base -.- "mli"]
+         ~outputs:[ocaml_base -.- "cmi"];
+       Nj.build "ocaml-bytobject"
+         ~inputs:[ocaml_base -.- "ml"; ocaml_base -.- "cmi"]
+         ~outputs:[ocaml_base -.- "cmo"];
+       Nj.build "ocaml-natobject"
+         ~inputs:[ocaml_base -.- "ml"]
+         ~implicit_in:[ocaml_base -.- "cmi"]
+         ~outputs:[ocaml_base -.- "cmx"; ocaml_base -.- "o"];
+     ]
+   else []) @
+  (if List.mem C enabled_backends then
+     let c_base =
+       stdbase / "c" / "catala_runtime"
+     in
+     let c_src = srcdir / "c" in
+     [
+       Nj.build "phony"
+         ~inputs:[c_base -.- "o"; Var.(!catala_exe)]
+         ~outputs:["@runtime-o"];
+       Nj.build "copy"
+         ~inputs:[c_src / "catala_runtime.h"]
+         ~outputs:[c_base -.- "h"];
+       Nj.build "copy"
+         ~inputs:[c_src / "catala_runtime.c"]
+         ~outputs:[c_base -.- "c"];
+       Nj.build "c-object"
+         ~inputs:[c_base -.- "c"]
+         ~outputs:[c_base -.- "o"];
+     ]
+   else [])
+
+
   (* TODO: handle the different backends with phony rules @runtime-o, @runtime-py, @runtime-class *)
 
 let output_ninja_file_header pp ~enabled_backends ~var_bindings =
@@ -776,7 +802,7 @@ let output_ninja_file_header pp ~enabled_backends ~var_bindings =
   pp (Nj.Comment "\n- Base rules - #\n");
   List.iter pp (static_base_rules enabled_backends);
   pp (Nj.Comment "\n- Runtime build statements - #\n");
-  List.iter pp (runtime_build_statements ())
+  List.iter pp (runtime_build_statements enabled_backends)
 
 let output_ninja_file_item_statements
     nin_ppf
