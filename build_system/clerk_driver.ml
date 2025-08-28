@@ -339,6 +339,12 @@ let make_target ~build_dir ~backend item =
   in
   build_dir / base
 
+let backend_runtime_targets enabled_backends =
+  (if List.mem Clerk_rules.OCaml enabled_backends then ["@runtime-ocaml"] else []) @
+  (if List.mem Clerk_rules.C enabled_backends then ["@runtime-c"] else []) @
+  (if List.mem Clerk_rules.Python enabled_backends then ["@runtime-python"] else []) @
+  (if List.mem Clerk_rules.Java enabled_backends then ["@runtime-java"] else [])
+
 open Cmdliner
 
 let raw_cmd : int Cmd.t =
@@ -445,7 +451,7 @@ let build_clerk_target
             else [target]
           in
           targets @ acc)
-        ["@runtime-cmx"]
+        (backend_runtime_targets enabled_backends)
         all_target_files
       |> List.rev
     in
@@ -655,7 +661,7 @@ let build_direct_targets
           exec_targets
       in
       let final_ninja_targets =
-        "@runtime-cmx" ::
+        backend_runtime_targets enabled_backends @
         List.sort_uniq Stdlib.compare (object_exec_targets @ ninja_targets)
       in
       Nj.format_def nin_ppf (Nj.Default (Nj.Default.make final_ninja_targets));
@@ -869,14 +875,12 @@ let build_test_deps ~config ~backend files_or_folders nin_ppf items var_bindings
     List.map (fun it -> it, make_target ~build_dir ~backend it) target_items
   in
   let link_deps = linking_dependencies items in
+  let runtime_targets = backend_runtime_targets [enable_backend backend] in
   let ninja_targets =
-    let backend, targets =
+    let backend =
       match backend with
-      | `Interpret -> `Interpret_module, String.Set.empty
-      | `OCaml -> `OCaml, String.Set.singleton "@runtime-cmx"
-      | `C -> `C, String.Set.singleton "@runtime-o"
-      | `Python -> `Python, String.Set.singleton "@runtime-py" (*?*)
-      | `Java -> `Java, String.Set.singleton "@runtime-class"
+      | `Interpret -> `Interpret_module
+      | (`OCaml | `C | `Python | `Java as bk) -> bk
     in
     List.fold_left
       (fun acc (it, t) ->
@@ -900,7 +904,7 @@ let build_test_deps ~config ~backend files_or_folders nin_ppf items var_bindings
             (fun acc it ->
               String.Set.add (make_target ~build_dir ~backend it) acc)
             acc (link_deps it))
-      targets base_targets
+      (String.Set.of_list runtime_targets) base_targets
     |> String.Set.elements
   in
   Nj.format_def nin_ppf (Nj.Default (Nj.Default.make ninja_targets));

@@ -108,6 +108,7 @@ let base_bindings ~autotest ~enabled_backends ~config =
       options.global.include_dirs []
   in
   let catala_flags =
+    ("--stdlib=" ^ File.(Var.(!builddir) / "libcatala")) ::
     ("--directory=" ^ Var.(!builddir)) :: options.global.catala_opts
   in
   let test_flags = config.Clerk_cli.test_flags in
@@ -731,13 +732,8 @@ let dir_test_rules dir subdirs enabled_backends items =
 let runtime_build_statements enabled_backends =
   let open File in
   let stdbase = Var.(!builddir) / runtime_subdir in
-  let ocaml_src =
-    match Lazy.force Poll.catala_source_tree_root with
-    | Some root -> root / "runtimes" / "ocaml"
-    | None -> Lazy.force Poll.ocaml_runtime_dir
-  in
-  let srcdir = dirname ocaml_src in
   (if List.mem OCaml enabled_backends then
+     let ocaml_src = Lazy.force Poll.ocaml_runtime_dir in
      let ocaml_base =
        stdbase / "ocaml" / "catala_runtime"
      in
@@ -746,11 +742,8 @@ let runtime_build_statements enabled_backends =
          ~inputs:[ocaml_base -.- "cmi"; Var.(!catala_exe)]
          ~outputs:["@runtime-cmi"];
        Nj.build "phony"
-         ~inputs:[ocaml_base -.- "cmo"; Var.(!catala_exe)]
-         ~outputs:["@runtime-cmo"];
-       Nj.build "phony"
          ~inputs:[ocaml_base -.- "cmx"]
-         ~outputs:["@runtime-cmx"];
+         ~outputs:["@runtime-ocaml"];
        Nj.build "copy"
          ~inputs:[ocaml_src / "catala_runtime.mli"]
          ~outputs:[ocaml_base -.- "mli"];
@@ -760,9 +753,9 @@ let runtime_build_statements enabled_backends =
        Nj.build "ocaml-bytobject"
          ~inputs:[ocaml_base -.- "mli"]
          ~outputs:[ocaml_base -.- "cmi"];
-       Nj.build "ocaml-bytobject"
-         ~inputs:[ocaml_base -.- "ml"; ocaml_base -.- "cmi"]
-         ~outputs:[ocaml_base -.- "cmo"];
+       (* Nj.build "ocaml-bytobject"
+        *   ~inputs:[ocaml_base -.- "ml"; ocaml_base -.- "cmi"]
+        *   ~outputs:[ocaml_base -.- "cmo"]; *)
        Nj.build "ocaml-natobject"
          ~inputs:[ocaml_base -.- "ml"]
          ~implicit_in:[ocaml_base -.- "cmi"]
@@ -773,11 +766,11 @@ let runtime_build_statements enabled_backends =
      let c_base =
        stdbase / "c" / "catala_runtime"
      in
-     let c_src = srcdir / "c" in
+     let c_src = Lazy.force Poll.c_runtime_dir / "c" in
      [
        Nj.build "phony"
-         ~inputs:[c_base -.- "o"; Var.(!catala_exe)]
-         ~outputs:["@runtime-o"];
+         ~inputs:[c_base -.- "o"; c_base -.- "h"; Var.(!catala_exe)]
+         ~outputs:["@runtime-c"];
        Nj.build "copy"
          ~inputs:[c_src / "catala_runtime.h"]
          ~outputs:[c_base -.- "h"];
@@ -786,12 +779,11 @@ let runtime_build_statements enabled_backends =
          ~outputs:[c_base -.- "c"];
        Nj.build "c-object"
          ~inputs:[c_base -.- "c"]
+         ~implicit_in:[c_base -.- "h"]
          ~outputs:[c_base -.- "o"];
      ]
    else [])
-
-
-  (* TODO: handle the different backends with phony rules @runtime-o, @runtime-py, @runtime-class *)
+  (* TODO: handle the other backends with phony rules @runtime-python, @runtime-java *)
 
 let output_ninja_file_header pp ~enabled_backends ~var_bindings =
   pp
@@ -843,7 +835,7 @@ let output_ninja_file
     ~config
     ~enabled_backends
     ~autotest
-    ~catala_flags:[Var.(!catala_flags); "--stdlib"]
+    ~catala_flags:[Var.(!catala_flags); "--no-stdlib"]
     stdlib_tree
   @@ Seq.append
     (fun () ->
@@ -1029,15 +1021,12 @@ let run_ninja
   (* copy_runtime config enabled_backends; *)
   let var_bindings = base_bindings ~config ~enabled_backends ~autotest in
   with_ninja_process ~config ~clean_up_env ~ninja_flags (fun nin_ppf ->
-      let insource, stdlib_dir =
-        match Lazy.force Poll.catala_source_tree_root with
-        | Some root -> true, File.(root / "stdlib")
-        | None -> false, File.dirname (Lazy.force Poll.ocaml_runtime_dir)
-      in
+      let insource = Lazy.force Poll.catala_source_tree_root <> None in
+      let stdlib_dir = Lazy.force Poll.stdlib_dir in
+      Message.debug ">>%s" stdlib_dir;
       let stdlib_tree =
         Scan.tree stdlib_dir
-        |> Seq.map (fun (f, fl, items) ->
-            f, fl, List.map (fun it -> { it with Scan.flags = it.Scan.flags @ ["--stdlib"] }) items)
+        |> Seq.map (fun (f, fl, items) -> f, fl, items)
       in
       let item_tree =
         Scan.tree "." |> Seq.filter_map (fun (f, fl, items) ->
@@ -1049,8 +1038,7 @@ let run_ninja
                     | Some lg -> ("Stdlib_" ^ Cli.language_code lg, Pos.from_info f 0 0 0 0) :: it.Scan.used_modules
                     | None -> it.Scan.used_modules
                   in
-                  { it with Scan.used_modules;
-                            flags = it.Scan.flags @ ["--stdlib="^stdlib_dir] }
+                  { it with Scan.used_modules }
                 ) items
               in
               Some (f, fl, items)

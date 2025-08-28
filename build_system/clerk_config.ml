@@ -79,7 +79,7 @@ type t = config_file
 
 let default_global =
   {
-    include_dirs = ["libcatala"];
+    include_dirs = [];
     catala_exe = None;
     catala_opts = [];
     default_targets = [];
