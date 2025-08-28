@@ -4,3 +4,9 @@
  (wrapped false)
  (libraries dates_calc zarith zarith_stubs_js)
  (modules catala_runtime))
+
+(rule
+ (target catala_runtime.cmi)
+ (mode promote)
+ (deps .runtime.objs/byte/catala_runtime.cmi)
+ (action (copy %{deps} %{target})))

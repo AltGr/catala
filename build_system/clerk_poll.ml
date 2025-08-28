@@ -129,9 +129,7 @@ let ocaml_include_and_lib_flags : (string list * string list) Lazy.t =
          link_libs
      in
      let includes, libs = List.split includes_libs in
-     ( (List.concat includes
-        @ ["-I"; File.("_build" / "libcatala" / "ocaml")]),
-       libs @ ["runtime.cmxa"; "catala_stdlib.cmxa"] ))
+     List.concat includes, libs)
 
 let ocaml_include_flags : string list Lazy.t =
   lazy (fst (Lazy.force ocaml_include_and_lib_flags))

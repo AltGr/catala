@@ -47,4 +47,4 @@
 
 (alias
  (name clerk)
- (deps %{bin:clerk} %{bin:catala} (alias ../runtimes/runtimes) (alias ../stdlib/stdlib)))
+ (deps %{bin:clerk} %{bin:catala}))

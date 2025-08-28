@@ -165,8 +165,7 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
   match backend with
   | `OCaml ->
     get_var var_bindings Var.ocamlopt_exe
-    @ ["-I"; "+../zarith"; "zarith.cmxa"]
-    @ ["-I"; "+../dates_calc"; "dates_calc.cmxa"]
+    @ List.map (expand_vars var_bindings) (Lazy.force Clerk_poll.ocaml_link_flags)
     @ [build_dir / "libcatala" / "ocaml" / "catala_runtime.cmx"]
     @ get_var var_bindings Var.ocaml_flags
     @ get_var var_bindings Var.ocaml_include
@@ -183,12 +182,15 @@ let linking_command ~build_dir ~backend ~var_bindings link_deps item target =
       ]
   | `C ->
     get_var var_bindings Var.cc_exe
+    @ [build_dir / "libcatala" / "c" / "dates_calc.o"]
+    @ [build_dir / "libcatala" / "c" / "catala_runtime.o"]
     @ List.map
         (fun it ->
           let f = Scan.target_file_name it in
           (build_dir / dirname f / "c" / basename f) ^ ".o")
         (link_deps item)
-    @ [target -.- "o"; target -.- "+main.o"]
+    @ ["-lgmp"]
+    @ [target -.- "o"; Filename.remove_extension target ^ "+main.o"]
     @ get_var var_bindings Var.c_flags
     @ get_var var_bindings Var.c_include
     @ ["-o"; target -.- "exe"]
