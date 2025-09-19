@@ -18,7 +18,6 @@ CATALA_DATE DateInternal__of_ymd
     if (success) return ret;
   }
   catala_error(catala_uncomparable_durations, pos, 1);
-  // TODO
   abort();
 }
 
@@ -39,4 +38,3 @@ CATALA_DATE DateInternal__last_day_of_month (CATALA_DATE d)
   dc_last_day_of_month(ret, d);
   return ret;
 }
-

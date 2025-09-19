@@ -332,10 +332,11 @@ let rec format_expression
       | EExternal { name; _ }, _ ->
         Format.pp_print_string fmt (Mark.remove name)
       | EFunc f, _ -> FuncName.format fmt f
-      | ETupleAccess { e1; index = 0; typ = (TArrow _, _) as typ }, _ ->
+      | ETupleAccess { e1; index = 0; typ = (* (TArrow _, _) *)_  as typ }, _ ->
+        Message.debug ">> %a" Print.typ typ;
         Format.fprintf fmt "@[<hov 1>((%a)@,%a->funcp)@]"
           (format_typ ~const:true ctx.decl_ctx ignore)
-          typ format_expression e1
+          (Type.unquantify typ) format_expression e1
       | (_, pos) as e ->
         Message.error ~internal:true ~pos "Cannot apply %a"
           (Scalc__Print.format_expr ctx.decl_ctx ?debug:None)
@@ -378,7 +379,10 @@ let rec format_expression
     Format.fprintf fmt "%s()" (Mark.remove name)
 
 let is_closure_typ = function
-  | TTuple [(TArrow _, _); (TClosureEnv, _)], _ -> true
+  | TTuple [tf; (TClosureEnv, _)], _ ->
+    (match Type.unquantify tf with
+     | TArrow _, _ -> true
+     | _ -> false)
   | _ -> false
 
 let rec format_statement
@@ -454,8 +458,10 @@ let rec format_statement
       {
         name = v, _;
         expr = ETuple [fct; cls_env], _;
-        typ = TTuple [(TArrow _, _); (TClosureEnv, _)], _;
-      } ->
+        typ = TTuple [tf; (TClosureEnv, _)], _;
+      }
+when match Type.unquantify tf with TArrow _, _ -> true | _ -> false
+ ->
     (* We detect closure initializations which have special treatment. *)
     Format.fprintf fmt "@,@[<hov 2>%a->funcp =@ (void (*)(void))%a;@]"
       VarName.format v
@@ -625,7 +631,7 @@ and format_block (ctx : ctx) (env : env) (fmt : Format.formatter) (b : block) :
   in
   let print_init_malloc fmt const_pointer v typ =
     let const, pp_size =
-      match Mark.remove typ with
+      match Mark.remove (Type.unquantify typ) with
       | TArray _ ->
         false, fun fmt -> Format.pp_print_string fmt "sizeof(catala_array)"
       | TStruct name ->
@@ -644,6 +650,7 @@ and format_block (ctx : ctx) (env : env) (fmt : Format.formatter) (b : block) :
         ( false,
           fun fmt ->
             Format.fprintf fmt "%d * sizeof(tuple_element*)" (List.length ts) )
+      | TVar _ -> false, fun fmt -> Format.pp_print_string fmt "sizeof(void *)"
       | _ ->
         Message.error ~internal:true
           "Invalid type for malloc: variable %a, type %a" VarName.format v
