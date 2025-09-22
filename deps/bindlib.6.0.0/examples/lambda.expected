@@ -1,0 +1,44 @@
+Here are some terms:
+  x
+  y
+  λx.x
+  λx.λy.x
+  λx.(x) x
+  (λx.(x) x) λx.(x) x
+  λx.λy.(y) x
+  (λx.λy.x) y
+  ((λx.λy.x) y) x
+  (λx.λy.(y) x) y
+  λy.λx.(y) (y) x
+  (λy.λx.(y) (y) x) λy.λx.(y) (y) x
+Here are some sevaluation... Bindlib is fast.
+Renaming of variables is done at printing using context.
+  (λx.λy.x) y
+	→ λy.y
+  ((λx.λy.x) y) x
+	→ y
+  (λx.λy.(y) x) y
+	→ λy.(y) y
+  (λy.λx.(y) (y) x) λy.λx.(y) (y) x
+	→ λx.λx1.(x) (x) (x) (x) x1
+Same as above with the custom renaming:
+  x
+  y
+  λx.x
+  λx.λ_.x
+  λx.(x) x
+  (λx.(x) x) λx.(x) x
+  λx.λy.(y) x
+  (λx.λ_.x) y
+  ((λx.λ_.x) y) x
+  (λx.λy.(y) x) y
+  λy.λx.(y) (y) x
+  (λy.λx.(y) (y) x) λy.λx.(y) (y) x
+  (λx.λ_.x) y
+	→ λ_.y
+  ((λx.λ_.x) y) x
+	→ y
+  (λx.λy.(y) x) y
+	→ λy.(y) y
+  (λy.λx.(y) (y) x) λy.λx.(y) (y) x
+	→ λx.λx'.(x) (x) (x) (x) x'

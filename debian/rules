@@ -5,3 +5,9 @@ include /usr/share/ocaml/ocamlvars.mk
 
 %:
 	dh $@ --with ocaml --buildsystem ocaml_dune
+
+override_dh_auto_build:
+	dune build -j 14 @install --profile=release
+
+override_dh_auto_test:
+	dune runtest -j 14 --release

@@ -19,7 +19,7 @@ build.ninja
 .envrc
 .direnv
 **/__pycache__/
-
+deps/
 .catleg_secrets.toml
 *.tmp/
 perf.data*
