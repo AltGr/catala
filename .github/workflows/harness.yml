@@ -198,7 +198,7 @@ jobs:
           cd ~/catala-language-server
           opam install conf-npm -y
           npm install
-          opam install . --ignore-constraints-on=catala --ignore-pin-depends --with-test -y
+          opam install . --ignore-pin-depends --with-test -y
           opam exec -- dune runtest
 
   # binaries:

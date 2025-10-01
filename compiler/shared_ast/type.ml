@@ -149,8 +149,10 @@ let rec unbind = function
     Array.to_list vars1 @ vars2, t
   | t -> [], t
 
-let forall vars t pos =
-  TForAll (Bindlib.unbox (Bindlib.bind_mvar (Array.of_list vars) t)), pos
+let forall vars t pos = match vars with
+  | [] -> Bindlib.unbox t
+  | vars ->
+    TForAll (Bindlib.unbox (Bindlib.bind_mvar (Array.of_list vars) t)), pos
 
 let fresh_var pos = TVar (Var.fresh ()), pos
 
