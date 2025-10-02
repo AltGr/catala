@@ -936,10 +936,14 @@ let rec translate_expr
         local_vars param_names params
     in
     let cmp_op = if max then Op.Gt, opos else Op.Lt, opos in
+    Message.debug ">> PARS %a" (Format.pp_print_list ~pp_sep:Format.pp_print_space (fun ppf v -> Print.var_debug ppf (Mark.remove v))) params;
     let f_pred =
-      Expr.make_abs params (rec_helper ~local_vars predicate) [Type.any pos] pos
+      Expr.make_abs params (rec_helper ~local_vars predicate)
+        (List.map (fun _ -> Type.any pos) params)
+        pos
     in
     let add_weight_f =
+      (* fun x* -> (( x* ), pred(x)) *)
       let vs =
         List.map (fun p -> Var.make (Bindlib.name_of (Mark.remove p))) params
       in
@@ -947,11 +951,11 @@ let rec translate_expr
       let x = match xs with [x] -> x | xs -> Expr.etuple xs emark in
       Expr.make_ghost_abs vs
         (Expr.make_tuple [x; Expr.eapp ~f:f_pred ~args:xs ~tys:[] emark] emark)
-        [Type.any pos]
+        (List.map (fun _ -> Type.any pos) params)
         pos
     in
     let reduce_f =
-      (* fun x1 x2 -> if cmp_op (x1.2) (x2.2) cmp *)
+      (* fun x1 x2 -> if cmp_op (x1.2) (x2.2) then x1 else x2 *)
       let v1, v2 = Var.make "x1", Var.make "x2" in
       let x1, x2 = Expr.make_var v1 emark, Expr.make_var v2 emark in
       Expr.make_ghost_abs [v1; v2]
@@ -969,8 +973,17 @@ let rec translate_expr
         pos
     in
     let weights_var = Var.make "weights" in
-    let default = Expr.make_app add_weight_f [default] [Type.any pos] pos_dft in
+    let default =
+      (* DETUPLIFY *)
+      let tys = List.map (fun _ -> Type.any pos) params in
+      Expr.detuplify_application [default] tys
+      (fun args -> Expr.eapp ~f:add_weight_f ~args ~tys emark)
+
+      (* Expr.make_app add_weight_f [default] [Type.any pos] pos_dft *)
+    in
     let weighted_result =
+      (* let weights = map add_weight_f coll in
+         reduce reduce_f (fun () -> default) weights *)
       Expr.make_let_in (Mark.ghost weights_var)
         (TArray (TTuple [Type.any pos; Type.any pos], pos), pos)
         (Expr.eappop ~op:(Map, opos)
@@ -983,6 +996,7 @@ let rec translate_expr
            emark)
         pos
     in
+    (* weights.1 *)
     Expr.etupleaccess ~e:weighted_result ~index:0 ~size:2 emark
   | CollectionOp
       ((((Exists { predicate } | Forall { predicate }), opos) as op), collection)
