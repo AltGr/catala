@@ -128,24 +128,34 @@ let tvar_witness tvset = Type.Var.Set.max_elt tvset
 (* See [get_ty]. `eqclass` gathers all aliases of the current type ; `seen` is
    other type variables that contain `ty` and is used to detect recursivity. *)
 let rec get_ty_aux ?(onfreevar = fun _ -> ()) env pos eqclass seen :
-    typ -> typ Bindlib.box = function
+    typ -> typ Bindlib.box * Type.Var.Set.t = function
   | (TVar v, vpos) as ty -> (
     match Env.get_tvar env v with
     | None ->
       onfreevar v;
-      Type.rebox ty
+      Type.rebox ty, Type.Var.Set.add v eqclass
     | Some ty' ->
       if Type.Var.Set.mem v eqclass then
-        Type.rebox (TVar (tvar_witness eqclass), vpos)
+        Type.rebox (TVar (tvar_witness eqclass), vpos), eqclass
       else if Type.Var.Set.mem v seen then (
         unification_error env ~pos:[pos; vpos] "@,A type cannot contain itself."
           ty ty';
-        Type.rebox ty)
+        Type.rebox ty, eqclass)
       else get_ty_aux env pos (Type.Var.Set.add v eqclass) seen ty')
   | ty ->
     Type.map
-      (get_ty_aux env pos Type.Var.Set.empty (Type.Var.Set.union seen eqclass))
-      ty
+      (fun ty ->
+         let ty, _eqclass =
+           get_ty_aux env pos Type.Var.Set.empty (Type.Var.Set.union seen eqclass) ty
+         in ty)
+      ty,
+    eqclass
+
+let get_ty_class env e ty =
+  let ty, eqclass =
+    get_ty_aux env (Expr.pos e) Type.Var.Set.empty Type.Var.Set.empty ty
+  in
+  Bindlib.unbox ty, eqclass
 
 (* Main function for resolving a type to its expanded, canonical form: this
    expands all known type variables as much as possible. It relies on the
@@ -155,8 +165,8 @@ let rec get_ty_aux ?(onfreevar = fun _ -> ()) env pos eqclass seen :
    This must always be called before exploring a type, or you may be returned
    intermediate type variables. *)
 let get_ty env e ty =
-  Bindlib.unbox
-    (get_ty_aux env (Expr.pos e) Type.Var.Set.empty Type.Var.Set.empty ty)
+  let ty, _class = get_ty_class env e ty in
+  ty
 
 (* Like [get_ty], but automatically generalises all free type variables found
    remaining: for typing possibly polymorphic functions.
@@ -165,7 +175,7 @@ let get_ty env e ty =
    constrained somewhere else in the program, obviously. *)
 let get_ty_quantified env pos ty =
   let vars = ref Type.Var.Set.empty in
-  let bty =
+  let bty, _class =
     get_ty_aux
       ~onfreevar:(fun v -> vars := Type.Var.Set.add v !vars)
       env pos Type.Var.Set.empty Type.Var.Set.empty ty
@@ -244,104 +254,61 @@ let rec union
   let union = union env e in
   let pos2 = Mark.get t2 in
   let record_type_error () = record_type_error env (AnyExpr e) t1 t2 in
-  match Mark.remove t1, Mark.remove t2 with
-  | TLit tl1, TLit tl2 ->
-    if tl1 <> tl2 then record_type_error ();
-    t2
-  | TArrow (targs1, tret1), TArrow (targs2, tret2) ->
-    let tret = union tret1 tret2 in
-    let targs =
-      try List.map2 union targs1 targs2
-      with Invalid_argument _ ->
-        record_type_error ();
-        targs2
-    in
-    TArrow (targs, tret), pos2
-  | TTuple ts1, TTuple ts2 ->
-    let ts =
-      try List.map2 union ts1 ts2
-      with Invalid_argument _ ->
-        record_type_error ();
-        ts2
-    in
-    TTuple ts, pos2
-  | TStruct s1, TStruct s2 ->
-    if not (StructName.equal s1 s2) then record_type_error ();
-    t2
-  | TEnum e1, TEnum e2 ->
-    if not (EnumName.equal e1 e2) then record_type_error ();
-    t2
-  | TOption t1', TOption t2' -> TOption (union t1' t2'), pos2
-  | TArray t1', TArray t2' -> TArray (union t1' t2'), pos2
-  | TDefault t1', TDefault t2' -> TDefault (union t1' t2'), pos2
-  | TForAll t1b, TForAll t2b ->
-    let _, t1, t2 = Bindlib.unmbind2 t1b t2b in
-    union t1 t2
-  | TForAll t1b, _ ->
-    let _, t1 = Bindlib.unmbind t1b in
-    union t1 t2
-  | _, TForAll t2b ->
-    let _, t2 = Bindlib.unmbind t2b in
-    union t1 t2
-  | TVar v1, TVar v2 -> (
-    if Bindlib.eq_vars v1 v2 then t2
-    else
-      match Env.get_tvar env v1, Env.get_tvar env v2 with
-      | None, None ->
-        Env.set_tvar env v1 t2;
-        t2
-      | Some (TVar v3, _), Some ((TVar v4, _) as t2) when Type.Var.equal v3 v4
-        ->
-        t2
-      | Some (TVar v3, _), _ when Type.Var.equal v2 v3 -> t2
-      | None, Some (TVar v3, _) when Type.Var.equal v1 v3 -> t1
-      | Some t1, Some t2 ->
-        let t = union t1 t2 in
-        Env.set_tvar env v1 t;
-        Env.set_tvar env v2 t;
-        t
-      | Some t1, None ->
-        if Type.Var.Set.mem v2 (Type.free_vars t1) then
-          Message.error ~internal:true ~pos:(Expr.pos e)
-            "Recursive type detected: %a(%a) = %a" Type.Var.format v1
-            Type.format t1 Type.format t2
-        else (
-          Env.set_tvar env v2 t1;
-          t1)
-      | None, Some t2 ->
-        if Type.Var.Set.mem v1 (Type.free_vars t2) then
-          Message.error ~internal:true ~pos:(Expr.pos e)
-            "Recursive type detected: %a(%a) = %a" Type.Var.format v2
-            Type.format t2 Type.format t1
-        else (
-          Env.set_tvar env v1 t2;
-          t2))
-  | TVar v1, _ ->
-    let t =
-      match Env.get_tvar env v1 with
-      | None -> t2
-      | Some t1 ->
-        Env.set_tvar env v1 t2;
-        union t1 t2
-    in
-    Env.set_tvar env v1 t;
-    t
-  | _, TVar v2 ->
-    let t =
-      match Env.get_tvar env v2 with
-      | None -> t1
-      | Some t2 ->
-        Env.set_tvar env v2 t1;
-        union t1 t2
-    in
-    Env.set_tvar env v2 t;
-    t
-  | TClosureEnv, TClosureEnv -> t2
-  | ( ( TLit _ | TArrow _ | TTuple _ | TStruct _ | TEnum _ | TOption _
-      | TArray _ | TDefault _ | TClosureEnv ),
-      _ ) ->
-    record_type_error ();
-    t2
+  let t1, cl1 = get_ty_class env e t1 in
+  let t2, cl2 = get_ty_class env e t2 in
+  let eq_class = Type.Var.Set.union cl1 cl2 in
+  let t =
+    match Mark.remove t1, Mark.remove t2 with
+    | TLit tl1, TLit tl2 ->
+      if tl1 <> tl2 then record_type_error ();
+      t2
+    | TArrow (targs1, tret1), TArrow (targs2, tret2) ->
+      let tret = union tret1 tret2 in
+      let targs =
+        try List.map2 union targs1 targs2
+        with Invalid_argument _ ->
+          record_type_error ();
+          targs2
+      in
+      TArrow (targs, tret), pos2
+    | TTuple ts1, TTuple ts2 ->
+      let ts =
+        try List.map2 union ts1 ts2
+        with Invalid_argument _ ->
+          record_type_error ();
+          ts2
+      in
+      TTuple ts, pos2
+    | TStruct s1, TStruct s2 ->
+      if not (StructName.equal s1 s2) then record_type_error ();
+      t2
+    | TEnum e1, TEnum e2 ->
+      if not (EnumName.equal e1 e2) then record_type_error ();
+      t2
+    | TOption t1', TOption t2' -> TOption (union t1' t2'), pos2
+    | TArray t1', TArray t2' -> TArray (union t1' t2'), pos2
+    | TDefault t1', TDefault t2' -> TDefault (union t1' t2'), pos2
+    | TForAll t1b, TForAll t2b ->
+      let _, t1, t2 = Bindlib.unmbind2 t1b t2b in
+      union t1 t2
+    | TForAll t1b, _ ->
+      let _, t1 = Bindlib.unmbind t1b in
+      union t1 t2
+    | _, TForAll t2b ->
+      let _, t2 = Bindlib.unmbind t2b in
+      union t1 t2
+    | TVar _, TVar _ -> TVar (tvar_witness eq_class), (Mark.get t1)
+    | TVar _, _ -> t2
+    | _, TVar _ -> t1
+    | TClosureEnv, TClosureEnv -> t2
+    | ( ( TLit _ | TArrow _ | TTuple _ | TStruct _ | TEnum _ | TOption _
+        | TArray _ | TDefault _ | TClosureEnv ),
+        _ ) ->
+      record_type_error ();
+      t2
+  in
+  Type.Var.Set.iter (fun v -> Env.set_tvar env v t) eq_class;
+  t
 
 let unify
     (env : 'e Env.t)
