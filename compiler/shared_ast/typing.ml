@@ -244,6 +244,18 @@ let rec union
   let union = union env e in
   let pos2 = Mark.get t2 in
   let record_type_error () = record_type_error env (AnyExpr e) t1 t2 in
+  let rec resolve_var ?(seen = Type.Var.Set.empty) ty = match ty with
+    | TVar v, m ->
+      let seen' = Type.Var.Set.add v seen in
+      if Type.Var.Set.mem v seen then TVar (tvar_witness seen'), m
+      else
+        (match Env.get_tvar env v with
+         | None -> ty
+         | Some ty' -> resolve_var ~seen:seen' ty')
+    | ty -> ty
+  in
+  let t1 = resolve_var t1 in
+  let t2 = resolve_var t2 in
   match Mark.remove t1, Mark.remove t2 with
   | TLit tl1, TLit tl2 ->
     if tl1 <> tl2 then record_type_error ();
@@ -283,59 +295,12 @@ let rec union
   | _, TForAll t2b ->
     let _, t2 = Bindlib.unmbind t2b in
     union t1 t2
-  | TVar v1, TVar v2 -> (
-    if Bindlib.eq_vars v1 v2 then t2
-    else
-      match Env.get_tvar env v1, Env.get_tvar env v2 with
-      | None, None ->
-        Env.set_tvar env v1 t2;
-        t2
-      | Some (TVar v3, _), Some ((TVar v4, _) as t2) when Type.Var.equal v3 v4
-        ->
-        t2
-      | Some (TVar v3, _), _ when Type.Var.equal v2 v3 -> t2
-      | None, Some (TVar v3, _) when Type.Var.equal v1 v3 -> t1
-      | Some t1, Some t2 ->
-        let t = union t1 t2 in
-        Env.set_tvar env v1 t;
-        Env.set_tvar env v2 t;
-        t
-      | Some t1, None ->
-        if Type.Var.Set.mem v2 (Type.free_vars t1) then
-          Message.error ~internal:true ~pos:(Expr.pos e)
-            "Recursive type detected: %a(%a) = %a" Type.Var.format v1
-            Type.format t1 Type.format t2
-        else (
-          Env.set_tvar env v2 t1;
-          t1)
-      | None, Some t2 ->
-        if Type.Var.Set.mem v1 (Type.free_vars t2) then
-          Message.error ~internal:true ~pos:(Expr.pos e)
-            "Recursive type detected: %a(%a) = %a" Type.Var.format v2
-            Type.format t2 Type.format t1
-        else (
-          Env.set_tvar env v1 t2;
-          t2))
   | TVar v1, _ ->
-    let t =
-      match Env.get_tvar env v1 with
-      | None -> t2
-      | Some t1 ->
-        Env.set_tvar env v1 t2;
-        union t1 t2
-    in
-    Env.set_tvar env v1 t;
-    t
+    Env.set_tvar env v1 t2;
+    t2
   | _, TVar v2 ->
-    let t =
-      match Env.get_tvar env v2 with
-      | None -> t1
-      | Some t2 ->
-        Env.set_tvar env v2 t1;
-        union t1 t2
-    in
-    Env.set_tvar env v2 t;
-    t
+    Env.set_tvar env v2 t1;
+    t1
   | TClosureEnv, TClosureEnv -> t2
   | ( ( TLit _ | TArrow _ | TTuple _ | TStruct _ | TEnum _ | TOption _
       | TArray _ | TDefault _ | TClosureEnv ),
