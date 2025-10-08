@@ -16,20 +16,16 @@ def sequence(begin:Integer, end:Integer):
     raise Impossible(pos)
     return sequence__1
 
-def nth_element_init():
+def nth_element(lst:List[Any], index:Integer):
     pos = (SourcePosition(filename="stdlib/list_internal.catala_en",
                start_line=9, start_column=13, end_line=9, end_column=24,
                law_headings=[]))
     raise Impossible(pos)
     return nth_element__1
 
-nth_element = (nth_element_init())
-
-def remove_nth_element_init():
+def remove_nth_element(lst:List[Any], index:Integer):
     pos = (SourcePosition(filename="stdlib/list_internal.catala_en",
                start_line=14, start_column=13, end_line=14, end_column=31,
                law_headings=[]))
     raise Impossible(pos)
     return remove_nth_element__1
-
-remove_nth_element = (remove_nth_element_init())

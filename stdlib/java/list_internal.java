@@ -12,11 +12,11 @@ public class List_internal {
     public static class Globals {
         
         public static final CatalaFunction<CatalaTuple,CatalaArray<CatalaInteger>> sequence =
-            tup_arg_13 -> {
+            tup_arg_11 -> {
             CatalaInteger begin = CatalaValue.<CatalaInteger>cast
-               (tup_arg_13.get(0));
+               (tup_arg_11.get(0));
             CatalaInteger end = CatalaValue.<CatalaInteger>cast
-               (tup_arg_13.get(1));
+               (tup_arg_11.get(1));
             final CatalaArray<CatalaInteger> sequence__1;
             CatalaPosition pos =
                 new CatalaPosition
@@ -24,33 +24,31 @@ public class List_internal {
                   new String[]{});
             throw new CatalaError(CatalaError.Error.Impossible, pos); };
         
-        public static final CatalaFunction<CatalaTuple,CatalaOption<CatalaValue>> nthElement =
-            tup_arg_14 -> {
-            CatalaArray<CatalaValue> lst =
-                CatalaValue.<CatalaArray<CatalaValue>>cast
-               (tup_arg_14.get(0));
-            CatalaInteger index = CatalaValue.<CatalaInteger>cast
-               (tup_arg_14.get(1));
-            final CatalaOption<CatalaValue> nthElement__1;
+        static final CatalaFunction<CatalaUnit,CatalaFunction<CatalaTuple,CatalaOption<CatalaValue>>> nthElementInit =
+            unit -> {
+            final CatalaFunction<CatalaTuple,CatalaOption<CatalaValue>>
+                nthElement__1;
             CatalaPosition pos =
                 new CatalaPosition
                  ("stdlib/list_internal.catala_en", 9, 13, 9, 24,
                   new String[]{});
             throw new CatalaError(CatalaError.Error.Impossible, pos); };
         
-        public static final CatalaFunction<CatalaTuple,CatalaArray<CatalaValue>> removeNthElement =
-            tup_arg_15 -> {
-            CatalaArray<CatalaValue> lst =
-                CatalaValue.<CatalaArray<CatalaValue>>cast
-               (tup_arg_15.get(0));
-            CatalaInteger index = CatalaValue.<CatalaInteger>cast
-               (tup_arg_15.get(1));
-            final CatalaArray<CatalaValue> removeNthElement__1;
+        public static final CatalaFunction<CatalaTuple,CatalaOption<CatalaValue>> nthElement =
+            nthElementInit.apply(CatalaUnit.INSTANCE);
+        
+        static final CatalaFunction<CatalaUnit,CatalaFunction<CatalaTuple,CatalaArray<CatalaValue>>> removeNthElementInit =
+            unit -> {
+            final CatalaFunction<CatalaTuple,CatalaArray<CatalaValue>>
+                removeNthElement__1;
             CatalaPosition pos =
                 new CatalaPosition
                  ("stdlib/list_internal.catala_en", 14, 13, 14, 31,
                   new String[]{});
             throw new CatalaError(CatalaError.Error.Impossible, pos); };
+        
+        public static final CatalaFunction<CatalaTuple,CatalaArray<CatalaValue>> removeNthElement =
+            removeNthElementInit.apply(CatalaUnit.INSTANCE);
     }
     
 }
