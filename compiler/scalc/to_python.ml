@@ -26,20 +26,20 @@ let format_lit (fmt : Format.formatter) (l : lit Mark.pos) : unit =
   | LBool true -> Format.pp_print_string fmt "True"
   | LBool false -> Format.pp_print_string fmt "False"
   | LInt i ->
-    Format.fprintf fmt "integer_of_string(\"%s\")" (Runtime.integer_to_string i)
+    Format.fprintf fmt "Integer(%s)" (Runtime.integer_to_string i)
   | LUnit -> Format.pp_print_string fmt "Unit()"
   | LRat i -> Format.fprintf fmt "decimal_of_string(\"%s\")" (Q.to_string i)
   | LMoney e ->
-    Format.fprintf fmt "money_of_cents_string(\"%s\")"
+    Format.fprintf fmt "Money(Integer(%s))"
       (Runtime.integer_to_string (Runtime.money_to_cents e))
   | LDate d ->
-    Format.fprintf fmt "date_of_numbers(%d,%d,%d)"
+    Format.fprintf fmt "Date((%d,%d,%d))"
       (Runtime.integer_to_int (Runtime.year_of_date d))
       (Runtime.integer_to_int (Runtime.month_number_of_date d))
       (Runtime.integer_to_int (Runtime.day_of_month_of_date d))
   | LDuration d ->
     let years, months, days = Runtime.duration_to_years_months_days d in
-    Format.fprintf fmt "duration_of_numbers(%d,%d,%d)" years months days
+    Format.fprintf fmt "Duration((%d,%d,%d))" years months days
 
 let format_op (fmt : Format.formatter) (op : operator Mark.pos) : unit =
   match Mark.remove op with
@@ -60,19 +60,18 @@ let format_op (fmt : Format.formatter) (op : operator Mark.pos) : unit =
   | Add_int_int | Add_rat_rat | Add_mon_mon | Add_dur_dur | Concat ->
     Format.pp_print_string fmt "+"
   | Add_dat_dur rounding ->
-    Format.fprintf fmt "add_date_duration(%s)"
-      (match rounding with
-      | RoundUp -> "DateRounding.RoundUp"
-      | RoundDown -> "DateRounding.RoundDown"
-      | AbortOnRound -> "DateRounding.AbortOnRound")
+    (match rounding with
+     | RoundUp -> Format.pp_print_string fmt "+up+"
+     | RoundDown -> Format.pp_print_string fmt "+down+"
+     | AbortOnRound -> Format.pp_print_string fmt "+")
   | Sub_int_int | Sub_rat_rat | Sub_mon_mon | Sub_dat_dat | Sub_dur_dur ->
     Format.pp_print_string fmt "-"
   | Sub_dat_dur rounding ->
     Format.fprintf fmt "sub_date_duration(%s)"
       (match rounding with
-      | RoundUp -> "DateRounding.RoundUp"
-      | RoundDown -> "DateRounding.RoundDown"
-      | AbortOnRound -> "DateRounding.AbortOnRound")
+      | RoundUp -> "dates.DateRounding.RoundUp"
+      | RoundDown -> "dates.DateRounding.RoundDown"
+      | AbortOnRound -> "dates.DateRounding.AbortOnRound")
   | Mult_int_int | Mult_rat_rat | Mult_mon_int | Mult_mon_rat | Mult_dur_int ->
     Format.pp_print_string fmt "*"
   | Div_int_int | Div_rat_rat | Div_mon_mon | Div_mon_int | Div_mon_rat

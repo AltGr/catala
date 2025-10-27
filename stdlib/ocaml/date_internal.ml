@@ -7,8 +7,7 @@ let of_ymd : code_location -> integer -> integer -> integer -> date =
     Dates_calc.make_date ~year:(Z.to_int y) ~month:(Z.to_int m)
       ~day:(Z.to_int d)
   with Dates_calc.InvalidDate ->
-    (* FIXME: add specific error *)
-    raise (Error (AssertionFailed, [pos]))
+    raise (Error (InvalidDate, [pos]))
 
 (* Toplevel def to_ymd *)
 let to_ymd : date -> integer * integer * integer =
