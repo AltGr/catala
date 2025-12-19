@@ -105,20 +105,27 @@ let load_modules
         (Format.pp_print_list ~pp_sep:Format.pp_print_space File.format)
         ms
   in
-  let rec aux is_stdlib req_chain seen uses :
-      (ModuleName.t * Surface.Ast.module_content * ModuleName.t Ident.Map.t)
-      option
-      File.Map.t
-      * ModuleName.t Ident.Map.t =
+  let rec aux file is_stdlib req_chain (seen, mmap) uses :
+    ModuleName.t option File.Map.t *
+    (Surface.Ast.module_content * ModuleName.t Ident.Map.t) ModuleName.Map.t *
+    ModuleName.t Ident.Map.t =
+    let uses =
+      if is_stdlib || stdlib = None then uses
+      else stdlib_use file :: uses
+    in
     List.fold_left
-      (fun (seen, use_map) use ->
+      (fun (seen, mmap, use_map) use ->
         let f = find_module is_stdlib req_chain use.Surface.Ast.mod_use_name in
         match File.Map.find_opt f seen with
-        | Some (Some (modname, _, _)) ->
-          ( seen,
-            Ident.Map.add
-              (Mark.remove use.Surface.Ast.mod_use_alias)
-              modname use_map )
+        | Some (Some modname) ->
+          let mcontent, muses = ModuleName.Map.find modname mmap in
+          if not is_stdlib && mcontent.module_is_stdlib then
+            ... (* "open" stdlib modules *)
+          else
+            (seen, mmap,
+             Ident.Map.add
+               (Mark.remove use.Surface.Ast.mod_use_alias)
+               modname use_map)
         | Some None ->
           Message.error
             ~extra_pos:
@@ -146,11 +153,12 @@ let load_modules
               module_content.Surface.Ast.module_modname.module_name
           in
           let seen = File.Map.add f None seen in
-          let seen, file_use_map =
+          let seen, mmap, file_use_map =
             aux is_stdlib
               (Mark.get use.Surface.Ast.mod_use_name :: req_chain)
               seen module_content.Surface.Ast.module_submodules
           in
+          
           ( File.Map.add f (Some (modname, module_content, file_use_map)) seen,
             Ident.Map.add
               (Mark.remove use.Surface.Ast.mod_use_alias)
@@ -189,19 +197,19 @@ let load_modules
   let file_module_map, root_uses =
     aux false [] stdlib_files program.Surface.Ast.program_used_modules
   in
-  let file_module_map =
-    File.Map.mapi
-      (fun file ->
-        Option.map (fun (mname, intf, use_map) ->
-            ( mname,
-              intf,
-              if
-                File.Map.mem file stdlib_files
-                || intf.Surface.Ast.module_modname.module_external
-              then use_map
-              else Ident.Map.union (fun _ _ m -> Some m) stdlib_uses use_map )))
-      file_module_map
-  in
+  (* let file_module_map =
+   *   File.Map.mapi
+   *     (fun file ->
+   *       Option.map (fun (mname, intf, use_map) ->
+   *           ( mname,
+   *             intf,
+   *             if
+   *               File.Map.mem file stdlib_files
+   *               || intf.Surface.Ast.module_modname.module_external
+   *             then use_map
+   *             else Ident.Map.union (fun _ _ m -> Some m) stdlib_uses use_map )))
+   *     file_module_map
+   * in *)
   ( Ident.Map.union (fun _ _ m -> Some m) stdlib_uses root_uses,
     modules_map file_module_map )
 
