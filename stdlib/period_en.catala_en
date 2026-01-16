@@ -9,14 +9,14 @@
 A period is a starting date and an end date.
 
 ```catala-metadata
-declaration structure Period:
+declaration structure Period_en:
   data begin content date
   # The end date is included in the period
   data end content date
 
 ## Returns a period ranging over the given month of the given year.
 declaration of_month_and_year
-  content Period
+  content Period_en
   depends on
     pmonth content Date.Month,
     pyear content integer
@@ -24,17 +24,17 @@ declaration of_month_and_year
     let pbegin equals
       Date.of_year_month_day of (pyear, (Date.month_to_integer of pmonth), 1)
     in
-    Period {
+    Period_en {
       -- begin: pbegin
       -- end: Date.last_day_of_month of pbegin
     }
 
 ## Returns a period ranging over the given year.
 declaration of_year
-  content Period
+  content Period_en
   depends on pyear content integer
   equals
-    Period {
+    Period_en {
       -- begin: Date.of_year_month_day of pyear, 1, 1
       -- end: Date.of_year_month_day of pyear, 12, 31
     }
@@ -43,7 +43,7 @@ declaration of_year
 ## least one day long).
 declaration valid
   content boolean
-  depends on p content Period
+  depends on p content Period_en
   equals
     if p.end < p.begin then false
     else true
@@ -51,7 +51,7 @@ declaration valid
 ## Duration of a given period, in days.
 declaration duration
   content duration
-  depends on p content Period
+  depends on p content Period_en
   equals
     1 day + p.end - p.begin
 
@@ -60,32 +60,32 @@ declaration duration
 declaration are_adjacent
   content boolean
   depends on
-    p1 content Period,
-    p2 content Period
+    p1 content Period_en,
+    p2 content Period_en
   equals
     p1.end = p2.begin - 1 day
 
 ## Returns the period that encompasses both `p1` and `p2`.
 declaration join
-  content Period
+  content Period_en
   depends on
-    p1 content Period,
-    p2 content Period
+    p1 content Period_en,
+    p2 content Period_en
   equals
-    Period {
+    Period_en {
       -- begin: Date.min of p1.begin, p2.begin
       -- end: Date.max of p1.end, p2.end
     }
 
 ## Returns the period corresponding to the days that are both in `p1` and `p2`.
 declaration intersection
-  content optional of Period
+  content optional of Period_en
   depends on
-    p1 content Period,
-    p2 content Period
+    p1 content Period_en,
+    p2 content Period_en
   equals
     let intersection equals
-      Period {
+      Period_en {
         -- begin: Date.max of p1.begin, p2.begin
         -- end: Date.min of p1.end, p2.end
       }
@@ -97,8 +97,8 @@ declaration intersection
 declaration overlaps
   content boolean
   depends on
-    p1 content Period,
-    p2 content Period
+    p1 content Period_en,
+    p2 content Period_en
   equals
     (intersection of p1, p2) with pattern Present
 
@@ -106,8 +106,8 @@ declaration overlaps
 declaration covers
   content boolean
   depends on
-    long content Period,
-    short content Period
+    long content Period_en,
+    short content Period_en
   equals
     long.begin <= short.begin and short.end <= long.end
 
@@ -115,7 +115,7 @@ declaration covers
 declaration is_contained
   content boolean
   depends on
-    p content Period,
+    p content Period_en,
     d content date
   equals
     p.begin <= d and d <= p.end
@@ -124,7 +124,7 @@ declaration is_contained
 declaration is_before
   content boolean
   depends on
-    p content Period,
+    p content Period_en,
     d content date
   equals
     d < p.begin
@@ -133,16 +133,16 @@ declaration is_before
 declaration is_after
   content boolean
   depends on
-    p content Period,
+    p content Period_en,
     d content date
   equals
     d > p.end
 
 ## Finds the first period in the given list `l` that contains the date `d`.
 declaration find_period
-  content optional of Period
+  content optional of Period_en
   depends on
-    l content list of Period,
+    l content list of Period_en,
     d content date
   equals
     combine all p among l
@@ -159,8 +159,8 @@ declaration find_period
 ## Sorts the given periods by starting day.
 ## if two periods start on the same day, their order in the list is preserved
 declaration sort_by_date
-  content list of (Period, anything of type t)
-  depends on l content list of (Period, anything of type t)
+  content list of (Period_en, anything of type t)
+  depends on l content list of (Period_en, anything of type t)
   equals
     let tuple_associated_list equals to_tuple_associated_list of l in
     let sorted_tuple_associated_list equals
@@ -176,8 +176,8 @@ declaration sort_by_date
 ## and last elements may be non-whole months.
 ## If the given period is empty (begin >= end), an empty list is returned.
 declaration split_by_month
-  content list of Period
-  depends on p content Period
+  content list of Period_en
+  depends on p content Period_en
   equals
     of_tuple_list of Period_internal.split_by_month of to_tuple of p
 
@@ -187,10 +187,10 @@ declaration split_by_month
 ## **Edge-case**: if the given period is empty (begin >= end), an empty list
 ## is returned
 declaration split_by_year
-  content list of Period
+  content list of Period_en
   depends on
     starting_month content Date.Month,
-    p content Period
+    p content Period_en
   equals
     of_tuple_list of
       Period_internal.split_by_year of
@@ -203,38 +203,38 @@ declaration split_by_year
 ```catala
 declaration to_tuple
   content (date, date)
-  depends on p content Period
+  depends on p content Period_en
   equals
   (p.begin, p.end)
 
 declaration to_tuple_associated_list
   content list of ((date, date), anything of type t)
-  depends on l content list of (Period, anything of type t)
+  depends on l content list of (Period_en, anything of type t)
   equals
     map each p among l to ((to_tuple of p.1), p.2)
 
 declaration to_tuple_list
   content list of (date, date)
-  depends on l content list of Period
+  depends on l content list of Period_en
   equals
     map each p among l to to_tuple of p
 
 declaration of_tuple
-  content Period
+  content Period_en
   depends on
     begin content date,
     end content date
   equals
-    Period { -- begin: begin -- end: end }
+    Period_en { -- begin: begin -- end: end }
 
 declaration of_tuple_associated_list
-  content list of (Period, anything of type t)
+  content list of (Period_en, anything of type t)
   depends on l content list of ((date, date), anything of type t)
   equals
     map each tpl among l to ((of_tuple of tpl.1), tpl.2)
 
 declaration of_tuple_list
-  content list of Period
+  content list of Period_en
   depends on l content list of (date, date)
   equals
     map each tpl among l to of_tuple of tpl

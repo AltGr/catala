@@ -1,6 +1,6 @@
 ```catala
 declaration mk_p
-  content Period.Period
+  content Period
   depends on b content date, e content date
   equals
     Period.Period { -- begin: b -- end: e }

@@ -538,8 +538,8 @@ let rec process_base_typ
     ~rev_path
     ~vars
     (ctxt : context)
-    ((typ, typ_pos) : Surface.Ast.base_typ Mark.pos) : typ =
-  let typ_pos = translate_pos Type typ_pos in
+    ((typ, typ_pos0) : Surface.Ast.base_typ Mark.pos) : typ =
+  let typ_pos = translate_pos Type typ_pos0 in
   match typ with
   | Surface.Ast.Condition -> TLit TBool, typ_pos
   | Surface.Ast.Data (Surface.Ast.Collection t) ->
@@ -587,10 +587,17 @@ let rec process_base_typ
         in
         TStruct s_uid, typ_pos
       | None ->
-        Message.error ~pos:typ_pos
-          "Unknown type @{<yellow>\"%s\"@}, not a struct or enum previously \
-           declared"
-          ident)
+        (* Look for a same-named module *)
+        (* match Ident.Map.find_opt ident ctxt.local.used_modules with
+         * | Some modname ->
+         *   let mname, mpos = ModuleName.get_info modname in
+         *   process_base_typ ~rev_path ~vars ctxt
+         *     Surface.Ast.(Data (Primitive (Named ([mname, mpos], (mname, pos)))), typ_pos0)
+         * | None -> *)
+          Message.error ~pos:typ_pos
+            "Unknown type @{<yellow>\"%s\"@}, not a struct or enum previously \
+             declared"
+            ident)
     | Surface.Ast.Named ((modul, mpos) :: path, id) -> (
       match Ident.Map.find_opt modul ctxt.local.used_modules with
       | None ->
@@ -1480,6 +1487,12 @@ let form_context (surface, mod_uses) surface_modules : context =
           in
           let revpath = m :: revpath in
           let ctxt = process_modules ctxt revpath mod_uses in
+          let submodules_root_types =
+            Ident.Map.filter_map (fun id modl ->
+                let mctx = ModuleName.Map.find modl ctxt.modules in
+                Ident.Map.find_opt id mctx.typedefs)
+              mod_uses
+          in
           let ctxt =
             {
               ctxt with
@@ -1490,6 +1503,7 @@ let form_context (surface, mod_uses) surface_modules : context =
                   current_revpath = revpath;
                   is_external =
                     module_content.Surface.Ast.module_modname.module_external;
+                  typedefs = submodules_root_types;
                 };
             }
           in
@@ -1543,5 +1557,15 @@ let form_context (surface, mod_uses) surface_modules : context =
       (process_law_structure process_use_item)
       ctxt surface.Surface.Ast.program_items
   in
-  let ctxt = { ctxt with local = gather_struct_fields_ids ctxt ctxt.local } in
+  let submodules_root_types =
+    Ident.Map.filter_map (fun id modl ->
+        let mctx = ModuleName.Map.find modl ctxt.modules in
+        Ident.Map.find_opt id mctx.typedefs
+  |> fun r ->         Message.debug ">> %s ==> %a" id Format.pp_print_option Print.typ;
+)
+      mod_uses
+  in
+  let local = { ctxt.local with typedefs =
+                                  Ident.Map.union (fun _ x _ -> Some x) ctxt.local.typedefs submodules_root_types } in
+  let ctxt = { ctxt with local = gather_struct_fields_ids ctxt local } in
   ctxt

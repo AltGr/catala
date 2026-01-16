@@ -3,25 +3,25 @@
 > Module Mod_def
 
 ```catala-metadata
-declaration enumeration Enum1:
+declaration enumeration Mod_def:
   -- Yes
   -- No
   -- Maybe
 
 declaration structure Str1:
-  data fld1 content Enum1
+  data fld1 content Mod_def
   data fld2 content integer
 
 #[test] declaration scope S:
   output sr content money
-  output e1 content Enum1
+  output e1 content Mod_def
 
 declaration half content decimal
   depends on x content integer
   equals x / Date.get_year of |0002-01-01|
 
-declaration maybe content Enum1
-  depends on x content Enum1
+declaration maybe content Mod_def
+  depends on x content Mod_def
 ```
 
 ```catala
@@ -30,8 +30,8 @@ scope S:
   definition e1 equals Maybe
 
 
-declaration maybe content Enum1
-  depends on x content Enum1
+declaration maybe content Mod_def
+  depends on x content Mod_def
   equals Maybe
 ```
 
