@@ -250,30 +250,63 @@ let duration_to_string (d : duration) : string =
 let duration_to_years_months_days (d : duration) : int * int * int =
   Dates_calc.period_to_ymds d
 
-type runtime_value =
-  | Unit
-  | Bool of bool
-  | Money of money
-  | Integer of integer
-  | Decimal of decimal
-  | Date of date
-  | Duration of duration
-  | Enum of string * (string * runtime_value)
-  | Struct of string * (string * runtime_value) list
-  | Array of runtime_value array
-  | Tuple of runtime_value array
-  | Position of (string * int * int * int * int)
-  | Unembeddable
+(* -- Runtime types and embedding -- *)
 
-let unembeddable _ = Unembeddable
-let embed_unit () = Unit
-let embed_bool x = Bool x
-let embed_money x = Money x
-let embed_integer x = Integer x
-let embed_decimal x = Decimal x
-let embed_date x = Date x
-let embed_duration x = Duration x
-let embed_array f x = Array (Array.map f x)
+(* the GADT provides us with some safeguards, but only on the surface types. *)
+type any_runtype = TAny : 'a runtype -> any_runtype
+
+and 'a runtype =
+  | Unit : unit runtype
+  | Bool : bool runtype
+  | Money : integer runtype
+  | Integer : integer runtype
+  | Decimal : decimal runtype
+  | Date : date runtype
+  | Duration : duration runtype
+  | Enum : { name: string;
+             constant_constructors: string list;
+             variable_constructors: (string * any_runtype) list }
+      -> 'a runtype
+  | Struct : { name: string;
+               fields: (string * any_runtype) list }
+      -> 'a runtype
+  | External : string -> 'a runtype
+  | Array : 'a runtype -> 'a array runtype
+  | Tuple : any_runtype list -> 'a runtype
+  | Position : code_location runtype
+  | Function : any_runtype list * _ runtype -> (_ -> _ as 'a) runtype
+
+type runtime_value = RValue : 'a runtype * 'a -> runtime_value
+
+let embed t v = RValue (t, v)
+
+let get_runtype : type a. any_runtype -> a runtype =
+  let open struct external cast : _ runtype -> a runtype = "%identity" end in
+  function TAny t -> cast t
+
+let unembed (type a) (RValue (t, v)): a runtype * a =
+  get_runtype (TAny t), Obj.magic v
+
+(* Catala types utils *)
+
+module type CatalaType = sig
+  type t
+  val equal: t -> t -> bool
+  val compare: t -> t -> int
+  val rtype: t runtype
+end
+(*
+module Unit : CatalaType with type t = unit
+module Bool : CatalaType with type t = bool
+module Money : CatalaType with type t = money
+module Integer : CatalaType with type t = integer
+module Decimal : CatalaType with type t = decimal
+module Date : CatalaType with type t = date
+module Duration : CatalaType with type t = duration
+module List : (T: CatalaType) -> CatalaType with type t = T.t array
+module Optional : (T: CatalaType) -> CatalaType with type t = T.t array
+*)
+(* -- *)
 
 type information = string list
 
@@ -308,13 +341,22 @@ and fun_call = {
 }
 
 module BufferedJson = struct
-  let rec list f buf = function
-    | [] -> ()
-    | [x] -> f buf x
-    | x :: r ->
+  let seq f buf sq =
+    match Seq.uncons sq with
+    | None -> ()
+    | Some (x, r) ->
       f buf x;
-      Buffer.add_char buf ',';
-      list f buf r
+      let rec aux sq = match Seq.uncons sq with
+        | None -> ()
+        | Some (x, r) ->
+          Buffer.add_char buf ',';
+          f buf x;
+          aux r
+      in
+      aux r
+
+  let rec list f buf l =
+    seq f buf (List.to_seq l)
 
   let quote buf str =
     Buffer.add_char buf '"';
@@ -351,24 +393,47 @@ module BufferedJson = struct
 
   (* Note: the output format is made for transition with what Yojson gave us,
      but we could change it to something nicer (e.g. objects for structures) *)
-  let rec runtime_value buf = function
-    | Unit -> Buffer.add_string buf "{}"
-    | Bool b -> Buffer.add_string buf (string_of_bool b)
-    | Money m -> Buffer.add_string buf (money_to_string m)
-    | Integer i -> Buffer.add_string buf (integer_to_string i)
-    | Decimal d -> decimal buf d
-    | Date d -> quote buf (date_to_string d)
-    | Duration d -> quote buf (duration_to_string d)
-    | Enum (name, (constr, v)) ->
+  let rec runtime_value (type a) buf (v: a runtype * a) =
+    match v with
+    | Unit, () -> Buffer.add_string buf "{}"
+    | Bool, b -> Buffer.add_string buf (string_of_bool b)
+    | Money, m -> Buffer.add_string buf (money_to_string m)
+    | Integer, i -> Buffer.add_string buf (integer_to_string i)
+    | Decimal, d -> decimal buf d
+    | Date, d -> quote buf (date_to_string d)
+    | Duration, d -> quote buf (duration_to_string d)
+    | Enum en, e ->
+      let o = Obj.repr e in
+      let tag = Obj.tag o in
+      let constr, value =
+        if tag = Obj.int_tag then
+          List.nth en.constant_constructors (Obj.obj o : int), None
+        else
+        let constr, vty =
+          List.nth en.variable_constructors
+            (tag - Obj.first_non_constant_constructor_tag)
+        in
+        constr, Some (fun buf -> runtime_value buf (get_runtype vty, Obj.field o 0))
+      in
       Printf.bprintf buf
-        {|{"kind": "enum", "name": "%s", "constructor": "%s", "value": %a}|}
-        name constr runtime_value v
-    | Struct (name, elts) ->
+        {|{"kind": "enum", "name": "%s", "constructor": "%s"%a}|}
+        en.name constr
+        (fun buf -> function
+           | None -> ()
+           | Some f -> Printf.bprintf buf {|, "value": %t|} f)
+        value
+    | Struct str, s ->
+      let o = Obj.repr s in
+      let fields =
+        Seq.map2 (fun (fld, vty) v -> fld, (vty, v))
+          (List.to_seq str.fields)
+          (Array.to_seq (Obj.obj o))
+      in
       Printf.bprintf buf {|{"kind": "struct", "name": "%s", "fields": {%a}}|}
-        name
-        (list (fun buf (cstr, v) ->
+        str.name
+        (list (fun buf (cstr, vty) ->
              Printf.bprintf buf {|"%s": %a|} cstr runtime_value v))
-        elts
+        str.fields
     | (Array elts | Tuple elts) as v ->
       Printf.bprintf buf {|{"kind": %s, "value":[%a]}|}
         (match v with

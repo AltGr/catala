@@ -95,20 +95,56 @@ exception Empty
 
 (** {1 Value Embedding} *)
 
-type runtime_value =
-  | Unit
-  | Bool of bool
-  | Money of money
-  | Integer of integer
-  | Decimal of decimal
-  | Date of date
-  | Duration of duration
-  | Enum of string * (string * runtime_value)
-  | Struct of string * (string * runtime_value) list
-  | Array of runtime_value Array.t
-  | Tuple of runtime_value Array.t
-  | Position of (string * int * int * int * int)
-  | Unembeddable
+(** {2 Runtime type encoding} *)
+
+(** Lists of 'a *)
+type ('a, 'b) tlist =
+  | TNil : ('a, unit) tlist
+  | TCons : ('a * _ tlist as 'b) -> ('a, 'b) tlist
+
+(** t runtype provides runtime information about the structure of values of type t *)
+and 'a runtype =
+  | Unit : unit runtype
+  | Bool : bool runtype
+  | Money : integer runtype
+  | Integer : integer runtype
+  | Decimal : decimal runtype
+  | Date : date runtype
+  | Duration : duration runtype
+  | Enum : string * (string * _ runtype, _) tlist -> 'a runtype
+  | Struct : string * (string * _ runtype, _) tlist -> 'a runtype
+  | External : string -> 'a runtype
+  | Array : 'a runtype -> 'a array runtype
+  | Tuple : (_ runtype, _) tlist -> 'a runtype
+  | Position : code_location runtype
+  | Function : (_ runtype, _) tlist * _ runtype -> 'a runtype
+
+type runtime_value
+
+val embed: 'a runtype * 'a -> runtime_value
+
+val unembed: runtime_value -> 'a runtype * 'a
+
+val runvalue_to_string: runtime_value -> string
+
+(** {1 Catala types utils} *)
+
+module type CatalaType = sig
+  type t
+  val equal: t -> t -> bool
+  val compare: t -> t -> int
+  val rtype: t runtype
+end
+
+module Unit : CatalaType with type t = unit
+module Bool : CatalaType with type t = bool
+module Money : CatalaType with type t = money
+module Integer : CatalaType with type t = integer
+module Decimal : CatalaType with type t = decimal
+module Date : CatalaType with type t = date
+module Duration : CatalaType with type t = duration
+module List : (T: CatalaType) -> CatalaType with type t = T.t array
+module Optional : (T: CatalaType) -> CatalaType with type t = T.t array
 
 val unembeddable : 'a -> runtime_value
 val embed_unit : unit -> runtime_value

@@ -548,7 +548,7 @@ let rec runtime_to_val : type d.
             | TLit TUnit, _ -> skip
             | _ -> if skip = 0 then raise (Found (cons, ty)) else skip - 1)
           cons_map
-          (Obj.tag o - Obj.first_non_constant_constructor_tag)
+          (tag - Obj.first_non_constant_constructor_tag)
       with
       | _ -> assert false
       | exception Found (cons, ty) ->
