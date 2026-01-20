@@ -252,33 +252,36 @@ let duration_to_years_months_days (d : duration) : int * int * int =
 
 (* -- Runtime types and embedding -- *)
 
-(* the GADT provides us with some safeguards, but only on the surface types. *)
-type any_runtype = TAny : 'a runtype -> any_runtype
+type runtype =
+  | Unit
+  | Bool
+  | Money
+  | Integer
+  | Decimal
+  | Date
+  | Duration
+  | Enum of {
+      name: string;
+      constr: Obj.t -> string * runvalue option;
+      constant_constructors: string list;
+      variable_constructors: (string * runtype) list
+    }
+  | Struct of {
+      name: string;
+      fields: (string * runtype) list
+    }
+  | External of string
+  | Array of runtype
+  | Tuple of runtype list
+  | Position
+  | Function of runtype list * runtype
 
-and 'a runtype =
-  | Unit : unit runtype
-  | Bool : bool runtype
-  | Money : integer runtype
-  | Integer : integer runtype
-  | Decimal : decimal runtype
-  | Date : date runtype
-  | Duration : duration runtype
-  | Enum : { name: string;
-             constant_constructors: string list;
-             variable_constructors: (string * any_runtype) list }
-      -> 'a runtype
-  | Struct : { name: string;
-               fields: (string * any_runtype) list }
-      -> 'a runtype
-  | External : string -> 'a runtype
-  | Array : 'a runtype -> 'a array runtype
-  | Tuple : any_runtype list -> 'a runtype
-  | Position : code_location runtype
-  | Function : any_runtype list * _ runtype -> (_ -> _ as 'a) runtype
+type runvalue = { t: runtype; v: Obj.t }
 
-type runtime_value = RValue : 'a runtype * 'a -> runtime_value
+let embed t v = { t; v = Obj.repr v }
 
-let embed t v = RValue (t, v)
+let unembed (type a) (RValue (t, v)): a runtype * a =
+  get_runtype (TAny t), Obj.magic v
 
 let get_runtype : type a. any_runtype -> a runtype =
   let open struct external cast : _ runtype -> a runtype = "%identity" end in
