@@ -562,31 +562,33 @@ let is_value (type a) (e : (a, _) gexpr) =
 let equal_lit (l1 : lit) (l2 : lit) =
   let open Catala_runtime.Oper in
   match l1, l2 with
-  | LBool b1, LBool b2 -> not (o_xor b1 b2)
-  | LInt n1, LInt n2 -> o_eq_int_int n1 n2
-  | LRat r1, LRat r2 -> o_eq_rat_rat r1 r2
-  | LMoney m1, LMoney m2 -> o_eq_mon_mon m1 m2
+  | LBool b1, LBool b2 -> b1 = b2
+  | LInt n1, LInt n2 -> Z.equal n1 n2
+  | LRat r1, LRat r2 -> Q.equal r1 r2
+  | LMoney m1, LMoney m2 -> Z.equal m1 m2
   | LUnit, LUnit -> true
-  | LDate d1, LDate d2 -> o_eq_dat_dat d1 d2
-  | LDuration d1, LDuration d2 -> (
-    try o_eq_dur_dur (pos_to_runtime Pos.void) d1 d2
-    with Catala_runtime.(Error (UncomparableDurations, _, _)) -> false)
+  | LDate d1, LDate d2 -> Dates_calc.compare_dates d1 d2 = 0
+  | LDuration d1, LDuration d2 -> (Dates_calc.period_to_ymds d1) = (Dates_calc.period_to_ymds d2)
   | (LBool _ | LInt _ | LRat _ | LMoney _ | LUnit | LDate _ | LDuration _), _ ->
     false
 
+let embed_lit = function
+  | LBool v -> Catala_runtime.RValue { t = Bool; v }
+  | LInt v -> Catala_runtime.RValue { t = Integer; v }
+  | LRat v -> Catala_runtime.RValue { t = Decimal; v }
+  | LMoney v -> Catala_runtime.RValue { t = Money; v }
+  | LUnit -> Catala_runtime.RValue { t = Unit; v = () }
+  | LDate v -> Catala_runtime.RValue { t = Date; v }
+  | LDuration v -> Catala_runtime.RValue { t = Duration; v }
+
 let compare_lit (l1 : lit) (l2 : lit) =
-  let open Catala_runtime.Oper in
   match l1, l2 with
   | LBool b1, LBool b2 -> Bool.compare b1 b2
-  | LInt n1, LInt n2 ->
-    if o_lt_int_int n1 n2 then -1 else if o_eq_int_int n1 n2 then 0 else 1
-  | LRat r1, LRat r2 ->
-    if o_lt_rat_rat r1 r2 then -1 else if o_eq_rat_rat r1 r2 then 0 else 1
-  | LMoney m1, LMoney m2 ->
-    if o_lt_mon_mon m1 m2 then -1 else if o_eq_mon_mon m1 m2 then 0 else 1
+  | LInt n1, LInt n2 -> Z.compare n1 n2
+  | LRat r1, LRat r2 -> Q.compare r1 r2
+  | LMoney m1, LMoney m2 -> Z.compare m1 m2
   | LUnit, LUnit -> 0
-  | LDate d1, LDate d2 ->
-    if o_lt_dat_dat d1 d2 then -1 else if o_eq_dat_dat d1 d2 then 0 else 1
+  | LDate d1, LDate d2 -> Dates_calc.compare_dates d1 d2
   | LDuration d1, LDuration d2 -> (
     (* Duration comparison in the runtime may fail, so rely on a basic
        lexicographic comparison instead *)
@@ -666,7 +668,7 @@ and equal : type a. (a, 't) gexpr -> (a, 't) gexpr -> bool =
       ETupleAccess { e = e2; index = id2; size = s2 } ) ->
     s1 = s2 && equal e1 e2 && id1 = id2
   | EArray es1, EArray es2 -> equal_list es1 es2
-  | ELit l1, ELit l2 -> l1 = l2
+  | ELit l1, ELit l2 -> equal_lit l1 l2
   | ( EAbs { binder = b1; pos = _; tys = tys1 },
       EAbs { binder = b2; pos = _; tys = tys2 } ) ->
     Type.equal_list tys1 tys2 && Bindlib.eq_mbinder equal b1 b2

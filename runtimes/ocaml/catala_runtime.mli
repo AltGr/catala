@@ -120,6 +120,8 @@ type 'a runtype =
       name: string;
       equal: code_location -> 'a -> 'a -> bool;
       compare: code_location -> 'a -> 'a -> int;
+      to_json : ('a -> string) option;
+      to_string : 'a -> string;
     } -> 'a runtype
   | Array: 'a runtype -> 'a array runtype
   | Tuple: ('a -> runvalue list) -> 'a runtype
@@ -128,7 +130,7 @@ type 'a runtype =
 
 and runvalue = RValue: { t: 'a runtype; v: 'a } -> runvalue
 
-val embed: 'a runtype * 'a -> runvalue
+val embed: 'a runtype -> 'a -> runvalue
 
 (* val unembed: runvalue -> 'a runtype * 'a *)
 
@@ -274,7 +276,7 @@ val log_decision_taken : code_location -> bool -> bool
 module Json : sig
   (* val io_input: io_input -> string *)
   val io_log : io_log -> string
-  val runvalue : runvalue -> string
+  val runtime_value : runvalue -> string
 
   (* val information: information -> string *)
   val event : event -> string
@@ -398,7 +400,11 @@ module Oper : sig
   val o_and : bool -> bool -> bool
   val o_or : bool -> bool -> bool
   val o_xor : bool -> bool -> bool
-  val o_eq : 'a -> 'a -> bool
+  val o_eq : 'a runtype -> code_location -> 'a -> 'a -> bool
+  val o_lt : 'a runtype -> code_location -> 'a -> 'a -> bool
+  val o_lte : 'a runtype -> code_location -> 'a -> 'a -> bool
+  val o_gt : 'a runtype -> code_location -> 'a -> 'a -> bool
+  val o_gte : 'a runtype -> code_location -> 'a -> 'a -> bool
   val o_map : ('a -> 'b) -> 'a array -> 'b array
 
   val o_map2 :

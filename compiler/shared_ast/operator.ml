@@ -295,7 +295,7 @@ type 'a no_overloads =
 
 let translate (t : 'a no_overloads t Mark.pos) : 'b no_overloads t Mark.pos =
   match t with
-  | ( ( Not | And | Or | Xor | HandleExceptions | Log _ | Length | Eq | Map
+  | ( ( Not | And | Or | Xor | HandleExceptions | Log _ | Length | Eq | Lt | Gt | Lte | Gte | Map
       | Map2 | Concat | Filter | Reduce | Fold | Minus_int | Minus_rat
       | Minus_mon | Minus_dur | ToInt_rat | ToInt_mon | ToRat_int | ToRat_mon
       | ToMoney_rat | ToMoney_int | Round_rat | Round_mon | Add_int_int
@@ -411,9 +411,7 @@ let resolve_overload_aux (op : overloaded t) (operands : typ_lit list) :
   | Div, [TMoney; TInt] -> Div_mon_int, `Straight
   | Div, [TMoney; TRat] -> Div_mon_rat, `Straight
   | Div, [TDuration; TDuration] -> Div_dur_dur, `Straight
-  | ( ( Minus | ToInt | ToRat | ToMoney | Round | Add | Sub | Mult | Div | Lt
-      | Lte | Gt | Gte ),
-      _ ) ->
+  | ( ( Minus | ToInt | ToRat | ToMoney | Round | Add | Sub | Mult | Div ), _ ) ->
     raise Not_found
 
 let resolve_overload ((op, pos) : overloaded t Mark.pos) (operands : typ list) :
@@ -470,9 +468,8 @@ let overload_type (op : overloaded t Mark.pos) (operands : typ list) : typ =
 
 let is_pure : type a. a t -> bool = function
   | Map2 | Add_dat_dur _ | Add | Sub_dat_dur _ | Sub | Div_int_int | Div_rat_rat
-  | Div_mon_int | Div_mon_rat | Div_mon_mon | Div_dur_dur | Div | Lte_dur_dur
-  | Lte | Gte_dur_dur | Gte | Gt_dur_dur | Gt | Lt_dur_dur | Lt | Eq_dur_dur
-  | Eq ->
+  | Div_mon_int | Div_mon_rat | Div_mon_mon | Div_dur_dur | Div
+  | Eq | Lte | Gte | Gt | Lt ->
     (* basically, operators that take a position in the backends, and their
        overloaded counterparts: those are the ones that can raise *)
     false

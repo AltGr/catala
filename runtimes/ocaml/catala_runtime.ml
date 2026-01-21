@@ -250,6 +250,7 @@ let duration_to_string (d : duration) : string =
 let duration_to_years_months_days (d : duration) : int * int * int =
   Dates_calc.period_to_ymds d
 
+(* Maybe should be integrated into dates_calc ? *)
 let compare_periods pos p1 p2 =
   let y1, m1, d1 = Dates_calc.period_to_ymds p1 in
   let y2, m2, d2 = Dates_calc.period_to_ymds p2 in
@@ -257,6 +258,10 @@ let compare_periods pos p1 p2 =
   | _, _, _, _, 0, 0 -> Int.compare ((12 * y1) + m1) ((12 * y2) + m2)
   | 0, 0, 0, 0, d1, d2 -> Int.compare d1 d2
   | _ -> error UncomparableDurations [pos]
+
+let equal_periods pos p1 p2 =
+  Dates_calc.period_to_ymds p1 = Dates_calc.period_to_ymds p2
+  || compare_periods pos p1 p2 = 0
 
 (* -- Runtime types and embedding -- *)
 
@@ -282,6 +287,8 @@ type 'a runtype =
       name: string;
       equal: code_location -> 'a -> 'a -> bool;
       compare: code_location -> 'a -> 'a -> int;
+      to_json : ('a -> string) option;
+      to_string : 'a -> string;
     } -> 'a runtype
   | Array: 'a runtype -> 'a array runtype
   | Tuple: ('a -> runvalue list) -> 'a runtype
@@ -290,18 +297,16 @@ type 'a runtype =
 
 and runvalue = RValue: { t: 'a runtype; v: 'a } -> runvalue
 
-type runvalue2 = RValue2: { t: 'a runtype; v1: 'a; v2: 'a } -> runvalue2
-
 let embed t v = RValue { t; v }
 
-let unembed (type a) (RValue { t; v }): a runtype * a =
-  Obj.magic t, Obj.magic v
+(* let unembed (type a) (RValue { t; v }): a runtype * a =
+ *   Obj.magic t, Obj.magic v *)
 
-let rec equal: type a. code_location -> a runtype -> a -> a -> bool =
-  fun pos rty x1 x2 ->
+let rec equal: type a. a runtype -> code_location -> a -> a -> bool =
+  fun rty pos x1 x2 ->
   let rval_equal (RValue rv1) (RValue rv2) =
     (* When recursing, by construction we can assume that the two runtime types match *)
-    equal pos rv1.t rv1.v (Obj.magic rv2.v)
+    equal rv1.t pos rv1.v (Obj.magic rv2.v)
   in
   match rty with
   | Unit -> true
@@ -310,11 +315,9 @@ let rec equal: type a. code_location -> a runtype -> a -> a -> bool =
   | Integer -> Z.equal x1 x2
   | Decimal -> Q.equal x1 x2
   | Date -> Dates_calc.compare_dates x1 x2 = 0
-  | Duration ->
-    Dates_calc.period_to_ymds x1 = Dates_calc.period_to_ymds x2
-    || compare_periods pos x1 x2 = 0
+  | Duration -> equal_periods pos x1 x2
   | Array sub ->
-    Array.length x1 = Array.length x2 && Array.for_all2 (equal pos sub) x1 x2
+    Array.length x1 = Array.length x2 && Array.for_all2 (equal sub pos) x1 x2
   | Tuple destr ->
     List.for_all2 rval_equal (destr x1) (destr x2)
   | Position -> x1 = x2
@@ -329,11 +332,11 @@ let rec equal: type a. code_location -> a runtype -> a -> a -> bool =
          fld1 = fld2 && rval_equal rv1 rv2)
       (str.fields x1) (str.fields x2)
 
-let rec compare: type a. code_location -> a runtype -> a -> a -> int =
-  fun pos rty x1 x2 ->
+let rec compare: type a. a runtype -> code_location -> a -> a -> int =
+  fun rty pos x1 x2 ->
   let rval_compare (RValue rv1) (RValue rv2) =
     (* When recursing, by construction we can assume that the two runtime types match *)
-    compare pos rv1.t rv1.v (Obj.magic rv2.v)
+    compare rv1.t pos rv1.v (Obj.magic rv2.v)
   in
   let rec compare_lists l1 l2 = match l1, l2 with
     | x1::l1, x2::l2 -> (match rval_compare x1 x2 with 0 -> compare_lists l1 l2 | n -> n)
@@ -355,7 +358,7 @@ let rec compare: type a. code_location -> a runtype -> a -> a -> int =
         if i >= Array.length x2 then 0
         else -1
       else if i >= Array.length x2 then 1
-      else match compare pos sub x1.(i) x2.(i) with
+      else match compare sub pos x1.(i) x2.(i) with
         | 0 -> aux (i+1)
         | n -> n
     in
@@ -387,40 +390,7 @@ module type CatalaType = sig
   val rtype: t runtype
 end
 
-module Unit : CatalaType with type t = unit = struct
-  type t = unit
-  let rtype = Unit
-end
-module Bool : CatalaType with type t = bool = struct
-  type t = bool
-  let rtype = Bool
-end
-module Money : CatalaType with type t = money = struct
-  type t = money
-  let rtype = Money
-end
-module Integer : CatalaType with type t = integer = struct
-  type t = integer
-  let rtype = Integer
-end
-module Decimal : CatalaType with type t = decimal = struct
-  type t = decimal
-  let rtype = Decimal
-end
-module Date : CatalaType with type t = date = struct
-  type t = date
-  let rtype = Date
-end
-module Duration : CatalaType with type t = duration = struct
-  type t = duration
-  let rtype = Duration
-end
-
-module Array (X: CatalaType) : CatalaType with type t = X.t array = struct
-  type t = X.t array
-  let rtype = Array X.rtype
-end
-
+(* EX PROTO
 module Foo : CatalaType = struct
   type t = { foo: integer; bar: date }
 
@@ -444,7 +414,7 @@ module Bar : CatalaType = struct
         | Baz x -> 2, "Baz", Some (embed (Tuple (fun (x1, x2) -> [embed Bool.rtype x1; embed Integer.rtype x2])) x);
     }
 end
-
+*)
 
 (* module List : (T: CatalaType) -> CatalaType with type t = T.t array = struct
  *   type t = T.t array
@@ -502,7 +472,7 @@ module BufferedJson = struct
       in
       aux r
 
-  let rec list f buf l =
+  let list f buf l =
     seq f buf (List.to_seq l)
 
   let quote buf str =
@@ -578,6 +548,7 @@ module BufferedJson = struct
       Printf.bprintf buf {|{"kind": "position", "value":[%s, %d, %d, %d, %d]}|}
         pos.filename pos.start_line pos.start_column pos.end_line pos.end_column
     | Function _, _ -> Buffer.add_string buf {|"unembeddable"|}
+    | External _ex, _v -> Buffer.add_string buf {|"unembeddable"|} (* ex.to_json v ?? *)
 
   let information buf info = Printf.bprintf buf "[%a]" (list quote) info
 
@@ -676,39 +647,45 @@ let log_decision_taken pos x =
   if x then log_ref := DecisionTaken pos :: !log_ref;
   x
 
-let rec format_value ppf = function
-  | Unembeddable -> Format.fprintf ppf "fun"
-  | Unit -> Format.fprintf ppf "()"
-  | Bool x -> Format.fprintf ppf "%b" x
-  | Money x -> Format.fprintf ppf "%s€" (money_to_string x)
-  | Integer x -> Format.fprintf ppf "%s" (Z.to_string x)
-  | Decimal x ->
+let rec format_value ppf (RValue rv) =
+  match rv.t, rv.v with
+  | Unit, () -> Format.fprintf ppf "()"
+  | Bool, x -> Format.fprintf ppf "%b" x
+  | Money, x -> Format.fprintf ppf "%s€" (money_to_string x)
+  | Integer, x -> Format.fprintf ppf "%s" (Z.to_string x)
+  | Decimal, x ->
     Format.fprintf ppf "%s" (decimal_to_string ~max_prec_digits:10 x)
-  | Date x -> Format.fprintf ppf "%s" (date_to_string x)
-  | Duration x -> Format.fprintf ppf "%s" (duration_to_string x)
-  | Enum (_, (name, Unit)) -> Format.fprintf ppf "%s" name
-  | Enum (_, (name, v)) -> Format.fprintf ppf "%s(%a)" name format_value v
-  | Struct (name, attrs) ->
-    Format.fprintf ppf "@[<hv 2>%s = {@ %a@;<1 -2>}@]" name
+  | Date, x -> Format.fprintf ppf "%s" (date_to_string x)
+  | Duration, x -> Format.fprintf ppf "%s" (duration_to_string x)
+  | Enum en, v ->
+    (match en.constr v with
+     | _, name, None -> Format.fprintf ppf "%s" name
+     | _, name, Some v ->
+       Format.fprintf ppf "%s(%a)" name format_value v)
+  | Struct str, v ->
+    Format.fprintf ppf "@[<hv 2>%s = {@ %a@;<1 -2>}@]" str.name
       (Format.pp_print_list
          ~pp_sep:(fun ppf () -> Format.fprintf ppf ",@ ")
          (fun fmt (name, value) ->
            Format.fprintf fmt "%s: %a" name format_value value))
-      attrs
-  | Array elts ->
+      (str.fields v)
+  | Array t, v ->
     Format.fprintf ppf "@[<hv 2>[@ %a@;<1 -2>]@]"
-      (Format.pp_print_list
+      (Format.pp_print_seq
          ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@ ")
-         format_value)
-      (elts |> Array.to_list)
-  | Tuple elts ->
+         (fun ppf v -> format_value ppf (RValue {t; v})))
+      (Array.to_seq v)
+  | Tuple destr, v ->
     Format.fprintf ppf "@[<hv 2>(@ %a@;<1 -2>)@]"
       (Format.pp_print_list
          ~pp_sep:(fun ppf () -> Format.fprintf ppf ",@ ")
          format_value)
-      (elts |> Array.to_list)
-  | Position (file, sl, sc, el, ec) ->
-    Format.fprintf ppf "@[<h><%s:%d.%d-%d-%d@]" file sl sc el ec
+      (destr v)
+  | Position, pos ->
+    Format.fprintf ppf "@[<h><%s:%d.%d-%d-%d@]"
+      pos.filename pos.start_line pos.start_column pos.end_line pos.end_column
+  | Function _, _ -> Format.fprintf ppf "fun"
+  | External ex, v -> Format.pp_print_string ppf (ex.to_string v)
 
 let rec pp_events ?(is_first_call = true) ppf events =
   let rec format_var_def ppf var =
@@ -1035,7 +1012,13 @@ module Oper = struct
   let o_and = ( && )
   let o_or = ( || )
   let o_xor : bool -> bool -> bool = ( <> )
-  let o_eq = ( = )
+
+  let o_eq  t pos x1 x2 = equal t pos x1 x2
+  let o_lt  t pos x1 x2 = compare t pos x1 x2 < 0
+  let o_lte t pos x1 x2 = compare t pos x1 x2 <= 0
+  let o_gt  t pos x1 x2 = compare t pos x1 x2 > 0
+  let o_gte t pos x1 x2 = compare t pos x1 x2 >= 0
+
   let o_map = Array.map
 
   let o_map2 pos f a b =
@@ -1109,32 +1092,6 @@ module Oper = struct
     in
     o_div_int_int pos i1 i2
 
-  let o_lt_int_int i1 i2 = Z.compare i1 i2 < 0
-  let o_lt_rat_rat i1 i2 = Q.compare i1 i2 < 0
-  let o_lt_mon_mon m1 m2 = Z.compare m1 m2 < 0
-  let o_lt_dur_dur pos d1 d2 = compare_periods pos d1 d2 < 0
-  let o_lt_dat_dat d1 d2 = Dates_calc.compare_dates d1 d2 < 0
-  let o_lte_int_int i1 i2 = Z.compare i1 i2 <= 0
-  let o_lte_rat_rat i1 i2 = Q.compare i1 i2 <= 0
-  let o_lte_mon_mon m1 m2 = Z.compare m1 m2 <= 0
-  let o_lte_dur_dur pos d1 d2 = compare_periods pos d1 d2 <= 0
-  let o_lte_dat_dat d1 d2 = Dates_calc.compare_dates d1 d2 <= 0
-  let o_gt_int_int i1 i2 = Z.compare i1 i2 > 0
-  let o_gt_rat_rat i1 i2 = Q.compare i1 i2 > 0
-  let o_gt_mon_mon m1 m2 = Z.compare m1 m2 > 0
-  let o_gt_dur_dur pos d1 d2 = compare_periods pos d1 d2 > 0
-  let o_gt_dat_dat d1 d2 = Dates_calc.compare_dates d1 d2 > 0
-  let o_gte_int_int i1 i2 = Z.compare i1 i2 >= 0
-  let o_gte_rat_rat i1 i2 = Q.compare i1 i2 >= 0
-  let o_gte_mon_mon m1 m2 = Z.compare m1 m2 >= 0
-  let o_gte_dur_dur pos d1 d2 = compare_periods pos d1 d2 >= 0
-  let o_gte_dat_dat d1 d2 = Dates_calc.compare_dates d1 d2 >= 0
-  let o_eq_boo_boo b1 b2 = b1 = b2
-  let o_eq_int_int i1 i2 = Z.equal i1 i2
-  let o_eq_rat_rat i1 i2 = Q.equal i1 i2
-  let o_eq_mon_mon m1 m2 = Z.equal m1 m2
-  let o_eq_dur_dur pos d1 d2 = equal_periods pos d1 d2
-  let o_eq_dat_dat d1 d2 = Dates_calc.compare_dates d1 d2 = 0
   let o_fold = Array.fold_left
   let o_toclosureenv = Obj.repr
   let o_fromclosureenv = Obj.obj

@@ -392,6 +392,10 @@ let polymorphic_op_type (op : Operator.polymorphic operator Mark.pos) : typ =
     match Mark.remove op with
     | Fold -> [[any2; any] @-> any2; any2; array any] @-> any2
     | Eq -> [any; any] @-> bt
+    | Lt -> [any; any] @-> bt
+    | Lte -> [any; any] @-> bt
+    | Gt -> [any; any] @-> bt
+    | Gte -> [any; any] @-> bt
     | Map -> [[any] @-> any2; array any] @-> array any2
     | Map2 -> [[any; any2] @-> any3; array any; array any2] @-> array any3
     | Filter -> [[any] @-> bt; array any] @-> array any

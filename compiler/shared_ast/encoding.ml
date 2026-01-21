@@ -19,18 +19,18 @@ open Definitions
 module Runtime = Catala_runtime
 open Json_encoding
 
-let bool_encoding : Runtime.runtime_value encoding =
+let bool_encoding : Runtime.runvalue encoding =
   conv
     (function
-      | Runtime.Bool b -> b
+      | Runtime.RValue { t = Runtime.Bool; v } -> (v: bool)
       | v ->
         Message.error ~internal:true
           "Unexpected runtime value %a instead of bool while encoding to JSON"
           Runtime.format_value v)
-    (fun b -> Runtime.Bool b)
+    (fun v -> Runtime.RValue { t = Runtime.Bool; v })
     bool
 
-let unit_encoding : Runtime.runtime_value encoding =
+let unit_encoding : Runtime.runvalue encoding =
   conv
     (function
       | Runtime.Unit -> ()
@@ -43,7 +43,7 @@ let unit_encoding : Runtime.runtime_value encoding =
 
 let try_option f = try Some (f ()) with _ -> None
 
-let int_encoding : Runtime.runtime_value encoding =
+let int_encoding : Runtime.runvalue encoding =
   union
     [
       case int53
@@ -64,7 +64,7 @@ let int_encoding : Runtime.runtime_value encoding =
             raise (Json_encoding.Unexpected ("string", "numeric string")));
     ]
 
-let money_encoding : Runtime.runtime_value encoding =
+let money_encoding : Runtime.runvalue encoding =
   let z_100 = Z.of_int 100 in
   let q_100 = Q.of_int 100 in
   union
@@ -101,7 +101,7 @@ let money_encoding : Runtime.runtime_value encoding =
             raise (Json_encoding.Unexpected ("string", "numeric string")));
     ]
 
-let rat_encoding : Runtime.runtime_value encoding =
+let rat_encoding : Runtime.runvalue encoding =
   union
     [
       case float
@@ -122,7 +122,7 @@ let rat_encoding : Runtime.runtime_value encoding =
             raise (Json_encoding.Unexpected ("string", "numeric string")));
     ]
 
-let date_encoding : Runtime.runtime_value encoding =
+let date_encoding : Runtime.runvalue encoding =
   let date_obj =
     obj3
       (req "year" (ranged_int ~minimum:0 ~maximum:9999 "years"))
@@ -162,7 +162,7 @@ let date_encoding : Runtime.runtime_value encoding =
              Runtime.Date (Dates_calc.make_date ~year ~month ~day));
        ]
 
-let duration_encoding : Runtime.runtime_value encoding =
+let duration_encoding : Runtime.runvalue encoding =
   let encoding =
     obj3 (dft "years" int 0) (dft "months" int 0) (dft "days" int 0)
     |> conv
@@ -194,7 +194,7 @@ let position_encoding =
        (fun (file, ((sl, sc), (el, ec))) ->
          Runtime.Position (file, Int32.to_int sl, sc, Int32.to_int el, ec))
 
-let make_constant s : Runtime.runtime_value encoding =
+let make_constant s : Runtime.runvalue encoding =
   conv
     (function
       | Runtime.Unit -> ()
@@ -205,7 +205,7 @@ let make_constant s : Runtime.runtime_value encoding =
     (fun () -> Unit)
     (constant s)
 
-let generate_lit_encoding (typ_lit : typ_lit) : Runtime.runtime_value encoding =
+let generate_lit_encoding (typ_lit : typ_lit) : Runtime.runvalue encoding =
   match typ_lit with
   | TBool -> bool_encoding
   | TUnit -> unit_encoding
@@ -217,7 +217,7 @@ let generate_lit_encoding (typ_lit : typ_lit) : Runtime.runtime_value encoding =
   | TPos -> position_encoding
 
 let rec generate_encoder (ctx : decl_ctx) (typ : typ) :
-    Runtime.runtime_value encoding =
+    Runtime.runvalue encoding =
   match Mark.remove typ with
   | TError -> assert false
   | TLit tlit -> generate_lit_encoding tlit
@@ -234,7 +234,7 @@ let rec generate_encoder (ctx : decl_ctx) (typ : typ) :
   | TClosureEnv -> Message.error "Cannot encode 'closure-env' types"
   | TAbstract _ -> Message.error "Cannot encode 'abstract' types"
 
-and generate_array_encoder ctx typ : Runtime.runtime_value encoding =
+and generate_array_encoder ctx typ : Runtime.runvalue encoding =
   let open Runtime in
   conv
     (function
@@ -266,8 +266,8 @@ and generate_option_encoder ctx typ =
 and generate_tuple_encoder ctx typl =
   assert (typl <> []);
   let first_tup_enc = tup1 (generate_encoder ctx (List.hd typl)) in
-  let add_tuple (acc : Runtime.runtime_value encoding) typ :
-      Runtime.runtime_value encoding =
+  let add_tuple (acc : Runtime.runvalue encoding) typ :
+      Runtime.runvalue encoding =
     let bconv = merge_tups acc (tup1 (generate_encoder ctx typ)) in
     conv
       (function
@@ -310,8 +310,8 @@ and generate_struct_encoder (ctx : decl_ctx) (sname : StructName.t) =
       (fun () -> Runtime.Struct (StructName.to_string sname, []))
       empty
   in
-  let add_req_field (encoding : Runtime.runtime_value encoding) (sf, typ) :
-      Runtime.runtime_value encoding =
+  let add_req_field (encoding : Runtime.runvalue encoding) (sf, typ) :
+      Runtime.runvalue encoding =
     let field_label, field_s = rename_field sf in
     let bconv =
       merge_objs encoding (obj1 (req field_label (generate_encoder ctx typ)))
@@ -332,8 +332,8 @@ and generate_struct_encoder (ctx : decl_ctx) (sname : StructName.t) =
         | _ -> assert false)
       bconv
   in
-  let add_opt_field (encoding : Runtime.runtime_value encoding) (sf, typ) :
-      Runtime.runtime_value encoding =
+  let add_opt_field (encoding : Runtime.runvalue encoding) (sf, typ) :
+      Runtime.runvalue encoding =
     let field_label, field_s = rename_field sf in
     let bconv =
       merge_objs encoding (obj1 (opt field_label (generate_encoder ctx typ)))
@@ -373,7 +373,7 @@ and generate_enum_encoder (ctx : decl_ctx) (ename : EnumName.t) =
   let enum = EnumName.Map.find ename ctx.ctx_enums in
   let bdgs = EnumConstructor.Map.bindings enum in
   let ename_s = EnumName.to_string ename in
-  let make_constructor_case (cstr, typ) : Runtime.runtime_value case =
+  let make_constructor_case (cstr, typ) : Runtime.runvalue case =
     let cstr_s = EnumConstructor.to_string cstr in
     match Mark.remove typ with
     | TLit TUnit ->
@@ -410,7 +410,7 @@ and generate_enum_encoder (ctx : decl_ctx) (ename : EnumName.t) =
   in
   def (Format.asprintf "%a" EnumName.format_shortpath ename) enc
 
-let make_encoding (ctx : decl_ctx) (typ : typ) : Runtime.runtime_value encoding
+let make_encoding (ctx : decl_ctx) (typ : typ) : Runtime.runvalue encoding
     =
   generate_encoder ctx typ
 
@@ -448,7 +448,7 @@ let rec convert_to_dcalc
     ctx
     (mark : 'm mark)
     (typ : typ)
-    (rval : Runtime.runtime_value) : (dcalc, 'm) boxed_gexpr =
+    (rval : Runtime.runvalue) : (dcalc, 'm) boxed_gexpr =
   let mark = Expr.with_ty mark typ in
   let f = convert_to_dcalc ctx mark in
   match Mark.remove typ, rval with
@@ -496,14 +496,14 @@ let rec convert_to_dcalc
     Expr.etuple (Array.to_list a |> List.map2 (fun typ -> f typ) typl) mark
   | _t, r ->
     Message.error
-      "Cannot convert runtime_value to dcalc: expected value of type %a, got %a"
+      "Cannot convert runvalue to dcalc: expected value of type %a, got %a"
       Print.typ typ Runtime.format_value r
 
 let rec convert_to_lcalc
     ctx
     (mark : 'm mark)
     (typ : typ)
-    (rval : Runtime.runtime_value) : (lcalc, 'm) boxed_gexpr =
+    (rval : Runtime.runvalue) : (lcalc, 'm) boxed_gexpr =
   let mark = Expr.with_ty mark typ in
   let f = convert_to_lcalc ctx mark in
   match Mark.remove typ, rval with
@@ -550,11 +550,11 @@ let rec convert_to_lcalc
     Expr.etuple (Array.to_list a |> List.map2 (fun typ -> f typ) typl) mark
   | _t, r ->
     Message.error
-      "Cannot convert runtime_value to lcalc: expected value of type %a, got %a"
+      "Cannot convert runvalue to lcalc: expected value of type %a, got %a"
       Print.typ typ Runtime.format_value r
 
 let rec convert_from_gexpr : type a.
-    decl_ctx -> (a, 'm) gexpr -> Runtime.runtime_value =
+    decl_ctx -> (a, 'm) gexpr -> Runtime.runvalue =
  fun ctx e ->
   let f = convert_from_gexpr ctx in
   match Mark.remove e with

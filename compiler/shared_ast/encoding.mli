@@ -52,35 +52,35 @@
 open Definitions
 open Catala_runtime
 
-val make_encoding : decl_ctx -> typ -> runtime_value Json_encoding.encoding
-(** Computes a JSON encoding of a Catala type using [runtime_value] as an
+val make_encoding : decl_ctx -> typ -> runvalue Json_encoding.encoding
+(** Computes a JSON encoding of a Catala type using [runvalue] as an
     intermediate representation. *)
 
 val scope_input_encoding :
-  ScopeName.t -> decl_ctx -> typ -> runtime_value Json_encoding.encoding
+  ScopeName.t -> decl_ctx -> typ -> runvalue Json_encoding.encoding
 (** Same as [make_encoding] but adds a title and a description to the generated
     JSON-schema expliciting that this represent a scope input structure. *)
 
 val scope_output_encoding :
-  ScopeName.t -> decl_ctx -> typ -> runtime_value Json_encoding.encoding
+  ScopeName.t -> decl_ctx -> typ -> runvalue Json_encoding.encoding
 (** Same as [make_encoding] but adds a title and a description to the generated
     JSON-schema expliciting that this represent a scope output structure. *)
 
 val parse_json :
-  runtime_value Json_encoding.encoding -> Yojson.Safe.t -> runtime_value
+  runvalue Json_encoding.encoding -> Yojson.Safe.t -> runvalue
 (** Parse a JSON using the given encoding as validation schema. *)
 
 val convert_to_dcalc :
-  decl_ctx -> 'm mark -> typ -> runtime_value -> (dcalc, 'm) gexpr boxed
-(** Conversion function from a [runtime_value] to a default calculus expression.
+  decl_ctx -> 'm mark -> typ -> runvalue -> (dcalc, 'm) gexpr boxed
+(** Conversion function from a [runvalue] to a default calculus expression.
 *)
 
 val convert_to_lcalc :
-  decl_ctx -> 'm mark -> typ -> runtime_value -> (lcalc, 'm) gexpr boxed
-(** Conversion function from a [runtime_value] to a lambda calculus expression.
+  decl_ctx -> 'm mark -> typ -> runvalue -> (lcalc, 'm) gexpr boxed
+(** Conversion function from a [runvalue] to a lambda calculus expression.
 *)
 
-val convert_from_gexpr : decl_ctx -> (_, 'm) gexpr -> runtime_value
+val convert_from_gexpr : decl_ctx -> (_, 'm) gexpr -> runvalue
 (** Conversion function from a generic expression to a runtime value. This
     functions expects the expression to be composed of encodable-only nodes
     (e.g., no lambdas, closures, etc.) *)
