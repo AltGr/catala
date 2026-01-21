@@ -250,6 +250,14 @@ let duration_to_string (d : duration) : string =
 let duration_to_years_months_days (d : duration) : int * int * int =
   Dates_calc.period_to_ymds d
 
+let compare_periods pos p1 p2 =
+  let y1, m1, d1 = Dates_calc.period_to_ymds p1 in
+  let y2, m2, d2 = Dates_calc.period_to_ymds p2 in
+  match y1, y2, m1, m2, d1, d2 with
+  | _, _, _, _, 0, 0 -> Int.compare ((12 * y1) + m1) ((12 * y2) + m2)
+  | 0, 0, 0, 0, d1, d2 -> Int.compare d1 d2
+  | _ -> error UncomparableDurations [pos]
+
 (* -- Runtime types and embedding -- *)
 
 type 'a runtype =
@@ -262,12 +270,13 @@ type 'a runtype =
   | Duration : duration runtype
   | Enum : {
       name: string;
-      constr: 'a -> string * runvalue option;
-      destr: string * runvalue option -> 'a;
+      constr: 'a -> int * string * runvalue option;
+      (* destr: string * runvalue option -> 'a; ? *)
     } -> 'a runtype
   | Struct : {
       name: string;
       fields: 'a -> (string * runvalue) list;
+      (* list order must be consistent with the representation *)
     } -> 'a runtype
   | External : {
       name: string;
@@ -281,10 +290,88 @@ type 'a runtype =
 
 and runvalue = RValue: { t: 'a runtype; v: 'a } -> runvalue
 
+type runvalue2 = RValue2: { t: 'a runtype; v1: 'a; v2: 'a } -> runvalue2
+
 let embed t v = RValue { t; v }
 
 let unembed (type a) (RValue { t; v }): a runtype * a =
   Obj.magic t, Obj.magic v
+
+let rec equal: type a. code_location -> a runtype -> a -> a -> bool =
+  fun pos rty x1 x2 ->
+  let rval_equal (RValue rv1) (RValue rv2) =
+    (* When recursing, by construction we can assume that the two runtime types match *)
+    equal pos rv1.t rv1.v (Obj.magic rv2.v)
+  in
+  match rty with
+  | Unit -> true
+  | Bool -> Bool.equal x1 x2
+  | Money -> Z.equal x1 x2
+  | Integer -> Z.equal x1 x2
+  | Decimal -> Q.equal x1 x2
+  | Date -> Dates_calc.compare_dates x1 x2 = 0
+  | Duration ->
+    Dates_calc.period_to_ymds x1 = Dates_calc.period_to_ymds x2
+    || compare_periods pos x1 x2 = 0
+  | Array sub ->
+    Array.length x1 = Array.length x2 && Array.for_all2 (equal pos sub) x1 x2
+  | Tuple destr ->
+    List.for_all2 rval_equal (destr x1) (destr x2)
+  | Position -> x1 = x2
+  | Function _ -> failwith "Uncomparable"
+  | External ext -> ext.equal pos x1 x2
+  | Enum en ->
+    let n1, _, x1 = en.constr x1 in let n2, _, x2 = en.constr x2 in
+    n1 = n2 && Option.equal rval_equal x1 x2
+  | Struct str ->
+    List.for_all2
+      (fun (fld1, rv1) (fld2, rv2) ->
+         fld1 = fld2 && rval_equal rv1 rv2)
+      (str.fields x1) (str.fields x2)
+
+let rec compare: type a. code_location -> a runtype -> a -> a -> int =
+  fun pos rty x1 x2 ->
+  let rval_compare (RValue rv1) (RValue rv2) =
+    (* When recursing, by construction we can assume that the two runtime types match *)
+    compare pos rv1.t rv1.v (Obj.magic rv2.v)
+  in
+  let rec compare_lists l1 l2 = match l1, l2 with
+    | x1::l1, x2::l2 -> (match rval_compare x1 x2 with 0 -> compare_lists l1 l2 | n -> n)
+    | [], [] -> 0
+    | [], _ -> -1
+    | _, [] -> 1
+  in
+  match rty with
+  | Unit -> 0
+  | Bool -> Bool.compare x1 x2
+  | Money -> Z.compare x1 x2
+  | Integer -> Z.compare x1 x2
+  | Decimal -> Q.compare x1 x2
+  | Date -> Dates_calc.compare_dates x1 x2
+  | Duration -> compare_periods pos x1 x2
+  | Array sub ->
+    let rec aux i =
+      if i >= Array.length x1 then
+        if i >= Array.length x2 then 0
+        else -1
+      else if i >= Array.length x2 then 1
+      else match compare pos sub x1.(i) x2.(i) with
+        | 0 -> aux (i+1)
+        | n -> n
+    in
+    aux 0
+  | Tuple destr ->
+    compare_lists (destr x1) (destr x2)
+  | Position -> Stdlib.compare x1 x2
+  | Function _ -> failwith "Uncomparable"
+  | External ext -> ext.compare pos x1 x2
+  | Enum en ->
+    let n1, _, x1 = en.constr x1 in let n2, _, x2 = en.constr x2 in
+    (match Stdlib.compare n1 n2 with
+     | 0 -> Option.compare rval_compare x1 x2
+     | n -> n)
+  | Struct str ->
+    compare_lists (List.map snd (str.fields x1)) (List.map snd (str.fields x2))
 
 (* let get_runtype : type a. any_runtype -> a runtype =
  *   let open struct external cast : _ runtype -> a runtype = "%identity" end in
@@ -297,94 +384,45 @@ let unembed (type a) (RValue { t; v }): a runtype * a =
 
 module type CatalaType = sig
   type t
-  val equal: code_location -> t -> t -> bool
-  val compare: code_location -> t -> t -> int
   val rtype: t runtype
 end
 
 module Unit : CatalaType with type t = unit = struct
   type t = unit
-  let equal _ _ _ = true
-  let compare _ _ _ = 0
   let rtype = Unit
 end
 module Bool : CatalaType with type t = bool = struct
   type t = bool
-  let equal _ = Bool.equal
-  let compare _ = Bool.compare
   let rtype = Bool
 end
 module Money : CatalaType with type t = money = struct
   type t = money
-  let equal _ = Z.equal
-  let compare _ = Z.compare
   let rtype = Money
 end
 module Integer : CatalaType with type t = integer = struct
   type t = integer
-  let equal _ = Z.equal
-  let compare _ = Z.compare
   let rtype = Integer
 end
 module Decimal : CatalaType with type t = decimal = struct
   type t = decimal
-  let equal _ = Q.equal
-  let compare _ = Q.compare
   let rtype = Decimal
 end
 module Date : CatalaType with type t = date = struct
   type t = date
-  let equal _ d1 d2 = Dates_calc.compare_dates d1 d2 = 0
-  let compare _ = Dates_calc.compare_dates
   let rtype = Date
 end
 module Duration : CatalaType with type t = duration = struct
   type t = duration
-
-  (* TODO: add this compare built-in to dates_calc ? *)
-  let compare pos p1 p2 =
-    let y1, m1, d1 = Dates_calc.period_to_ymds p1 in
-    let y2, m2, d2 = Dates_calc.period_to_ymds p2 in
-    match y1, y2, m1, m2, d1, d2 with
-    | _, _, _, _, 0, 0 -> Int.compare ((12 * y1) + m1) ((12 * y2) + m2)
-    | 0, 0, 0, 0, d1, d2 -> Int.compare d1 d2
-    | _ -> error UncomparableDurations [pos]
-
-  let equal pos p1 p2 =
-    Dates_calc.period_to_ymds p1 = Dates_calc.period_to_ymds p2
-    || compare pos p1 p2 = 0
-
   let rtype = Duration
 end
 
 module Array (X: CatalaType) : CatalaType with type t = X.t array = struct
   type t = X.t array
-  let equal pos a b =
-    Array.length a = Array.length b && Array.for_all2 (X.equal pos) a b
-
-  let compare pos a b =
-    let rec aux i =
-      if i >= Array.length a then
-        if i >= Array.length b then 0
-        else -1
-      else if i >= Array.length b then 1
-      else match X.compare pos a.(i) b.(i) with
-        | 0 -> aux (i+1)
-        | n -> n
-    in
-    aux 0
-
   let rtype = Array X.rtype
 end
 
 module Foo : CatalaType = struct
   type t = { foo: integer; bar: date }
-
-  let equal pos a b = Integer.equal pos a.foo b.foo && Date.equal pos a.bar b.bar
-
-  let compare pos a b = match Integer.compare pos a.foo b.foo with
-    | 0 -> Date.compare pos a.bar b.bar
-    | n -> n
 
   let rtype = Struct {
       name = "Foo";
@@ -398,27 +436,12 @@ end
 module Bar : CatalaType = struct
   type t = Foo of integer | Bar of date | Baz of (bool * integer)
 
-  let equal pos a b = match a, b with
-    | Foo a, Foo b -> Integer.equal pos a b
-    | Bar a, Bar b -> Date.equal pos a b
-    | Baz (a1, a2), Baz (b1, b2) -> Bool.equal pos a1 b1 && Integer.equal pos a2 b2
-    | _ -> false
-
-  let compare pos a b = match a, b with
-    | Foo a, Foo b -> Integer.compare pos a b
-    | Foo _, _ -> 1
-    | _, Foo _ -> -1
-    | Bar a, Bar b -> Date.compare pos a b
-    | Bar _, _ -> 1
-    | _, Bar _ -> -1
-    | Baz (a1, a2), Baz (b1, b2) -> match Bool.compare pos a1 b1 with 0 -> Integer.compare pos a2 b2 | n -> n
-
   let rtype = Enum {
       name = "Bar";
       constr = fun t -> match t with
-        | Foo x -> "Foo", Some (embed Integer.rtype x)
-        | Bar x -> "Bar", Some (embed Date.rtype x)
-        | Baz x -> "Baz", Some (embed (Tuple (fun (x1, x2) -> [embed Bool.rtype x1; embed Integer.rtype x2])) x);
+        | Foo x -> 0, "Foo", Some (embed Integer.rtype x)
+        | Bar x -> 1, "Bar", Some (embed Date.rtype x)
+        | Baz x -> 2, "Baz", Some (embed (Tuple (fun (x1, x2) -> [embed Bool.rtype x1; embed Integer.rtype x2])) x);
     }
 end
 
@@ -527,7 +550,7 @@ module BufferedJson = struct
     | Date, d -> quote buf (date_to_string d)
     | Duration, d -> quote buf (duration_to_string d)
     | Enum en, e ->
-      let constr, value = en.constr e in
+      let _, constr, value = en.constr e in
       Printf.bprintf buf
         {|{"kind": "enum", "name": "%s", "constructor": "%s"%a}|}
         en.name constr
@@ -543,17 +566,18 @@ module BufferedJson = struct
            List.iter (fun (name, v) ->
                Printf.bprintf buf {|"%a": %a|} quote name runtime_value v))
         fields
-    | (Array elts | Tuple elts) as v ->
-      Printf.bprintf buf {|{"kind": %s, "value":[%a]}|}
-        (match v with
-        | Array _ -> "\"array\""
-        | Tuple _ -> "\"tuple\""
-        | _ -> assert false)
-        (list runtime_value) (Array.to_list elts)
-    | Position (file, sl, sc, el, ec) ->
+    | Array t, a ->
+      Printf.bprintf buf {|{"kind": "array", "value":[%a]}|}
+        (seq (fun buf v -> runtime_value buf (RValue { t; v })))
+        (Stdlib.Array.to_seq a)
+    | Tuple destr, a ->
+      Printf.bprintf buf {|{"kind": "tuple", "value":[%a]}|}
+        (list runtime_value)
+        (destr a)
+    | Position, pos ->
       Printf.bprintf buf {|{"kind": "position", "value":[%s, %d, %d, %d, %d]}|}
-        file sl sc el ec
-    | Unembeddable -> Buffer.add_string buf {|"unembeddable"|}
+        pos.filename pos.start_line pos.start_column pos.end_line pos.end_column
+    | Function _, _ -> Buffer.add_string buf {|"unembeddable"|}
 
   let information buf info = Printf.bprintf buf "[%a]" (list quote) info
 

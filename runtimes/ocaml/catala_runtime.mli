@@ -97,65 +97,49 @@ exception Empty
 
 (** {2 Runtime type encoding} *)
 
-(** Lists of 'a *)
-type ('a, 'b) tlist =
-  | TNil : ('a, unit) tlist
-  | TCons : ('a * _ tlist as 'b) -> ('a, 'b) tlist
-
 (** t runtype provides runtime information about the structure of values of type t *)
-and 'a runtype =
+type 'a runtype =
   | Unit : unit runtype
   | Bool : bool runtype
-  | Money : integer runtype
+  | Money : money runtype
   | Integer : integer runtype
   | Decimal : decimal runtype
   | Date : date runtype
   | Duration : duration runtype
-  | Enum : string * (string * _ runtype, _) tlist -> 'a runtype
-  | Struct : string * (string * _ runtype, _) tlist -> 'a runtype
-  | External : string -> 'a runtype
-  | Array : 'a runtype -> 'a array runtype
-  | Tuple : (_ runtype, _) tlist -> 'a runtype
+  | Enum : {
+      name: string;
+      constr: 'a -> int * string * runvalue option;
+      (* destr: string * runvalue option -> 'a; ? *)
+    } -> 'a runtype
+  | Struct : {
+      name: string;
+      fields: 'a -> (string * runvalue) list;
+      (* list order must be consistent with the representation *)
+    } -> 'a runtype
+  | External : {
+      name: string;
+      equal: code_location -> 'a -> 'a -> bool;
+      compare: code_location -> 'a -> 'a -> int;
+    } -> 'a runtype
+  | Array: 'a runtype -> 'a array runtype
+  | Tuple: ('a -> runvalue list) -> 'a runtype
   | Position : code_location runtype
-  | Function : (_ runtype, _) tlist * _ runtype -> 'a runtype
+  | Function : (('args -> 'ret) -> 'args -> runvalue) -> ('args -> 'ret) runtype (* ?? *)
 
-type runtime_value
+and runvalue = RValue: { t: 'a runtype; v: 'a } -> runvalue
 
-val embed: 'a runtype * 'a -> runtime_value
+val embed: 'a runtype * 'a -> runvalue
 
-val unembed: runtime_value -> 'a runtype * 'a
-
-val runvalue_to_string: runtime_value -> string
+(* val unembed: runvalue -> 'a runtype * 'a *)
 
 (** {1 Catala types utils} *)
 
 module type CatalaType = sig
   type t
-  val equal: t -> t -> bool
-  val compare: t -> t -> int
   val rtype: t runtype
 end
 
-module Unit : CatalaType with type t = unit
-module Bool : CatalaType with type t = bool
-module Money : CatalaType with type t = money
-module Integer : CatalaType with type t = integer
-module Decimal : CatalaType with type t = decimal
-module Date : CatalaType with type t = date
-module Duration : CatalaType with type t = duration
-module List : (T: CatalaType) -> CatalaType with type t = T.t array
-module Optional : (T: CatalaType) -> CatalaType with type t = T.t array
-
-val unembeddable : 'a -> runtime_value
-val embed_unit : unit -> runtime_value
-val embed_bool : bool -> runtime_value
-val embed_money : money -> runtime_value
-val embed_integer : integer -> runtime_value
-val embed_decimal : decimal -> runtime_value
-val embed_date : date -> runtime_value
-val embed_duration : duration -> runtime_value
-val embed_array : ('a -> runtime_value) -> 'a Array.t -> runtime_value
-val format_value : Format.formatter -> runtime_value -> unit
+val format_value : Format.formatter -> runvalue -> unit
 
 (** {1 Logging} *)
 
@@ -190,7 +174,7 @@ type information = string list
 type raw_event =
   | BeginCall of information  (** Subscope or function call. *)
   | EndCall of information  (** End of a subscope or a function call. *)
-  | VariableDefinition of information * io_log * runtime_value
+  | VariableDefinition of information * io_log * runvalue
       (** Definition of a variable or a function argument. *)
   | DecisionTaken of code_location  (** Source code position of an event. *)
 
@@ -249,7 +233,7 @@ and var_def = {
   pos : code_location option;
   name : information;
   io : io_log;
-  value : runtime_value;
+  value : runvalue;
   fun_calls : fun_call list option;
 }
 
@@ -280,7 +264,7 @@ val log_begin_call : string list -> 'a -> 'a
 val log_end_call : string list -> 'a -> 'a
 
 val log_variable_definition :
-  string list -> io_log -> ('a -> runtime_value) -> 'a -> 'a
+  string list -> io_log -> ('a -> runvalue) -> 'a -> 'a
 
 val log_decision_taken : code_location -> bool -> bool
 
@@ -290,7 +274,7 @@ val log_decision_taken : code_location -> bool -> bool
 module Json : sig
   (* val io_input: io_input -> string *)
   val io_log : io_log -> string
-  val runtime_value : runtime_value -> string
+  val runvalue : runvalue -> string
 
   (* val information: information -> string *)
   val event : event -> string
@@ -446,32 +430,6 @@ module Oper : sig
   val o_div_mon_int : code_location -> money -> integer -> money
   val o_div_mon_rat : code_location -> money -> decimal -> money
   val o_div_dur_dur : code_location -> duration -> duration -> decimal
-  val o_lt_int_int : integer -> integer -> bool
-  val o_lt_rat_rat : decimal -> decimal -> bool
-  val o_lt_mon_mon : money -> money -> bool
-  val o_lt_dur_dur : code_location -> duration -> duration -> bool
-  val o_lt_dat_dat : date -> date -> bool
-  val o_lte_int_int : integer -> integer -> bool
-  val o_lte_rat_rat : decimal -> decimal -> bool
-  val o_lte_mon_mon : money -> money -> bool
-  val o_lte_dur_dur : code_location -> duration -> duration -> bool
-  val o_lte_dat_dat : date -> date -> bool
-  val o_gt_int_int : integer -> integer -> bool
-  val o_gt_rat_rat : decimal -> decimal -> bool
-  val o_gt_mon_mon : money -> money -> bool
-  val o_gt_dur_dur : code_location -> duration -> duration -> bool
-  val o_gt_dat_dat : date -> date -> bool
-  val o_gte_int_int : integer -> integer -> bool
-  val o_gte_rat_rat : decimal -> decimal -> bool
-  val o_gte_mon_mon : money -> money -> bool
-  val o_gte_dur_dur : code_location -> duration -> duration -> bool
-  val o_gte_dat_dat : date -> date -> bool
-  val o_eq_boo_boo : bool -> bool -> bool
-  val o_eq_int_int : integer -> integer -> bool
-  val o_eq_rat_rat : decimal -> decimal -> bool
-  val o_eq_mon_mon : money -> money -> bool
-  val o_eq_dur_dur : code_location -> duration -> duration -> bool
-  val o_eq_dat_dat : date -> date -> bool
   val o_fold : ('a -> 'b -> 'a) -> 'a -> 'b array -> 'a
   val o_toclosureenv : 'a -> Obj.t
   val o_fromclosureenv : Obj.t -> 'a
