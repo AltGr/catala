@@ -1085,3 +1085,76 @@ let detuplify_application args tys mkapp =
         (TTuple tys, pos arg)
         arg (mkapp args) (pos arg))
   | args, _ -> mkapp args
+
+(*
+let type_to_runtime t =
+  let module V = Catala_runtime.Value in
+  let fail () = invalid_arg "Type.to_runtime" in
+  match Mark.remove t with
+  | TLit TUnit -> (function ELit LUnit, _ -> V.V (Unit, ()) | _ -> fail ())
+  | TLit TBool -> (function ELit (LBool b), _ -> V.V (Bool, b) | _ -> fail ())
+  | TLit TInt -> (function ELit LInt v, _ -> V.V (Integer, v) | _ -> fail ())
+  | TLit TMoney -> (function ELit LMoney v, _ -> V.V (Money, v) | _ -> fail ())
+  | TLit TRat -> (function ELit LRat v, _ -> V.V (Decimal, v) | _ -> fail ())
+  | TLit TDate -> (function ELit LDate v, _ -> V.V (Date, v) | _ -> fail ())
+  | TLit TDuration -> (function ELit LDuration v, _ -> V.V (Duration, v) | _ -> fail ())
+  | TLit TPos -> (function EPos v, _ -> V.V (Position, pos_to_runtime v) | _ -> fail ())
+  | TArray t -> (function EArray el, _ -> V.V 
+    V.V (Array value_to_runtime, Array.of_list el)
+  | TTuple _, ETuple el ->
+    V.V (Tuple (List.map value_to_runtime), el)
+  | TStruct name, EStruct { fields; _ } ->
+    V.V (Struct {
+        name = StructName.to_string name;
+        fields = 
+*)
+
+let rec embed_value ctx e =
+  let module V = Catala_runtime.Value in
+  match Mark.remove e with
+  | ELit LUnit -> V.V (Unit, ())
+  | ELit LBool v -> V.V (Bool, v)
+  | ELit LInt v -> V.V (Integer, v)
+  | ELit LMoney v -> V.V (Money, v)
+  | ELit LRat v -> V.V (Decimal, v)
+  | ELit LDate v -> V.V (Date, v)
+  | ELit LDuration v -> V.V (Duration, v)
+  | EPos v -> V.V (Position, pos_to_runtime v)
+  | EArray el ->
+    V.V (Array (embed_value ctx), Array.of_list el)
+  | ETuple el ->
+    V.V (Tuple (List.map (embed_value ctx)), el)
+  | EStruct { name; fields } ->
+    V.V (
+      Struct {
+        name = StructName.to_string name;
+        fields =
+          List.map (fun (name, e) ->
+              StructField.to_string name,
+              embed_value ctx e)
+      },
+      (StructField.Map.bindings fields)
+    )
+  | EInj { name; cons; e = payload } ->
+    let constr_index =
+      Option.get
+        (Seq.find_index (fun (c, _) -> EnumConstructor.equal cons c)
+           (EnumConstructor.Map.to_seq (EnumName.Map.find name ctx.ctx_enums)))
+    in
+    V.V (
+      Enum {
+        name = EnumName.to_string name;
+        constr = fun (index, cons, payload) ->
+          index,
+          EnumConstructor.to_string cons,
+          match payload with
+          | ELit LUnit, _ -> None
+          | e -> Some (embed_value ctx e)
+      },
+      (constr_index, cons, payload)
+    )
+  | EAbs _ -> failwith "todo"
+    (* Probably something very clever to do here by embedding the interpreter itself *)
+  | ECustom { obj; _ } ->
+    V.V (Function (fun f args -> embed_value ctx (f args)), Obj.obj obj)
+  | _ -> invalid_arg "embed_value"

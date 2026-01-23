@@ -307,9 +307,3 @@ module Map = Map.Make (struct
   let compare = compare
   let format = format
 end)
-
-(* let to_runtime =
- *   let module R = Catala_runtime in
- *   function
- *   | TLit TUnit -> R.Unit
- *   | TLit TBool -> R.Bool *)

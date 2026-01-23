@@ -271,7 +271,7 @@ module Value = struct
     | Date : date ty
     | Duration : duration ty
     | Position : code_location ty
-    | Array: 'a ty -> 'a array ty
+    | Array: ('a -> t) -> 'a array ty
     | Tuple: ('a -> t list) -> 'a ty
     | Struct : {
         name: string;
@@ -311,8 +311,7 @@ module Value = struct
     | V (Position, v1), V (Position, v2) -> equal_values Position pos v1 v2
     | V (Array t1, v1), V (Array t2, v2) ->
       Array.length v1 = Array.length v2 &&
-      let embed_arr t = Array.map (fun v -> V (t, v)) in
-      Array.for_all2 (equal pos) (embed_arr t1 v1) (embed_arr t2 v2)
+      Array.for_all2 (equal pos) (Array.map t1 v1) (Array.map t2 v2)
     | V (Tuple t1, v1), V (Tuple t2, v2) ->
       List.for_all2 (equal pos) (t1 v1) (t2 v2)
     | V (Struct str1, v1), V (Struct str2, v2) ->
@@ -364,7 +363,7 @@ module Value = struct
           if i >= Array.length v2 then 0
           else -1
         else if i >= Array.length v2 then 1
-        else match compare pos (V (t1, v1.(i))) (V (t2, v2.(i))) with
+        else match compare pos (t1 v1.(i)) (t2 v2.(i)) with
           | 0 -> aux (i+1)
           | n -> n
       in
@@ -439,7 +438,7 @@ module Value = struct
       Format.fprintf ppf "@[<hv 2>[@ %a@;<1 -2>]@]"
         (Format.pp_print_seq
            ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@ ")
-           (fun ppf v -> format ppf (V (t, v))))
+           (fun ppf v -> format ppf (t v)))
         (Array.to_seq v)
     | V (Tuple destr, v) ->
       Format.fprintf ppf "@[<hv 2>(@ %a@;<1 -2>)@]"
@@ -627,7 +626,7 @@ module BufferedJson = struct
         fields
     | V (Array t, a) ->
       Printf.bprintf buf {|{"kind": "array", "value":[%a]}|}
-        (seq (fun buf v -> runtime_value buf (V (t, v))))
+        (seq (fun buf v -> runtime_value buf (t v)))
         (Stdlib.Array.to_seq a)
     | V (Tuple destr, a) ->
       Printf.bprintf buf {|{"kind": "tuple", "value":[%a]}|}

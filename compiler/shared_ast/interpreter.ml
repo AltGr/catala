@@ -77,7 +77,7 @@ let print_log ppf _lang level entry =
  *   EnumConstructor.Map.find *)
 
 let rec value_to_runtime_embedded : type d.
-    ((d, _) interpr_kind, 'm) naked_gexpr -> Runtime.runvalue = function
+    ((d, _) interpr_kind, 'm) naked_gexpr -> Runtime.Value.t = function
   | ELit LUnit -> Runtime.RValue { t = Unit; v = () }
   | ELit (LBool b) -> Runtime.RValue { t = Bool; v = b }
   | ELit (LMoney m) -> Runtime.RValue { t = Money; v = m }
@@ -108,10 +108,9 @@ let rec value_to_runtime_embedded : type d.
   | EEmpty -> Runtime.RValue { t = Enum; v = ("Optional", ("Absent", Unit)) }
   | _ -> Runtime.RValue { t = Unembeddable; v = () }
 
-(* Todo: this should be handled early when resolving overloads. Here we have
-   proper structural equality, but the OCaml backend for example uses the
-   builtin equality function instead of this. *)
 let handle_eq pos evaluate_operator m lang e1 e2 =
+  Runtime.equal (embed_value ctx e1) (embed_value ctx e2)
+  
   let eq_eval = evaluate_operator (Eq, pos) m lang in
   let open Runtime.Oper in
   match e1, e2 with

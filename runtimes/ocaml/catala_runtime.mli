@@ -104,7 +104,7 @@ module Value: sig
     | Date : date ty
     | Duration : duration ty
     | Position : code_location ty
-    | Array: 'a ty -> 'a array ty
+    | Array: ('a -> t) -> 'a array ty
     | Tuple: ('a -> t list) -> 'a ty
     | Struct : {
         name: string;
