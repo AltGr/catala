@@ -93,40 +93,53 @@ exception Empty
 
 (** {2 Runtime type encoding} *)
 
-(** t runtype provides runtime information about the structure of values of type t *)
-type _ runtype =
-  | Unit : unit runtype
-  | Bool : bool runtype
-  | Money : money runtype
-  | Integer : integer runtype
-  | Decimal : decimal runtype
-  | Date : date runtype
-  | Duration : duration runtype
-  | Enum : {
-      name: string;
-      constr: 'a -> int * string * runvalue option;
-      (* destr: string * runvalue option -> 'a; ? *)
-    } -> 'a runtype
-  | Struct : {
-      name: string;
-      fields: 'a -> (string * runvalue) list;
-      (* list order must be consistent with the representation *)
-    } -> 'a runtype
-  | External : {
-      name: string;
-      equal: code_location -> 'a -> 'a -> bool;
-      compare: code_location -> 'a -> 'a -> int;
-      to_json : ('a -> string) option;
-      to_string : 'a -> string;
-    } -> 'a runtype
-  | Array: 'a runtype -> 'a array runtype
-  | Tuple: ('a -> runvalue list) -> 'a runtype
-  | Position : code_location runtype
-  | Function : (('args -> 'ret) -> 'args -> runvalue) -> ('args -> 'ret) runtype (* ?? *)
+module Value: sig
+  (** 'a ty provides runtime information about the structure of values of OCaml type 'a *)
+  type _ ty =
+    | Unit : unit ty
+    | Bool : bool ty
+    | Integer : integer ty
+    | Money : money ty
+    | Decimal : decimal ty
+    | Date : date ty
+    | Duration : duration ty
+    | Position : code_location ty
+    | Array: 'a ty -> 'a array ty
+    | Tuple: ('a -> t list) -> 'a ty
+    | Struct : {
+        name: string;
+        fields: 'a -> (string * t) list;
+        (* list order must be consistent with the representation *)
+      } -> 'a ty
+    | Enum : {
+        name: string;
+        constr: 'a -> int * string * t option;
+        (* destr: string * t  option -> 'a; ? *)
+      } -> 'a ty
+    | External : {
+        name: string;
+        equal: code_location -> 'a -> t -> bool;
+        compare: code_location -> 'a -> t -> int;
+        to_json : ('a -> string) option;
+        to_string : 'a -> string;
+      } -> 'a ty
+    | Function : (('args -> 'ret) -> 'args -> t ) -> ('args -> 'ret) ty (* ?? *)
 
-and runvalue = RValue: { t: 'a runtype; v: 'a } -> runvalue
+  (** [Runtime.Value.t] is an embedded runtime value that comes with type information, allowing for introspection *)
+  and t = V: 'a ty * 'a -> t
 
-val embed: 'a runtype -> 'a -> runvalue
+  val embed: 'a ty -> 'a -> t
+
+  val equal: code_location -> t -> t -> bool
+  val compare: code_location -> t -> t -> int
+  val format: Format.formatter -> t -> unit
+end
+
+(** Polymorphic, structural equality using runtime type information *)
+val equal: 'a Value.ty -> code_location -> 'a -> 'a -> bool
+
+(** Polymorphic, structural comparison using runtime type information *)
+val compare: 'a Value.ty -> code_location -> 'a -> 'a -> int
 
 (* val unembed: runvalue -> 'a runtype * 'a *)
 
@@ -134,15 +147,13 @@ val embed: 'a runtype -> 'a -> runvalue
 
 module type CatalaType = sig
   type t
-  val rtype: t runtype
+  val rtype: t Value.ty
 end
 
 module Optional : sig
   type 'a t = Absent | Present of 'a
-  val rtype: 'a runtype -> 'a t runtype
+  val rtype: 'a Value.ty -> 'a t Value.ty
 end
-
-val format_value : Format.formatter -> runvalue -> unit
 
 (** {1 Logging} *)
 
@@ -177,7 +188,7 @@ type information = string list
 type raw_event =
   | BeginCall of information  (** Subscope or function call. *)
   | EndCall of information  (** End of a subscope or a function call. *)
-  | VariableDefinition of information * io_log * runvalue
+  | VariableDefinition of information * io_log * Value.t
       (** Definition of a variable or a function argument. *)
   | DecisionTaken of code_location  (** Source code position of an event. *)
 
@@ -236,7 +247,7 @@ and var_def = {
   pos : code_location option;
   name : information;
   io : io_log;
-  value : runvalue;
+  value : Value.t;
   fun_calls : fun_call list option;
 }
 
@@ -267,7 +278,7 @@ val log_begin_call : string list -> 'a -> 'a
 val log_end_call : string list -> 'a -> 'a
 
 val log_variable_definition :
-  string list -> io_log -> ('a -> runvalue) -> 'a -> 'a
+  string list -> io_log -> ('a -> Value.t) -> 'a -> 'a
 
 val log_decision_taken : code_location -> bool -> bool
 
@@ -277,7 +288,7 @@ val log_decision_taken : code_location -> bool -> bool
 module Json : sig
   (* val io_input: io_input -> string *)
   val io_log : io_log -> string
-  val runtime_value : runvalue -> string
+  val runtime_value : Value.t -> string
 
   (* val information: information -> string *)
   val event : event -> string
@@ -401,11 +412,11 @@ module Oper : sig
   val o_and : bool -> bool -> bool
   val o_or : bool -> bool -> bool
   val o_xor : bool -> bool -> bool
-  val o_eq : 'a runtype -> code_location -> 'a -> 'a -> bool
-  val o_lt : 'a runtype -> code_location -> 'a -> 'a -> bool
-  val o_lte : 'a runtype -> code_location -> 'a -> 'a -> bool
-  val o_gt : 'a runtype -> code_location -> 'a -> 'a -> bool
-  val o_gte : 'a runtype -> code_location -> 'a -> 'a -> bool
+  val o_eq : 'a Value.ty -> code_location -> 'a -> 'a -> bool
+  val o_lt : 'a Value.ty -> code_location -> 'a -> 'a -> bool
+  val o_lte : 'a Value.ty -> code_location -> 'a -> 'a -> bool
+  val o_gt : 'a Value.ty -> code_location -> 'a -> 'a -> bool
+  val o_gte : 'a Value.ty -> code_location -> 'a -> 'a -> bool
   val o_map : ('a -> 'b) -> 'a array -> 'b array
 
   val o_map2 :
