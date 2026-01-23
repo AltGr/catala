@@ -44,10 +44,6 @@ type code_location = {
   law_headings : string list;
 }
 
-module Optional : sig
-  type 'a t = Absent | Present of 'a
-end
-
 (** This type characterizes the three levels of visibility for a given scope
     variable with regards to the scope's input and possible redefinitions inside
     the scope. *)
@@ -98,7 +94,7 @@ exception Empty
 (** {2 Runtime type encoding} *)
 
 (** t runtype provides runtime information about the structure of values of type t *)
-type 'a runtype =
+type _ runtype =
   | Unit : unit runtype
   | Bool : bool runtype
   | Money : money runtype
@@ -139,6 +135,11 @@ val embed: 'a runtype -> 'a -> runvalue
 module type CatalaType = sig
   type t
   val rtype: t runtype
+end
+
+module Optional : sig
+  type 'a t = Absent | Present of 'a
+  val rtype: 'a runtype -> 'a t runtype
 end
 
 val format_value : Format.formatter -> runvalue -> unit

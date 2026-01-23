@@ -33,43 +33,7 @@ let is_empty_error : type a. (a, 'm) gexpr -> bool =
 
 (** {1 Evaluation} *)
 
-let rec format_runtime_value lang ppf = function
-  | Runtime.Unit -> Print.UserFacing.unit lang ppf ()
-  | Runtime.Bool b -> Print.UserFacing.bool lang ppf b
-  | Runtime.Money m -> Print.UserFacing.money lang ppf m
-  | Runtime.Integer i -> Print.UserFacing.integer lang ppf i
-  | Runtime.Decimal d -> Print.UserFacing.decimal lang ppf d
-  | Runtime.Date t -> Print.UserFacing.date lang ppf t
-  | Runtime.Duration dt -> Print.UserFacing.duration lang ppf dt
-  | Runtime.Enum (name, (constr, v)) ->
-    Format.fprintf ppf "@[<hov 2>%s.%s@ (%a)@]" name constr
-      (format_runtime_value lang)
-      v
-  | Runtime.Struct (name, fields) ->
-    Format.fprintf ppf "@[<hv 2>%s {@ %a@;<1 -2>}@]" name
-      (Format.pp_print_list ~pp_sep:Format.pp_print_space (fun ppf (fld, v) ->
-           Format.fprintf ppf "@[<hov 2>-- %s:@ %a@]" fld
-             (format_runtime_value lang)
-             v))
-      fields
-  | Runtime.Array elts ->
-    Format.fprintf ppf "@[<hv 2>[@,@[<hov>%a@]@;<0 -2>]@]"
-      (Format.pp_print_list
-         ~pp_sep:(fun ppf () -> Format.fprintf ppf ";@ ")
-         (format_runtime_value lang))
-      (Array.to_list elts)
-  | Runtime.Tuple elts ->
-    Format.fprintf ppf "@[<hv 2>(@,@[<hov>%a@]@;<0 -2>)@]"
-      (Format.pp_print_list
-         ~pp_sep:(fun ppf () -> Format.fprintf ppf ",@ ")
-         (format_runtime_value lang))
-      (Array.to_list elts)
-  | Runtime.Position (file, sl, sc, el, ec) ->
-    let p = Pos.from_info file sl sc el ec in
-    Format.pp_print_string ppf (Pos.to_string_shorter p)
-  | Runtime.Unembeddable -> Format.pp_print_string ppf "<object>"
-
-let print_log ppf lang level entry =
+let print_log ppf _lang level entry =
   let pp_infos =
     Format.(
       pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ".@,") pp_print_string)
@@ -97,7 +61,7 @@ let print_log ppf lang level entry =
            log_io_output = io.Runtime.io_output;
          })
       " %a: @{<green>%s@}" pp_infos infos
-      (Message.unformat (fun ppf -> format_runtime_value lang ppf value));
+      (Message.unformat (fun ppf -> Runtime.format_value ppf value));
     level
   | Runtime.DecisionTaken rtpos ->
     let pos = Expr.runtime_to_pos rtpos in
@@ -105,37 +69,44 @@ let print_log ppf lang level entry =
       "@[<v -2>@{<green>Definition applied@}:@,%a@]@," Pos.format_loc_text pos;
     level
 
+(* let enum_rtype ctx name =
+ *   let constrs = EnumName.Map.find name ctx.ctx_enums in
+ *   Runtime.Enum {
+ *     name = EnumName.to_string name;
+ *     constr = fun e ->
+ *   EnumConstructor.Map.find *)
+
 let rec value_to_runtime_embedded : type d.
-    ((d, _) interpr_kind, 'm) naked_gexpr -> Runtime.runtime_value = function
-  | ELit LUnit -> Runtime.Unit
-  | ELit (LBool b) -> Runtime.Bool b
-  | ELit (LMoney m) -> Runtime.Money m
-  | ELit (LInt i) -> Runtime.Integer i
-  | ELit (LRat r) -> Runtime.Decimal r
-  | ELit (LDate d) -> Runtime.Date d
-  | ELit (LDuration dt) -> Runtime.Duration dt
+    ((d, _) interpr_kind, 'm) naked_gexpr -> Runtime.runvalue = function
+  | ELit LUnit -> Runtime.RValue { t = Unit; v = () }
+  | ELit (LBool b) -> Runtime.RValue { t = Bool; v = b }
+  | ELit (LMoney m) -> Runtime.RValue { t = Money; v = m }
+  | ELit (LInt i) -> Runtime.RValue { t = Integer; v = i }
+  | ELit (LRat r) -> Runtime.RValue { t = Decimal; v = r }
+  | ELit (LDate d) -> Runtime.RValue { t = Date; v = d }
+  | ELit (LDuration dt) -> Runtime.RValue { t = Duration; v = dt }
   | EInj { name; cons; e } ->
-    Runtime.Enum
+    Runtime.RValue { t = Enum; v =
       ( EnumName.to_string name,
         ( EnumConstructor.to_string cons,
-          value_to_runtime_embedded (Mark.remove e) ) )
+          value_to_runtime_embedded (Mark.remove e) ) ) }
   | EStruct { name; fields } ->
-    Runtime.Struct
+    Runtime.RValue { t = Struct; v =
       ( StructName.to_string name,
         List.map
           (fun (f, e) ->
             StructField.to_string f, value_to_runtime_embedded (Mark.remove e))
-          (StructField.Map.bindings fields) )
+          (StructField.Map.bindings fields) ) }
   | EArray el ->
-    Runtime.Array
+    Runtime.RValue { t = Array; v =
       (Array.of_list
-         (List.map (fun e -> value_to_runtime_embedded (Mark.remove e)) el))
+         (List.map (fun e -> value_to_runtime_embedded (Mark.remove e)) el)) }
   | ETuple el ->
-    Runtime.Tuple
+    Runtime.RValue { t = Tuple; v =
       (Array.of_list
-         (List.map (fun e -> value_to_runtime_embedded (Mark.remove e)) el))
-  | EEmpty -> Runtime.Enum ("Optional", ("Absent", Unit))
-  | _ -> Runtime.Unembeddable
+         (List.map (fun e -> value_to_runtime_embedded (Mark.remove e)) el)) }
+  | EEmpty -> Runtime.RValue { t = Enum; v = ("Optional", ("Absent", Unit)) }
+  | _ -> Runtime.RValue { t = Unembeddable; v = () }
 
 (* Todo: this should be handled early when resolving overloads. Here we have
    proper structural equality, but the OCaml backend for example uses the
@@ -182,7 +153,7 @@ let handle_eq pos evaluate_operator m lang e1 e2 =
       | _ -> assert false
       (* should not happen *)
     with Invalid_argument _ -> false)
-  | _, _ -> false (* comparing anything else return false *)
+  | _, _ -> false } (* comparing anything else return false *)
 
 (* This evaluation of functional application is used by operators in order to
    make them compatible with execution after closure-conversion: the case where

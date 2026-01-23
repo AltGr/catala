@@ -213,7 +213,7 @@ type ('d, 'c) interpr_kind =
 
 (** {2 Types} *)
 
-type typ_lit = TBool | TUnit | TInt | TRat | TMoney | TDate | TDuration | TPos
+type typ_lit = TUnit | TBool | TInt| TMoney | TRat | TDate | TDuration | TPos
 
 type typ = naked_typ Mark.pos
 

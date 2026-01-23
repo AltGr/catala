@@ -1,0 +1,8 @@
+
+```catala
+déclaration champ d'application S:
+  résultat x contenu optionnel de entier
+
+champ d'application S:
+  définition x égal à Présent contenu 42
+```

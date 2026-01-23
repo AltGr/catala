@@ -560,7 +560,6 @@ let is_value (type a) (e : (a, _) gexpr) =
   | _ -> false
 
 let equal_lit (l1 : lit) (l2 : lit) =
-  let open Catala_runtime.Oper in
   match l1, l2 with
   | LBool b1, LBool b2 -> b1 = b2
   | LInt n1, LInt n2 -> Z.equal n1 n2
@@ -571,15 +570,6 @@ let equal_lit (l1 : lit) (l2 : lit) =
   | LDuration d1, LDuration d2 -> (Dates_calc.period_to_ymds d1) = (Dates_calc.period_to_ymds d2)
   | (LBool _ | LInt _ | LRat _ | LMoney _ | LUnit | LDate _ | LDuration _), _ ->
     false
-
-let embed_lit = function
-  | LBool v -> Catala_runtime.RValue { t = Bool; v }
-  | LInt v -> Catala_runtime.RValue { t = Integer; v }
-  | LRat v -> Catala_runtime.RValue { t = Decimal; v }
-  | LMoney v -> Catala_runtime.RValue { t = Money; v }
-  | LUnit -> Catala_runtime.RValue { t = Unit; v = () }
-  | LDate v -> Catala_runtime.RValue { t = Date; v }
-  | LDuration v -> Catala_runtime.RValue { t = Duration; v }
 
 let compare_lit (l1 : lit) (l2 : lit) =
   match l1, l2 with
