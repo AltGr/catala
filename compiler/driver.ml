@@ -312,7 +312,6 @@ module Passes = struct
       ~closure_conversion
       ~keep_special_ops
       ~monomorphize_types
-      ~expand_ops
       ~renaming :
       typed Lcalc.Ast.program * TypeIdent.t list * Renaming.context option =
     let prg, type_ordering =
@@ -325,12 +324,6 @@ module Passes = struct
       | Untyped _ -> Lcalc.From_dcalc.translate_program prg
       | Typed _ -> Lcalc.From_dcalc.translate_program prg
       | Custom _ -> invalid_arg "Driver.Passes.lcalc"
-    in
-    let prg =
-      if expand_ops then (
-        Message.debug "Expanding polymorphic operators...";
-        Lcalc.Expand_op.program prg)
-      else prg
     in
     let prg =
       if optimize then begin
@@ -398,12 +391,11 @@ module Passes = struct
       ~no_struct_literals
       ~keep_module_names
       ~monomorphize_types
-      ~expand_ops
       ~renaming : Scalc.Ast.program * TypeIdent.t list * Renaming.context =
     let prg, type_ordering, renaming_context =
       lcalc options ~includes ~stdlib ~optimize ~check_invariants ~autotest
         ~typed:Expr.typed ~closure_conversion ~keep_special_ops
-        ~monomorphize_types ~expand_ops ~renaming
+        ~monomorphize_types ~renaming
     in
     let renaming_context =
       match renaming_context with
@@ -1033,13 +1025,12 @@ module Commands = struct
       closure_conversion
       keep_special_ops
       monomorphize_types
-      expand_ops
       ex_scopes =
     let options = if closure_conversion then fix_trace options else options in
     let prg, _, _ =
       Passes.lcalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~closure_conversion ~keep_special_ops ~typed
-        ~monomorphize_types ~expand_ops ~renaming:(Some Renaming.default)
+        ~monomorphize_types ~renaming:(Some Renaming.default)
     in
     get_output_format options output
     @@ fun _ fmt ->
@@ -1079,7 +1070,6 @@ module Commands = struct
         $ Cli.Flags.closure_conversion
         $ Cli.Flags.keep_special_ops
         $ Cli.Flags.monomorphize_types
-        $ Cli.Flags.expand_ops
         $ Cli.Flags.ex_scopes)
 
   let interpret_lcalc
@@ -1087,7 +1077,6 @@ module Commands = struct
       closure_conversion
       keep_special_ops
       monomorphize_types
-      expand_ops
       options
       includes
       stdlib
@@ -1100,7 +1089,7 @@ module Commands = struct
     let prg, _, _ =
       Passes.lcalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest:false ~closure_conversion ~keep_special_ops
-        ~monomorphize_types ~typed ~expand_ops ~renaming:None
+        ~monomorphize_types ~typed ~renaming:None
     in
     Interpreter.load_runtime_modules
       ~hashf:(Hash.finalise ~monomorphize_types)
@@ -1128,7 +1117,6 @@ module Commands = struct
         closure_conversion
         keep_special_ops
         monomorphize_types
-        expand_ops
         no_typing
         code_coverage =
       if not lcalc then
@@ -1145,10 +1133,10 @@ module Commands = struct
            @{<bold>--lcalc@} option"
       else if no_typing then
         interpret_lcalc Expr.untyped closure_conversion keep_special_ops
-          monomorphize_types expand_ops
+          monomorphize_types
       else
         interpret_lcalc Expr.typed closure_conversion keep_special_ops
-          monomorphize_types expand_ops
+          monomorphize_types
     in
     Cmd.v
       (Cmd.info "interpret" ~man:Cli.man_base
@@ -1162,7 +1150,6 @@ module Commands = struct
         $ Cli.Flags.closure_conversion
         $ Cli.Flags.monomorphize_types
         $ Cli.Flags.keep_special_ops
-        $ Cli.Flags.expand_ops
         $ Cli.Flags.no_typing
         $ Cli.Flags.code_coverage
         $ Cli.Flags.Global.options
@@ -1187,7 +1174,7 @@ module Commands = struct
     let prg, type_ordering, _ =
       Passes.lcalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~typed:Expr.typed ~closure_conversion ~keep_special_ops:true
-        ~monomorphize_types:false ~expand_ops:true
+        ~monomorphize_types:false
         ~renaming:(Some Lcalc.To_ocaml.renaming)
     in
     Message.debug "Compiling program into OCaml...";
@@ -1225,14 +1212,13 @@ module Commands = struct
       dead_value_assignment
       no_struct_literals
       monomorphize_types
-      expand_ops
       ex_scope_opt =
     let options = if closure_conversion then fix_trace options else options in
     let prg, _, _ =
       Passes.scalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~closure_conversion ~keep_special_ops ~dead_value_assignment
         ~no_struct_literals ~keep_module_names:false ~monomorphize_types
-        ~expand_ops ~renaming:(Some Renaming.default)
+        ~renaming:(Some Renaming.default)
     in
     get_output_format options output
     @@ fun _ fmt ->
@@ -1270,7 +1256,6 @@ module Commands = struct
         $ Cli.Flags.dead_value_assignment
         $ Cli.Flags.no_struct_literals
         $ Cli.Flags.monomorphize_types
-        $ Cli.Flags.expand_ops
         $ Cli.Flags.ex_scope_opt)
 
   let python
@@ -1287,7 +1272,7 @@ module Commands = struct
       Passes.scalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~closure_conversion ~keep_special_ops:false
         ~dead_value_assignment:true ~no_struct_literals:false
-        ~keep_module_names:false ~monomorphize_types:false ~expand_ops:false
+        ~keep_module_names:false ~monomorphize_types:false
         ~renaming:(Some Scalc.To_python.renaming)
     in
     Message.debug "Compiling program into Python...";
@@ -1325,7 +1310,7 @@ module Commands = struct
       Passes.scalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~closure_conversion ~keep_special_ops:false
         ~dead_value_assignment:true ~no_struct_literals:false
-        ~keep_module_names:true ~monomorphize_types:false ~expand_ops:false
+        ~keep_module_names:true ~monomorphize_types:false
         ~renaming:(Some Scalc.To_java.renaming)
     in
     Message.debug "Compiling program into Java...";
@@ -1365,7 +1350,7 @@ module Commands = struct
       Passes.scalc options ~includes ~stdlib ~optimize ~check_invariants
         ~autotest ~closure_conversion:true ~keep_special_ops:false
         ~dead_value_assignment:false ~no_struct_literals:true
-        ~keep_module_names:false ~monomorphize_types:false ~expand_ops:true
+        ~keep_module_names:false ~monomorphize_types:false
         ~renaming:(Some Scalc.To_c.renaming)
     in
     Message.debug "Compiling program into C...";

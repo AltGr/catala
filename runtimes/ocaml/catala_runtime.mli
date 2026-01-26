@@ -123,7 +123,7 @@ module Value: sig
         to_json : ('a -> string) option;
         to_string : 'a -> string;
       } -> 'a ty
-    | Function : (('args -> 'ret) -> 'args -> t ) -> ('args -> 'ret) ty (* ?? *)
+    | Function : (('args -> 'ret) -> 'args -> t) -> ('args -> 'ret) ty (* ?? *)
 
   (** [Runtime.Value.t] is an embedded runtime value that comes with type information, allowing for introspection *)
   and t = V: 'a ty * 'a -> t

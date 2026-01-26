@@ -276,60 +276,84 @@ and generate_array_encoder: type a. decl_ctx -> typ -> Val.t encoding =
   let open Runtime in
   conv
     (function
-      | Val.V (Array t, elts) ->
-        Array.map (fun v -> Val.V ( }) elts
+      | Val.V (Array t, elts) -> Array.map t elts
       | v ->
         Message.error ~internal:true
           "Unexpected runtime value %a instead of array while encoding to JSON"
           Val.format v)
-    (fun a -> Val.V (Array ,,)))
+    (fun a -> Val.V (Array (fun v -> v), a))
     (array (generate_encoder ctx typ))
 
 and generate_option_encoder ctx typ =
   let open Runtime in
   let proj_none = function
-    | Val.V (Enum {name = "Optional", constr); v } ->
+    | Val.V (Enum {name = "Optional"; constr}, v) ->
       (match constr v with
-       | _, _, None -> Some ()
+       | _, _, None -> Some (Val.V (Val.Unit, ()))
        | _ -> None)
     | _ -> None
   in
-  let inj_none _ = Val.embed (Enum ("Optional", ("Absent", Unit)) in
+  let vtyp = Val.Enum {
+      name = "Optional";
+      constr = function
+        | None -> 0, "Absent", None
+        | Some x -> 1, "Present", Some x
+    }
+  in
+  let inj_none _ =
+    Val.V (vtyp, None)
+  in
   union
     [
       case unit_encoding proj_none inj_none;
       case (make_constant "Absent") proj_none inj_none;
       case
         (obj1 (req "Present" (generate_encoder ctx typ)))
-        (function Enum ("Optional", ("Present", x)) -> Some x | _ -> None)
-        (fun x -> Enum ("Optional", ("Present", x)));
+        (function
+          | Val.V (Enum en, v) ->
+            (match en.constr v with
+             | _, _, Some x -> Some x
+             | _ -> None)
+          | _ -> None)
+        (fun x -> Val.V (vtyp, Some x));
     ]
 
-and generate_tuple_encoder ctx typl =
+and generate_tuple_encoder ctx typl = assert false
+(*
   assert (typl <> []);
+  let rec remove_last = function
+    | [_] -> []
+    | x::r -> x::remove_last r
+    | [] -> []
+  in
   let first_tup_enc = tup1 (generate_encoder ctx (List.hd typl)) in
   let add_tuple (acc : Val.t encoding) typ :
       Val.t encoding =
     let bconv = merge_tups acc (tup1 (generate_encoder ctx typ)) in
     conv
       (function
-        | Val.V (Tuple, [| x1; x2 |]) -> x1, x2
-        | Val.V (Tuple, arr) ->
-          ( Val.Tuple (Array.sub arr 0 (Array.length arr - 1)),
-            arr.(Array.length arr - 1) )
+        | Val.V (Tuple tf, elts) ->
+          (match tf elts with
+           | [ x1; x2 ] -> x1, x2
+           | arr ->
+             let rarr = List.rev arr in
+             ( Val.V (Tuple tf, List.rev (List.tl rarr)),
+               List.hd rarr ))
         | v ->
           Message.error ~internal:true
             "Unexpected runtime value %a instead of tuple while encoding to \
              JSON"
             Val.format v)
       (function
-        | Val.V (Tuple, arr), rval -> Val.V (Tuple, (Array.append arr [| rval |]))
-        | v, rval -> (* First element reached *) Val.Tuple [| v; rval |])
+        | Val.V (Tuple tf, arr), rval -> Val.V (Tuple (fun tf, (Array.append arr [| rval |]))
+        | v, rval -> (* First element reached *) Val.V ( Tuple [| v; rval |])
       bconv
   in
   List.fold_left (fun e typ -> add_tuple e typ) first_tup_enc (List.tl typl)
-
+*)
 and generate_struct_encoder (ctx : decl_ctx) (sname : StructName.t) =
+  assert false
+(*
   let struc = StructName.Map.find sname ctx.ctx_structs in
   let bdgs = StructField.Map.bindings struc in
   let is_input_scope_struct =
@@ -410,8 +434,10 @@ and generate_struct_encoder (ctx : decl_ctx) (sname : StructName.t) =
          | TOption typ | TDefault typ -> add_opt_field e (sf, typ)
          | _ -> add_req_field e (sf, typ))
        empty_struct_enc bdgs
-
+*)
 and generate_enum_encoder (ctx : decl_ctx) (ename : EnumName.t) =
+  assert false
+(*
   let enum = EnumName.Map.find ename ctx.ctx_enums in
   let bdgs = EnumConstructor.Map.bindings enum in
   let ename_s = EnumName.to_string ename in
@@ -451,7 +477,7 @@ and generate_enum_encoder (ctx : decl_ctx) (ename : EnumName.t) =
     else List.map make_constructor_case bdgs |> union
   in
   def (Format.asprintf "%a" EnumName.format_shortpath ename) enc
-
+*)
 let make_encoding (ctx : decl_ctx) (typ : typ) : Val.t encoding
     =
   generate_encoder ctx typ
@@ -490,7 +516,8 @@ let rec convert_to_dcalc
     ctx
     (mark : 'm mark)
     (typ : typ)
-    (rval : Val.t) : (dcalc, 'm) boxed_gexpr =
+    (rval : Val.t) : (dcalc, 'm) boxed_gexpr = assert false
+(*
   let mark = Expr.with_ty mark typ in
   let f = convert_to_dcalc ctx mark in
   match Mark.remove typ, rval with
@@ -540,12 +567,14 @@ let rec convert_to_dcalc
     Message.error
       "Cannot convert runvalue to dcalc: expected value of type %a, got %a"
       Print.typ typ Val.format r
+*)
 
 let rec convert_to_lcalc
     ctx
     (mark : 'm mark)
     (typ : typ)
-    (rval : Val.t) : (lcalc, 'm) boxed_gexpr =
+    (rval : Val.t) : (lcalc, 'm) boxed_gexpr = assert false
+(*
   let mark = Expr.with_ty mark typ in
   let f = convert_to_lcalc ctx mark in
   match Mark.remove typ, rval with
@@ -594,8 +623,11 @@ let rec convert_to_lcalc
     Message.error
       "Cannot convert runvalue to lcalc: expected value of type %a, got %a"
       Print.typ typ Val.format r
+*)
 
-let rec convert_from_gexpr : type a.
+let rec convert_from_gexpr _ = assert false
+(*
+: type a.
     decl_ctx -> (a, 'm) gexpr -> Val.V (runvalue, =
  fun ctx e ->
   let f = convert_from_gexpr ctx in
@@ -640,3 +672,4 @@ let rec convert_from_gexpr : type a.
     Message.error "Failed to convert expression to runtime_value: %a"
       (Print.expr ()) e
  }
+*)

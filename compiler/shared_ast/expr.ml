@@ -1109,7 +1109,8 @@ let type_to_runtime t =
         fields = 
 *)
 
-let rec embed_value ctx e =
+let rec embed_value: type a. decl_ctx -> (a, 'm) gexpr -> Catala_runtime.Value.t =
+  fun ctx e ->
   let module V = Catala_runtime.Value in
   match Mark.remove e with
   | ELit LUnit -> V.V (Unit, ())
@@ -1136,9 +1137,17 @@ let rec embed_value ctx e =
       (StructField.Map.bindings fields)
     )
   | EInj { name; cons; e = payload } ->
+    let seq_find_index f s = (* [Seq.find_index] in OCaml >= 5.01 only *)
+      let rec aux n s = match Seq.uncons s with
+        | Some (x, s) ->
+          if f x then Some n else aux (n+1) s
+        | None -> None
+      in
+      aux 0 s
+    in
     let constr_index =
       Option.get
-        (Seq.find_index (fun (c, _) -> EnumConstructor.equal cons c)
+        (seq_find_index (fun (c, _) -> EnumConstructor.equal cons c)
            (EnumConstructor.Map.to_seq (EnumName.Map.find name ctx.ctx_enums)))
     in
     V.V (

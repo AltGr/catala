@@ -220,7 +220,7 @@ let run
   let prg, _, _ =
     Driver.Passes.lcalc options ~includes ~stdlib ~optimize ~check_invariants
       ~autotest:false ~closure_conversion ~keep_special_ops ~typed:Expr.typed
-      ~monomorphize_types ~expand_ops:false
+      ~monomorphize_types
       ~renaming:(Some Lcalc.To_ocaml.renaming)
   in
   Driver.Commands.get_output_format options ~ext:"schema.json" output
