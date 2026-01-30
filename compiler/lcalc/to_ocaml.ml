@@ -39,23 +39,45 @@ let format_pos ppf pos =
     (Pos.get_law_info pos)
 
 let format_lit (fmt : Format.formatter) (l : lit Mark.pos) : unit =
+  let pint ppf n =
+    if n >= 0 then Format.pp_print_int ppf n
+    else Format.fprintf ppf "(%d)" n
+  in
   match Mark.remove l with
   | LBool b -> Print.lit fmt (LBool b)
   | LInt i ->
-    Format.fprintf fmt "integer_of_string@ \"%s\"" (Runtime.integer_to_string i)
+    (match Z.to_int i with
+     | n ->
+       Format.fprintf fmt "integer_of_int %a" pint n
+     | exception Z.Overflow ->
+       Format.fprintf fmt "integer_of_string@ \"%s\"" (Runtime.integer_to_string i))
   | LUnit -> Print.lit fmt LUnit
-  | LRat i -> Format.fprintf fmt "decimal_of_string \"%s\"" (Q.to_string i)
+  | LRat (Q.{ num; den } as q) ->
+    (match Z.to_int num, Z.to_int den with
+     | n, 1 ->
+       Format.fprintf fmt "Q.of_int %a" pint n
+     | n, d ->
+       Format.fprintf fmt "{ Q.num = Z.of_int %a; den = Z.of_int %a }"
+         pint n pint d
+     | exception Z.Overflow ->
+         Format.fprintf fmt "decimal_of_string \"%s\"" (Q.to_string q))
   | LMoney e ->
-    Format.fprintf fmt "money_of_cents_string@ \"%s\""
-      (Runtime.integer_to_string (Runtime.money_to_cents e))
+    (match Z.to_int e with
+     | n ->
+       Format.fprintf fmt "integer_of_int %a" pint n
+     | exception Z.Overflow ->
+       Format.fprintf fmt "money_of_cents_string@ \"%s\""
+         (Runtime.integer_to_string (Runtime.money_to_cents e)))
   | LDate d ->
-    Format.fprintf fmt "date_of_numbers (%d) (%d) (%d)"
-      (Runtime.integer_to_int (Runtime.year_of_date d))
-      (Runtime.integer_to_int (Runtime.month_number_of_date d))
-      (Runtime.integer_to_int (Runtime.day_of_month_of_date d))
+    let y, m, d = Dates_calc.date_to_ymd d in
+    Format.fprintf fmt "date_of_numbers %a %a %a"
+      pint y
+      pint m
+      pint d
   | LDuration d ->
     let years, months, days = Runtime.duration_to_years_months_days d in
-    Format.fprintf fmt "duration_of_numbers (%d) (%d) (%d)" years months days
+    Format.fprintf fmt "duration_of_numbers %a %a %a"
+      pint years pint months pint days
 
 let format_uid_list (fmt : Format.formatter) (uids : Uid.MarkedString.info list)
     : unit =
@@ -344,7 +366,7 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
   (* | ETupleAccess { e = ETuple es, _; index; _ } ->
    *   format_expr fmt (List.nth es index) *)
   | ETupleAccess { e; index; size } ->
-    Format.fprintf fmt "@[<hv 2>@[<hv 2>let @[<hov>%a@] =@ %a@]@;<1 -2>in x"
+    Format.fprintf fmt "@[<hv 2>@[<hv 2>let @[<hov>%a@] =@ %a@]@;<1 -2>in x@]"
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ",@ ")
          (fun fmt i ->
@@ -361,14 +383,15 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
       (`Ename name) format_enum_cons_name cons format_with_parens e
   | EMatch { e; cases; name } ->
     let enum = EnumName.Map.find name ctx.ctx_enums in
-    Format.fprintf fmt "@[<hv>@[<hov 2>match@ %a@]@ with@,| %a@]"
+    Format.fprintf fmt "@[<hv>@[<hv 2>match@ %a@;<1 -2>with@]@,%a| %a@]"
       format_with_parens e
+      Format.pp_print_if_newline ()
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ | ")
          (fun fmt (c, e) ->
            match EnumConstructor.Map.find c enum with
            | TLit TUnit, _ ->
-             Format.fprintf fmt "@[<hov 2>%a.%a %a@]" format_to_module_name
+             Format.fprintf fmt "@[<hov>%a.%a %a@]" format_to_module_name
                (`Ename name) format_enum_cons_name c
                (fun fmt e ->
                  match Mark.remove e with
@@ -378,7 +401,7 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
                  | _ -> assert false)
                e
            | _ ->
-             Format.fprintf fmt "@[<hov 2>%a.%a %a@]" format_to_module_name
+             Format.fprintf fmt "@[<hov>%a.%a %a@]" format_to_module_name
                (`Ename name) format_enum_cons_name c
                (fun fmt e ->
                  match Mark.remove e with
@@ -397,13 +420,17 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
     let xs, body = Bindlib.unmbind binder in
     let xs_tau = List.map2 (fun x tau -> x, tau) (Array.to_list xs) tys in
     let xs_tau_arg = List.map2 (fun (x, tau) arg -> x, tau, arg) xs_tau args in
-    Format.fprintf fmt "(%a%a)"
-      (Format.pp_print_list
-         ~pp_sep:(fun fmt () -> Format.fprintf fmt "")
-         (fun fmt (x, tau, arg) ->
-           Format.fprintf fmt "@[<hv 2>@[<hv 2>let %a :@ %a =@]@ @[<hov>%a@]@;<1 -2>in@]@ "
-             format_var x format_typ tau format_with_parens arg))
-      xs_tau_arg format_with_parens body
+    Format.pp_print_list
+      ~pp_sep:(fun fmt () -> Format.fprintf fmt "")
+      (fun fmt (x, tau, arg) ->
+         Format.fprintf fmt "@[<hv 2>@[<hv 2>let %a :@ %a =@]@ @[<hov>%a@]@;<1 -2>in@]"
+           format_var x format_typ tau format_with_parens arg)
+      fmt
+      xs_tau_arg;
+    Format.pp_print_space fmt ();
+    (* (match body with
+     *  | EApp { f = EAbs _, _; _ }, _ -> *) format_expr fmt body
+     (* | _ -> format_with_parens fmt body) *)
   | EAbs { binder; pos = _; tys } ->
     let xs, body = Bindlib.unmbind binder in
     let xs_tau = List.map2 (fun x tau -> x, tau) (Array.to_list xs) tys in
@@ -498,6 +525,25 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
         mclos )
     in
     format_expr fmt (EAppOp { op; args = e1 :: args; tys }, m)
+  | EAppOp { op = Eq, _;
+             args = [a1; a2]; _ }
+    when (match Expr.ty a1 with
+        | TLit (TUnit | TBool | TInt | TMoney | TRat | TDate), _ -> true
+        | _ -> false) ->
+    (* Z and Q support OCaml polymorphic equality *)
+    Format.fprintf fmt "@[<hov 2>%a@ = %a@]"
+      format_with_parens a1
+      format_with_parens a2
+  | EAppOp { op = (Eq | Lt | Lte | Gt | Gte) as op, _;
+             args = [a1; a2]; _ }
+    when (match Expr.ty a1 with
+        | TLit (TUnit | TBool | TInt | TMoney | TDate), _ -> true
+        | _ -> false) ->
+    (* Z supports OCaml polymorphic comparison, but not Q *)
+    Format.fprintf fmt "@[<hov 2>%a@ %s %a@]"
+      format_with_parens a1
+      (Print.operator_to_string op)
+      format_with_parens a2
   | EAppOp { op = op, pos; args; _ } ->
     Format.fprintf fmt "@[<hov 2>%s@ %t%a@]" (Operator.name op)
       (fun ppf ->
@@ -509,8 +555,8 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
         | (Map2 | Add_dat_dur _ | Sub_dat_dur _), _ ->
           Format.fprintf ppf "%a@ " format_pos pos
         | (Div_int_int | Div_rat_rat | Div_mon_mon | Div_mon_int | Div_mon_rat
-          | Div_dur_dur), _ ->
-          Format.fprintf ppf "%a@ " format_pos (Expr.pos (List.nth args 1))
+          | Div_dur_dur), _::a::_ ->
+          Format.fprintf ppf "%a@ " format_pos (Expr.pos a)
         | _ -> ())
       (Format.pp_print_list ~pp_sep:Format.pp_print_space format_with_parens)
       args
@@ -747,7 +793,7 @@ let format_scope_body_expr
   let last_e =
     BoundList.iter
       ~f:(fun scope_let_var scope_let ->
-        Format.fprintf fmt "@[<hv>@[<hov>let %a: %a =@ %a@]@ in@]@,"
+        Format.fprintf fmt "@[<hv>@[<hov 2>let %a: %a =@ %a@]@ in@]@ "
           format_var scope_let_var format_typ scope_let.scope_let_typ
           (format_expr ctx) scope_let.scope_let_expr)
       scope_lets

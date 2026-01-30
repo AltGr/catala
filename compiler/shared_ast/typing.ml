@@ -194,7 +194,7 @@ let record_type_error env (AnyExpr e) t1 t2 =
   let t2_pos = Mark.get t2_repr in
   let pp_typ = Print.typ in
   let fmt_pos =
-    if e_pos = t1_pos || true then
+    if e_pos = t1_pos then
       [
         ( (fun ppf ->
             Format.fprintf ppf "@[<hv 2>@[<hov>%a@ %a@]:" Format.pp_print_text
