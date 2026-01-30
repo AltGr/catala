@@ -5,8 +5,8 @@ declaration min content anything of type t
              y content anything of type t
   equals if x <= y then x else y
 
-declaration foo content integer equals
-  3 + impossible
+# declaration foo content integer equals
+#   3 + impossible
 
 ```
 

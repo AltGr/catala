@@ -194,7 +194,7 @@ let record_type_error env (AnyExpr e) t1 t2 =
   let t2_pos = Mark.get t2_repr in
   let pp_typ = Print.typ in
   let fmt_pos =
-    if e_pos = t1_pos then
+    if e_pos = t1_pos || true then
       [
         ( (fun ppf ->
             Format.fprintf ppf "@[<hv 2>@[<hov>%a@ %a@]:" Format.pp_print_text
@@ -433,7 +433,7 @@ let polymorphic_op_return_type
   match Mark.remove op, targs with
   | Fold, [_; tau; _] -> tau
   | Reduce, [tf; _; _] -> return_type tf 2
-  | Eq, _ -> TLit TBool, pos
+  | (Eq | Lt | Lte | Gt | Gte), _ -> TLit TBool, pos
   | Map, [tf; _] -> TArray (return_type tf 1), pos
   | Map2, [tf; _; _] -> TArray (return_type tf 2), pos
   | (Filter | Concat), [_; tau] -> tau
@@ -1002,14 +1002,13 @@ and typecheck_expr_top_down : type a m.
                 (typecheck_expr_top_down ctx env)
                 (List.rev t_args) (List.rev args)
             in
-            (* Equality is actually not truly polymorphic, it needs expansion,
-               so add a check here for now *)
+            (* Eq and comparisons are not available on poly types at the moment *)
             (match op, args with
-            | (Eq, _), a :: _ ->
+            | ((Eq | Lt | Lte | Gt | Gte), _), a :: _ ->
               if not (Type.fully_known (expr_ty env a)) then
                 Message.delayed_error () ~kind:Typing ~pos:(Mark.get op) "%a"
                   Format.pp_print_text
-                  "Equality cannot be resolved at this point: the type of the \
+                  "Comparison cannot be resolved at this point: the type of the \
                    operands is not fully known."
             | _ -> ());
             args))

@@ -290,7 +290,7 @@ module Value = struct
         to_json : ('a -> string) option;
         to_string : 'a -> string;
       } -> 'a ty
-    | Function : (('args -> 'ret) -> 'args -> t ) -> ('args -> 'ret) ty (* ?? *)
+    | Function : ('args -> 'ret) ty
 
   and t = V: 'a ty * 'a -> t
 

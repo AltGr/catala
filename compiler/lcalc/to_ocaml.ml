@@ -213,7 +213,7 @@ let rec format_rtyp ppf ty =
   | TAbstract name ->
     Format.fprintf ppf "%a.rtype" format_to_module_name (`Aname name)
   | TArrow _ ->
-    Format.fprintf ppf "Value.Function (fun unembed args -> " format_to_module_name (`Aname name)
+    Format.fprintf ppf "Value.Function"
   | TError | TDefault _ | TVar _ | TForAll _ | TClosureEnv ->
     Message.error "Cannot compute comparison on type %a"
       Print.typ ty
@@ -320,7 +320,7 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
     | External_value name -> format_var_str fmt (TopdefName.base name)
     | External_scope name -> format_var_str fmt (ScopeName.base name))
   | ETuple es ->
-    Format.fprintf fmt "@[<hov 2>(%a)@]"
+    Format.fprintf fmt "@[<hov 1>(%a)@]"
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ",@ ")
          (fun fmt e -> Format.fprintf fmt "%a" format_with_parens e))
@@ -341,8 +341,10 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ";@ ")
          (fun fmt e -> Format.fprintf fmt "%a" format_with_parens e))
       es
+  (* | ETupleAccess { e = ETuple es, _; index; _ } ->
+   *   format_expr fmt (List.nth es index) *)
   | ETupleAccess { e; index; size } ->
-    Format.fprintf fmt "let@ %a@ = %a@ in@ x"
+    Format.fprintf fmt "@[<hv 2>@[<hv 2>let @[<hov>%a@] =@ %a@]@;<1 -2>in x"
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt ",@ ")
          (fun fmt i ->
@@ -399,7 +401,7 @@ let rec format_expr (ctx : decl_ctx) (fmt : Format.formatter) (e : 'm expr) :
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "")
          (fun fmt (x, tau, arg) ->
-           Format.fprintf fmt "@[<hov 2>let@ %a@ :@ %a@ =@ %a@]@ in@ "
+           Format.fprintf fmt "@[<hv 2>@[<hv 2>let %a :@ %a =@]@ @[<hov>%a@]@;<1 -2>in@]@ "
              format_var x format_typ tau format_with_parens arg))
       xs_tau_arg format_with_parens body
   | EAbs { binder; pos = _; tys } ->
@@ -745,7 +747,7 @@ let format_scope_body_expr
   let last_e =
     BoundList.iter
       ~f:(fun scope_let_var scope_let ->
-        Format.fprintf fmt "@[<hv>@[<hov 2>let %a: %a =@ %a@ @]in@]@,"
+        Format.fprintf fmt "@[<hv>@[<hov>let %a: %a =@ %a@]@ in@]@,"
           format_var scope_let_var format_typ scope_let.scope_let_typ
           (format_expr ctx) scope_let.scope_let_expr)
       scope_lets

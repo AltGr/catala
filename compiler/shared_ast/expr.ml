@@ -1165,5 +1165,6 @@ let rec embed_value: type a. decl_ctx -> (a, 'm) gexpr -> Catala_runtime.Value.t
   | EAbs _ -> failwith "todo"
     (* Probably something very clever to do here by embedding the interpreter itself *)
   | ECustom { obj; _ } ->
-    V.V (Function (fun f args -> embed_value ctx (f args)), Obj.obj obj)
+    V.V (Function, Obj.obj obj)
+    (* V.V (Function (fun f args -> embed_value ctx (f args)), Obj.obj obj) *)
   | _ -> invalid_arg "embed_value"
