@@ -999,9 +999,9 @@ let translate_program (prgm : 'm S.program) : 'm Ast.program =
   (* the resulting expression is the list of definitions of all the scopes,
      ending with the top-level scope. The decl_ctx is filled in left-to-right
      order, then the chained scopes aggregated from the right. *)
-  let rec translate_defs exports = function
+  let rec translate_defs rev_exports = function
     | [] ->
-      let exports =
+      let rev_exports =
         List.fold_left
           (fun acc (kind, visibility, var, m) ->
             let export =
@@ -1032,12 +1032,14 @@ let translate_program (prgm : 'm S.program) : 'm Ast.program =
                 else []
             in
             export @ test @ acc)
-          [] exports
+          [] rev_exports
       in
       Bindlib.box_list
         (List.map
-           (fun (k, e) -> Bindlib.box_apply (fun e -> k, e) (Expr.Box.lift e))
-           exports)
+           (fun (k, e) ->
+              Bindlib.box_apply (fun e ->
+              Message.debug "<<< %a" Expr.format e; k, e) (Expr.Box.lift e))
+           rev_exports)
       |> Bindlib.box_apply (fun exports -> Last exports)
     | def0 :: next ->
       let dvar, export, def =
@@ -1087,7 +1089,7 @@ let translate_program (prgm : 'm S.program) : 'm Ast.program =
               (fun body -> ScopeDef (scope_name, body))
               scope_body )
       in
-      let scope_next = translate_defs (export :: exports) next in
+      let scope_next = translate_defs (export :: rev_exports) next in
       let next_bind = Bindlib.bind_var dvar scope_next in
       Bindlib.box_apply2
         (fun item next_bind -> Cons (item, next_bind))

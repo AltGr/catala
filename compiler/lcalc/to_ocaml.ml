@@ -775,7 +775,10 @@ let format_scope_exec_args
     exports =
   let tests =
     List.filter_map
-      (function KTest scope, e -> Some (scope, e) | _ -> None)
+      (function KTest scope, e ->
+         Message.debug "@@ TEST %a" ScopeName.format scope;
+         Some (scope, e)
+              | KScope s, _ -> Message.debug "@@ SCO %a" ScopeName.format s; None | KTopdef _, _ -> None)
       exports
   in
   if tests = [] then

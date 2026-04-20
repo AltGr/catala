@@ -667,6 +667,7 @@ module Commands = struct
     | scopes ->
       List.iter
         (fun scope ->
+           Message.debug "^^^^ %s"  scope;
           let scope_uid = get_scope_uid prg.decl_ctx scope in
           Print.scope ~debug:options.Global.debug fmt
             ( scope,
@@ -804,6 +805,7 @@ module Commands = struct
       if Option.is_none scope_input then get_test_scopes_uids prg ex_scopes
       else [get_single_scope_uid prg ex_scopes]
     in
+    List.iter (Message.debug "^^^^ %a" ScopeName.format) scopes;
     let success =
       List.fold_left
         (fun success scope ->

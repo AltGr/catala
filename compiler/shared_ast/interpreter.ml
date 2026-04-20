@@ -70,6 +70,11 @@ let print_log ppf _lang level entry =
     level
 
 let handle_eq ctx pos e1 e2 =
+  Message.debug ~pos "EQ TEST: %a:%a @{<red>///@} %a:%a" Expr.format e1
+    Print.typ
+    (Expr.maybe_ty (Mark.get e1))
+    Expr.format e2 Print.typ
+    (Expr.maybe_ty (Mark.get e2));
   Runtime.Value.equal (Expr.pos_to_runtime pos) (Expr.embed_value ctx e1)
     (Expr.embed_value ctx e2)
 

@@ -246,6 +246,7 @@ let check_for_cycle_in_defs (g : SDependencies.t) : unit =
 
 let get_defs_ordering (g : SDependencies.t) : SVertex.t list =
   List.rev (STopologicalTraversal.fold (fun sd acc -> sd :: acc) g [])
+  |> fun r -> List.iter (Message.debug ">< %a" SVertex.format) r; r
 
 (** On the edges, the label is the expression responsible for the use of the
     function *)

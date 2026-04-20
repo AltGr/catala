@@ -1156,6 +1156,7 @@ let rec embed_value : type a.
            (fun (c, _) -> EnumConstructor.equal cons c)
            (EnumConstructor.Map.to_seq (EnumName.Map.find name ctx.ctx_enums)))
     in
+    Message.debug ">>>>>>> %a" EnumName.format name;
     V.V
       ( Enum
           {
