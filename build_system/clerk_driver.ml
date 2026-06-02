@@ -1327,6 +1327,22 @@ let runtest_cmd =
       $ Cli.single_file
       $ Cli.whole_program)
 
+let run_ninja_start ~config ~quiet ~ninja_flags ~enabled_backends cont =
+  let default =
+    List.fold_left
+      (fun default_rules (module B : Clerk_backends.Backend.S) ->
+        let rule_stdlib_fr = Format.sprintf "Stdlib_fr@%s-module" B.name in
+        let rule_stdlib_en = Format.sprintf "Stdlib_en@%s-module" B.name in
+        let runtime_rule = Format.sprintf "@runtime-%s" B.name in
+        runtime_rule :: rule_stdlib_fr :: rule_stdlib_en :: default_rules)
+      ["Stdlib_fr@src"; "Stdlib_en@src"]
+      enabled_backends
+  in
+  Clerk_rules.run_ninja ~include_dir:false ~code_coverage:false ~quiet ~config
+    ~enabled_backends ~autotest:false ~ninja_flags (fun nin_ppf _ _ ->
+      Nj.format_def nin_ppf (Nj.Default (Nj.Default.make default));
+      cont ())
+
 let start_cmd =
   let run config quiet (ninja_flags : string list) =
     let targets = config.Cli.options.targets in
@@ -1335,20 +1351,7 @@ let start_cmd =
       List.concat_map (fun target -> target.backends) targets
       |> normalize_backends
     in
-    let default =
-      List.fold_left
-        (fun default_rules (module B : Clerk_backends.Backend.S) ->
-          let rule_stdlib_fr = Format.sprintf "Stdlib_fr@%s-module" B.name in
-          let rule_stdlib_en = Format.sprintf "Stdlib_en@%s-module" B.name in
-          let runtime_rule = Format.sprintf "@runtime-%s" B.name in
-          runtime_rule :: rule_stdlib_fr :: rule_stdlib_en :: default_rules)
-        ["Stdlib_fr@src"; "Stdlib_en@src"]
-        enabled_backends
-    in
-    Clerk_rules.run_ninja ~include_dir:false ~code_coverage:false ~quiet ~config
-      ~enabled_backends ~autotest:false ~ninja_flags (fun nin_ppf _ _ ->
-        Nj.format_def nin_ppf (Nj.Default (Nj.Default.make default));
-        0)
+    run_ninja_start ~config ~quiet ~ninja_flags ~enabled_backends (fun () -> 0)
   in
   let doc =
     "This command prepares the local build environment of the project with \
@@ -1531,23 +1534,39 @@ let exceptions_cmd =
     (* The exceptions command only needs the desugaring pass — no compiled
        artifacts required. Bypass ninja and call catala directly. *)
     let file = config.Cli.fix_path file in
-    Clerk_rules.run_ninja ~config ~code_coverage:false
+    run_ninja_start ~config ~quiet:true ~ninja_flags
       ~enabled_backends:[(module Clerk_backends.Ocaml.Backend)]
-      ~ninja_flags ~autotest:false ~quiet:true
-      (build_test_deps ~config ~backend:`Interpret ~test_only:false [file])
-    |> fun (items, _link_deps, var_bindings) ->
-    match items with
-    | [] -> Message.error "Failed to compile %s dependencies" file
-    | ({ Scan.file_name; _ }, _) :: _ ->
-      let catala_exe = Var.get_var var_bindings Var.catala_exe in
-      let catala_flags = Var.get_var var_bindings Var.catala_flags in
-      let cmd =
-        catala_exe
-        @ ["exceptions"; file_name; "--scope"; scope; "--variable"; variable]
-        @ catala_flags
-      in
-      Message.debug "Running command: '%s'..." (String.concat " " cmd);
-      Clerk_cli.run_command_line cmd
+    @@ fun () ->
+    let var_bindings =
+      Clerk_rules.base_bindings ~autotest:false ~code_coverage:false
+        ~enabled_backends:[] ~config
+    in
+    let catala_exe = Var.get_var var_bindings Var.catala_exe in
+    let catala_flags = Var.get_var var_bindings Var.catala_flags in
+    let cmd =
+      catala_exe
+      @ ["exceptions"; file; "--scope"; scope; "--variable"; variable]
+      @ catala_flags
+    in
+    Message.debug "Running command: '%s'..." (String.concat " " cmd);
+    Clerk_cli.run_command_line cmd
+    (* Clerk_rules.run_ninja ~config ~code_coverage:false
+     *   ~enabled_backends:
+     *   ~ninja_flags ~autotest:false ~quiet:true
+     *   (build_test_deps ~config ~backend:`Interpret ~test_only:false [file])
+     * |> fun (items, _link_deps, var_bindings) ->
+     * match items with
+     * | [] -> Message.error "Failed to compile %s dependencies" file
+     * | ({ Scan.file_name; _ }, _) :: _ ->
+     *   let catala_exe = Var.get_var var_bindings Var.catala_exe in
+     *   let catala_flags = Var.get_var var_bindings Var.catala_flags in
+     *   let cmd =
+     *     catala_exe
+     *     @ ["exceptions"; file_name; "--scope"; scope; "--variable"; variable]
+     *     @ catala_flags
+     *   in
+     *   Message.debug "Running command: '%s'..." (String.concat " " cmd);
+     *   Clerk_cli.run_command_line cmd *)
   in
   let doc =
     "Prints the exception tree for the definitions of a particular variable in \
