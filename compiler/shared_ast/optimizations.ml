@@ -77,7 +77,9 @@ let rec simplified_apply dacc f args tys m =
         let uacc_f = {
           is_pure = true;
           size = uacc_body.size + 1;
-          free_vars = Array.fold_left (fun vars v -> Var.Map.remove v vars) uacc_body.free_vars vars;
+          free_vars =
+            Array.fold_left (fun vars v -> Var.Map.remove v vars)
+              uacc_body.free_vars vars;
         } in
         let uacc = uacc_merge uacc_f uacc_args in
         match args, uacc_args.is_pure with
@@ -123,23 +125,33 @@ let rec simplified_apply dacc f args tys m =
     m
 
 and simplified_ifthenelse dacc cond etrue efalse m =
-  if Expr.equal etrue efalse then Mark.remove etrue
-  else
-    match literal_bool etrue, literal_bool efalse with
-    | Some true, Some false -> Mark.remove cond
-    | Some false, Some true ->
-      EAppOp
-        {
-          op = Not, Expr.mark_pos m;
-          tys = [TLit TBool, Expr.mark_pos m];
-          args = [cond];
-        }
-    | Some true, Some true | Some false, Some false -> Mark.remove etrue
-    | _ -> (
-      match literal_bool cond with
-      | Some true -> Mark.remove etrue
-      | Some false -> Mark.remove efalse
-      | None -> EIfThenElse { cond; etrue; efalse })
+  let ucond, _ = optimize_expr dacc cond in
+  let uetrue, _ = optimize_expr dacc etrue in
+  let uefalse, _ = optimize_expr dacc efalse in
+  Bindlib.box_apply3 (fun (uacc_cond, cond) (uacc_true, etrue) (uacc_false, efalse) ->
+      match etrue, efalse with
+      | (ELit (LBool true), _), (ELit (LBool false), _) ->
+        uacc_cond, cond
+      | (ELit (LBool false), _), (ELit (LBool true), _) ->
+        { uacc_cond with size = uacc_cond.size + 1 },
+        (EAppOp
+           {
+             op = Not, Expr.mark_pos m;
+             tys = [TLit TBool, Expr.mark_pos m];
+             args = [cond];
+           }, m)
+      | _ ->
+        match cond with
+        | ELit (LBool true), _ -> uacc_true, etrue
+        | ELit (LBool false), _ -> uacc_false, efalse
+        | _ ->
+          if uacc_cond.is_pure && Expr.equal etrue efalse then
+            uacc_true, etrue
+          else
+            uacc_merge uacc_cond (uacc_merge uacc_true uacc_false),
+            (EIfThenElse { cond; etrue; efalse }, m)
+    )
+    ucond uetrue uefalse, m
 
 (* builds a [EMatch] term, flattening nested matches/if-then-else: the matching
    arg branching are explored, and if they all lead to enum constructor
@@ -147,23 +159,18 @@ and simplified_ifthenelse dacc cond etrue efalse m =
    detected and aborts the inlining. *)
 and simplified_match dacc enum_name match_arg cases mark =
   let max_duplicate_inlining_size = 3 in
-  let allow_duplicate_inlining_cases =
-    EnumConstructor.Map.fold
-      (fun cons f acc ->
-        if Expr.size f <= max_duplicate_inlining_size then
-          EnumConstructor.Set.add cons acc
-        else acc)
-      cases EnumConstructor.Set.empty
-  in
-  let app_cases cons e =
-    simplified_apply
-      (EnumConstructor.Map.find cons cases)
-      [e]
-      [Expr.maybe_ty (Mark.get e)]
+  let uarg, _ = optimize_expr dacc match_arg in
+  let ucases =
+    cases |>
+    EnumConstructor.Map.map (fun a -> fst (optimize_expr dacc a)) |>
+    EnumConstructor.Map.bindings |>
+    List.map (fun (c, e) -> Bindlib.box_apply (fun e -> c, e) e) |>
+    Bindlib.box_list
   in
   let ret_ty = Expr.maybe_ty mark in
-  let rec aux seen_constrs = function
-    | EInj { cons; e; _ }, m ->
+  let rec aux allow_duplicate_inlining_cases seen_constrs ucases (uacc_arg, arg) =
+    match arg with
+    | EInj { cons; e; _ }, _ ->
       if EnumConstructor.Set.mem cons seen_constrs then raise Exit;
       (* Abort inlining to avoid code duplication *)
       let seen_constrs =
@@ -171,7 +178,11 @@ and simplified_match dacc enum_name match_arg cases mark =
           seen_constrs
         else EnumConstructor.Set.add cons seen_constrs
       in
-      seen_constrs, (app_cases cons e, Expr.with_ty m ret_ty)
+      let uacc_case, case = EnumConstructor.Map.find cons ucases in
+      let app = simplified_apply dacc case [e] [Expr.maybe_ty (Mark.get e)] in
+      (* TODO: define a version of [simplified_apply] that takes already optimised terms, to avoid re-optimising here *)
+      seen_constrs, (uacc_case, app)
+(* TODO
     | EMatch ({ cases; _ } as ematch), m ->
       let seen_constrs, cases =
         EnumConstructor.Map.fold
@@ -198,18 +209,36 @@ and simplified_match dacc enum_name match_arg cases mark =
       in
       seen_constrs, (EMatch { ematch with cases }, Expr.with_ty m ret_ty)
     | EIfThenElse { cond; etrue; efalse }, m ->
-      let seen_constrs, etrue = aux seen_constrs etrue in
+      let seen_constrs, etrue = aux allow_duplicate_inlining_cases seen_constrs ucases etrue in
       let seen_constrs, efalse = aux seen_constrs efalse in
       let mark = Expr.with_ty m ret_ty in
       seen_constrs, (simplified_ifthenelse cond etrue efalse mark, mark)
+*)
     | _ -> raise Exit
   in
-  try
-    let _seen_contrs, e = aux EnumConstructor.Set.empty match_arg in
-    Mark.remove e
-  with Exit ->
-    (* Optimisation was aborted due a non-terminal or code duplication *)
-    EMatch { e = match_arg; cases; name = enum_name }
+  Bindlib.box_apply2 (fun (uacc_arg, arg) ucases ->
+      let ucases = EnumConstructor.Map.of_list ucases in
+      try
+        let allow_duplicate_inlining_cases =
+          EnumConstructor.Map.fold (fun cons (uacc_a, _) acc ->
+              if uacc_a.size <= max_duplicate_inlining_size then
+                EnumConstructor.Set.add cons acc
+              else acc)
+            ucases EnumConstructor.Set.empty
+        in
+        let _seen_constrs, e = aux allow_duplicate_inlining_cases EnumConstructor.Set.empty ucases arg in
+        e
+      with Exit ->
+        (* Optimisation was aborted due a non-terminal or code duplication *)
+        let uacc =
+          EnumConstructor.Map.fold (fun _ (uacc_case, _) uacc ->
+              uacc_merge uacc uacc_case)
+            ucases uacc_arg
+        in
+        let cases = EnumConstructor.Map.map snd ucases in
+        { uacc with size = uacc.size + 1 },
+        (EMatch { e = match_arg; cases; name = enum_name }, m))
+    uarg ucases, m
 
 and optimize_binder dacc binder =
   let vars, body = Bindlib.unmbind binder in
