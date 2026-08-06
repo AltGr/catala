@@ -19,11 +19,11 @@ open Clerk_utils
 open Catala_utils
 
 let name = "ocaml"
-let catala_flags_ocaml = Var.make "CATALA_FLAGS_OCAML"
-let ocamlc_exe = Var.make "OCAMLC_EXE"
-let ocamlopt_exe = Var.make "OCAMLOPT_EXE"
-let ocaml_flags = Var.make "OCAML_FLAGS"
-let ocaml_include = Var.make "OCAML_INCLUDE"
+let catala_flags_ocaml = Var.make_vector "CATALA_FLAGS_OCAML"
+let ocamlc_exe = Var.make_vector "OCAMLC_EXE"
+let ocamlopt_exe = Var.make_vector "OCAMLOPT_EXE"
+let ocaml_flags = Var.make_vector "OCAML_FLAGS"
+let ocaml_include = Var.make_vector "OCAML_INCLUDE"
 
 module OCaml_Flags = struct
   let ocaml_include_and_lib : (string list * string list) Lazy.t =

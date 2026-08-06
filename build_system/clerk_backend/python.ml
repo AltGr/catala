@@ -18,8 +18,8 @@
 open Clerk_utils
 open Catala_utils
 
-let catala_flags_python = Var.make "CATALA_FLAGS_PYTHON"
-let python = Var.make "PYTHON"
+let catala_flags_python = Var.make_vector "CATALA_FLAGS_PYTHON"
+let python = Var.make_vector "PYTHON"
 
 let linking_command ~build_dir link_deps item target =
   (* a "linked" python module is a "Module.py" folder containing the module .py
@@ -54,7 +54,7 @@ let run_artifact config ~test ~trace ?scope ~var_bindings ?quiet src =
     @ if trace then ["--trace"] else []
   in
   let pythonpath =
-    String.concat ":"
+    Backend_paths.pythonpath
       [
         build_dir / Scan.libcatala / "python";
         File.dirname src;

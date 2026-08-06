@@ -52,14 +52,22 @@ let static_base_rules ~tests enabled_backends =
       [
         Nj.rule "tests"
           ~command:
-            [!clerk_exe; "runtest"; !clerk_flags; !input; "--report"; !output]
-          ~description:["<catala>"; "tests"; "⇐"; !input];
+            [!!clerk_exe; Word "runtest"; !!clerk_flags; !!input; Word "--report"; !!output]
+          ~description:[Word "<catala>"; Word "tests"; Word "⇐"; !!input];
         Nj.rule "dir-tests"
           ~command:
             (if Sys.win32 then
-               ["cmd"; "/c"; "copy"; "/by"; ">nul"; !cat_files; !output]
-             else ["cat"; !input; ">"; !output])
-          ~description:["<test>"; !test_id];
+               [
+                 Raw "cmd";
+                 Raw "/c";
+                 Raw "copy";
+                 Raw "/by";
+                 Raw ">nul";
+                 Raw !cat_files; (* !? why ? *)
+                 !!output;
+               ]
+             else [Word "cat"; !!input; Raw ">"; !!output])
+          ~description:[Word "<test>"; !!test_id];
       ]
     else []
   in
@@ -79,30 +87,31 @@ let gen_build_statements
     ~is_stdlib
     (item : Scan.item) : Nj.ninja =
   let open File in
-  let ( ! ) = Var.( ! ) in
+  let open Var.Op in
   let src = item.file_name in
   let dir = dirname src in
   let def_vars =
     [
-      Nj.binding Var.src [basename src];
-      Nj.binding Var.dst [basename (Scan.target_file_name item)];
+      Nj.binding (Nj.Binding.make Var.src (basename src));
+      Nj.binding
+        (Nj.Binding.make Var.dst (basename (Scan.target_file_name item)));
     ]
   in
   let modules = List.rev_map Mark.remove item.used_modules in
-  let catala_src = !Var.tdir / !Var.src in
+  let catala_src = Nj.Expr.Word (!Var.tdir / !Var.src) in
   let include_deps =
     Nj.build "copy"
-      ~inputs:[dir / !Var.src]
+      ~inputs:[Word (dir / !Var.src)]
       ~implicit_in:
         (List.map
            (fun (f, _) ->
-             if dir / basename f = f then !Var.tdir / basename f
-             else !Var.builddir / f)
+             if dir / basename f = f then Nj.Expr.Word (!Var.tdir / basename f)
+             else Word (!Var.builddir / f))
            item.included_files
         @ List.map
             (fun m ->
-              try !Var.tdir / basename (List.assoc m same_dir_modules)
-              with Not_found -> "@catala/src/" ^ String.to_id m)
+              try Nj.Expr.Word (!Var.tdir / basename (List.assoc m same_dir_modules))
+              with Not_found -> Nj.Expr.Word ("@catala/src/" ^ String.to_id m))
             modules)
       ~outputs:[catala_src]
   in
@@ -117,14 +126,14 @@ let gen_build_statements
       let implicit_in =
         (* autotest requires interpretation at compile-time, which makes use of
            the dependent OCaml modules (cmxs) *)
-        !Var.catala_exe
+        !!Var.catala_exe
         ::
         (if autotest then List.map Clerk_backend.catala_obj_target modules
          else [])
       in
       let vars =
         if is_stdlib then
-          Some [Var.catala_flags, [Var.(!catala_flags); "--no-stdlib"]]
+          Some [Nj.Binding.make Var.catala_flags [!!Var.catala_flags; Word "--no-stdlib"]]
         else None
       in
       List.map
@@ -143,7 +152,7 @@ let gen_build_statements
       | Some _ ->
         [
           Nj.build "phony"
-            ~outputs:["@catala/src/" ^ !Var.dst]
+            ~outputs:[Word ("@catala/src/" ^ !Var.dst)]
             ~inputs:[catala_src];
         ]
       | None -> [])
@@ -158,7 +167,7 @@ let gen_build_statements
                     (List.map
                        (Backend.current_target item)
                        Backend.src_extensions)
-                  ~outputs:["@" ^ Backend.name ^ "/src/" ^ !Var.dst];
+                  ~outputs:[Word ("@" ^ Backend.name ^ "/src/" ^ !Var.dst)];
               ]
             | None -> []
           in
@@ -175,7 +184,7 @@ let gen_build_statements
                     (List.map
                        (fun (m, _) -> Backend.interface_dep m)
                        item.used_modules)
-                  ~outputs:["@" ^ Backend.name ^ "/interface/" ^ !Var.dst];
+                  ~outputs:[Word ("@" ^ Backend.name ^ "/interface/" ^ !Var.dst)];
               ]
             | None -> []
           in
@@ -184,17 +193,19 @@ let gen_build_statements
               ~inputs:[Backend.current_target item Backend.obj_extension]
               ~implicit_in:
                 (List.map
-                   (fun (m, _) -> "@" ^ Backend.name ^ "/obj/" ^ String.to_id m)
+                   (fun (m, _) -> Nj.Expr.Word ("@" ^ Backend.name ^ "/obj/" ^ String.to_id m))
                    item.used_modules)
               ~outputs:
                 [
                   (match item.module_def with
-                  | Some _ -> "@" ^ Backend.name ^ "/obj/" ^ !Var.dst
+                  | Some _ -> Nj.Expr.Word
+                                ("@" ^ Backend.name ^ "/obj/" ^ !Var.dst)
                   | None ->
-                    "@"
-                    ^ Backend.name
-                    ^ "/obj/"
-                    ^ (dirname item.file_name / !Var.dst));
+                    Nj.Expr.Word (
+                      "@"
+                      ^ Backend.name
+                      ^ "/obj/"
+                      ^ (dirname item.file_name / !Var.dst)));
                 ]
           in
           src_alias @ interface_alias @ [obj_alias])
@@ -207,8 +218,9 @@ let gen_build_statements
       [
         Nj.build "tests" ~inputs:[catala_src]
           ~implicit_in:
-            (!Var.clerk_exe :: List.map Clerk_backend.catala_obj_target modules)
-          ~outputs:[catala_src ^ "@test"; catala_src ^ "@out"];
+            (!!Var.clerk_exe :: List.map Clerk_backend.catala_obj_target modules)
+          ~outputs:[Nj.Expr.Word (!Var.tdir / !Var.src ^ "@test");
+                    Nj.Expr.Word (!Var.tdir / !Var.src ^ "@out")];
       ]
   in
   let statements_backend =
@@ -259,11 +271,11 @@ let gen_build_statements_dir
     else Scan.libcatala
   in
   let open File in
-  let ( ! ) = Var.( ! ) in
+  let open Var.Op in
   Seq.cons (Nj.comment "")
   @@ Seq.cons (Nj.comment ("--- " ^ dir ^ " ---"))
   @@ Seq.cons (Nj.comment "")
-  @@ Seq.cons (Nj.binding Var.tdir [!Var.builddir / dir])
+  @@ Seq.cons (Nj.binding (Nj.Binding.make Var.tdir (!Var.builddir / dir)))
   @@ Seq.flat_map
        (gen_build_statements ~tests ~is_stdlib include_dirs enabled_backends
           autotest same_dir_modules)
@@ -1147,7 +1159,7 @@ let run_ninja
           if not (String.Set.is_empty backends) then
             pp
               (Nj.build "phony"
-                 ~outputs:["#" ^ t]
+                 ~outputs:[Word "#" ^ t]
                  ~inputs:
                    (List.map
                       (fun bk -> mk_target bk t)
@@ -1156,7 +1168,7 @@ let run_ninja
       pp (Nj.Comment "\n- Global rules and defaults - #\n");
       if tests then
         pp
-          (Nj.build "phony" ~outputs:["test"]
+          (Nj.build "phony" ~outputs:[Word "test"]
              ~inputs:[File.(Var.(!builddir / ".@test"))]);
       let ret =
         callback nin_ppf items_list
