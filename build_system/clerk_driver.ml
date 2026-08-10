@@ -280,6 +280,19 @@ let empty_targets =
     direct_targets = [];
   }
 
+let base_ninja_targets enabled_backends =
+  List.fold_left
+    (fun default_rules (module B : Clerk_backend.S) ->
+      Nj.Expr.Word ("@" ^ B.name ^ "/runtime/src")
+      :: Clerk_backend.src_dep ~name:B.name "Stdlib_fr"
+      :: Clerk_backend.src_dep ~name:B.name "Stdlib_en"
+      :: default_rules)
+    [
+      Clerk_backend.catala_obj_target "Stdlib_fr";
+      Clerk_backend.catala_obj_target "Stdlib_en";
+    ]
+    enabled_backends
+
 let target_debug_message (t : user_target_args) =
   Message.debug "Will build the following targets:";
   let ppl f =
@@ -589,11 +602,13 @@ let test_exec_targets
     backends
     items
     info
+    ?(scope_tests_only = true)
     { clerk_targets; modules; directories; source_files; direct_targets } :
     (Scan.item * [< `Interpret | `OCaml | `C | `Python | `Java ] * Nj.Expr.elt)
     list =
   let build_dir = config.Cli.file.global.build_dir in
   let item_exec_target ?backends:explicit_backends it =
+    Message.debug "IET>>>>>>>>> %s" it.Scan.file_name;
     let backends =
       match explicit_backends with
       | Some bks -> bks
@@ -618,7 +633,8 @@ let test_exec_targets
                   List.mem bk t.Config.backends)
                 backends
             in
-            if Lazy.force it.Scan.has_scope_tests = 0 then []
+            if scope_tests_only && Lazy.force it.Scan.has_scope_tests = 0 then
+              []
             else item_exec_target ~backends it)
           (items_in_subdirs items t.Config.ttests))
       clerk_targets
@@ -631,7 +647,8 @@ let test_exec_targets
       (fun (_, items) ->
         List.concat_map
           (fun it ->
-            if Lazy.force it.Scan.has_scope_tests = 0 then []
+            if scope_tests_only && Lazy.force it.Scan.has_scope_tests = 0 then
+              []
             else item_exec_target it)
           items)
       directories
@@ -816,6 +833,7 @@ let run_targets
     let target =
       Var.expr_elt_to_string ~var_bindings:info.Clerk_rules.var_bindings target
     in
+    Message.debug ">>>>>> %s" target;
     match backend with
     | `Interpret ->
       let () =
@@ -1074,6 +1092,7 @@ let run_cmd =
             target_args
       in
       target_debug_message targets;
+      let ninja_targets = base_ninja_targets backends in
       let ninja_targets =
         ninja_build_targets ~exec_targets:true config ~autotest:false backends
           items info targets
@@ -1085,7 +1104,25 @@ let run_cmd =
       Message.result "@[<v 4>Build successful@]";
       Cmd.Exit.ok)
     else
-      let exec_targets = test_exec_targets config backends items info targets in
+      let exec_targets =
+        test_exec_targets config backends items info targets
+          ~scope_tests_only:(scope = None)
+      in
+      target_debug_message targets;
+      let exec_targets =
+        if List.mem `Interpret backends then
+          List.map
+            (fun it ->
+              prerr_endline "FOOOFOO";
+              it, `Interpret, Nj.Expr.Word it.Scan.file_name)
+            targets.source_files
+          @ exec_targets
+        else exec_targets
+      in
+      Message.debug "EXEC: @[<v>%a@]"
+        (Format.pp_print_list (fun ppf (s, _, _) ->
+             Format.pp_print_string ppf s.Scan.file_name))
+        exec_targets;
       let results =
         run_targets ~test:false ~whole_program ?trace ?trace_format config cmd
           scope scope_input (exec_targets, info)
@@ -1487,19 +1524,7 @@ let runtest_cmd =
       $ Cli.whole_program)
 
 let run_ninja_start ~config ~quiet ~ninja_flags ~enabled_backends cont =
-  let default =
-    List.fold_left
-      (fun default_rules (module B : Clerk_backend.S) ->
-        Nj.Expr.Word ("@" ^ B.name ^ "/runtime/src")
-        :: Clerk_backend.src_dep ~name:B.name "Stdlib_fr"
-        :: Clerk_backend.src_dep ~name:B.name "Stdlib_en"
-        :: default_rules)
-      [
-        Clerk_backend.catala_obj_target "Stdlib_fr";
-        Clerk_backend.catala_obj_target "Stdlib_en";
-      ]
-      enabled_backends
-  in
+  let default = base_ninja_targets enabled_backends in
   Clerk_rules.run_ninja ~include_dir:false ~code_coverage:false ~quiet
     ~default:0 ~config
     ~enabled_backends:(List.map Clerk_backend.id enabled_backends)
