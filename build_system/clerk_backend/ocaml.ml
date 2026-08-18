@@ -258,12 +258,12 @@ module Spec : Sig.Spec = struct
             [
               Nj.Binding.make Var.includes
                 (Flags.include_flags ~name include_dirs);
-              Nj.Binding.make ocaml_flags
-                [
-                  !!ocaml_flags;
-                  Nj.Expr.Word "-opaque";
-                  Nj.Expr.Word "-no-alias-deps";
-                ];
+              (* Nj.Binding.make ocaml_flags
+               *   [
+               *     !!ocaml_flags;
+               *     Nj.Expr.Word "-opaque";
+               *     Nj.Expr.Word "-no-alias-deps";
+               *   ]; *)
             ];
         Nj.build "ocaml-natobject"
           ~inputs:[Common.target ~name "ml"]
@@ -279,6 +279,9 @@ module Spec : Sig.Spec = struct
       ]
     in
     let obj =
+      let ext =
+        match Sys.backend_type with Native -> "cmxs" | _ -> "cmo"
+      in
       (match item.module_def with
         | Some _ ->
           obj
@@ -289,17 +292,21 @@ module Spec : Sig.Spec = struct
             ]
           @
           (* if item.is_stdlib || List.mem (File.dirname item.file_name) include_dirs then *)
-          let ext =
-            match Sys.backend_type with Native -> "cmxs" | _ -> "cmo"
-          in
           [
             Nj.build "phony"
               ~inputs:[Common.target ~name ext]
               ~implicit_in:(List.map Common.catala_obj_target modules)
-              ~outputs:[Nj.Expr.Word ("@catala/obj/" ^ !Var.dst)];
+              ~outputs:[Common.catala_obj_dep item];
           ]
           (* else [] *)
-        | None -> obj)
+        | None ->
+          obj
+          @ [
+            Nj.build "phony"
+              ~inputs:[Word File.(!Var.tdir / !Var.src)]
+              ~implicit_in:(List.map Common.catala_obj_target modules)
+              ~outputs:[Common.catala_obj_dep item];
+          ])
       @
       if Lazy.force item.has_scope_tests > 0 then
         [
