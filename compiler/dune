@@ -58,21 +58,34 @@
  (action
   (run ./tests.exe)))
 
-(include manpages.sexp)
-
 (rule
- (mode promote)
+ (targets (dir cmdliner-support))
+ (deps catala.exe)
  (action
-  (with-stdout-to
-   manpages.sexp
-   (run
-    sh
-    -c
-    "for page in '' $(%{bin:catala} --color=never 2>&1 | sed -n 's/.    *//p; /plugins/q'); do\n        echo '(rule (alias man) (action (with-stdout-to catala'${page:+-$page}'.1 (run \%{bin:catala} '$page' --help=groff))))'\n      done"))))
+  (ignore-stdout
+   (run cmdliner install tool-support ./catala.exe:catala cmdliner-support))))
 
 (install
- (section man)
+ (section share_root)
  (package catala)
  (files
-  (glob_files
-   (*.1 with_prefix man1))))
+  (glob_files_rec cmdliner-support/share/* as .)))
+
+;; (include manpages.sexp)
+
+;; (rule
+;;  (mode promote)
+;;  (action
+;;   (with-stdout-to
+;;    manpages.sexp
+;;    (run
+;;     sh
+;;     -c
+;;     "for page in '' $(%{bin:catala} --color=never 2>&1 | sed -n 's/.    *//p; /plugins/q'); do\n        echo '(rule (alias man) (action (with-stdout-to catala'${page:+-$page}'.1 (run \%{bin:catala} '$page' --help=groff))))'\n      done"))))
+
+;; (install
+;;  (section man)
+;;  (package catala)
+;;  (files
+;;   (glob_files
+;;    (*.1 with_prefix man1))))
