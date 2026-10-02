@@ -18,7 +18,32 @@
 open Cmdliner
 open Catala_utils
 
+(** {2 Initialisation of options} *)
+
+type config = {
+  file : Clerk_config.t;
+  fix_path : File.t -> File.t;
+  ninja_file : File.t option;
+  test_flags : string list;
+  include_objects : bool;
+}
+
+val init_term : ?allow_test_flags:bool -> unit -> config Term.t
+(** Reads the supplied command-line flags and configuration file and runs
+    globals initialisation routines *)
+
+val init_term_with_target : ?allow_test_flags:bool -> unit -> (config * string list) Term.t
+
+val run_command_line :
+  ?setenv:(string * string) list ->
+  ?quiet:bool ->
+  ?forward_stderr:bool ->
+  string list ->
+  int * string list
+
 type backend = [ `C | `Interpret | `OCaml | `Python | `Java ]
+
+(** {2 Flags and options} *)
 
 val catala_exe : string option Term.t
 val catala_opts : string list Term.t
@@ -33,7 +58,6 @@ val runtest_out : string option Term.t
 val backends : backend list Term.t
 val run_command : string Term.t
 val vars_override : (string * string) list Term.t
-val files_or_folders : string list Term.t
 val files : string list Term.t
 val targets : string list Term.t
 val single_file : string Term.t
@@ -42,8 +66,7 @@ val scope : string Term.t
 val scope_opt : string option Term.t
 val scope_input : string option Term.t
 val variable : string Term.t
-val clerk_targets_or_files : string list Term.t
-val clerk_targets_or_files_or_folders : string list Term.t
+val generic_target : config Term.t -> string list Term.t
 val report_verbosity : [> `Failures | `Short | `Summary | `Verbose ] Term.t
 val report_format : [> `Terminal | `JUnitXML | `VSCodeJSON ] Term.t
 val code_coverage : bool Term.t
@@ -64,24 +87,3 @@ val debug : bool Term.t
 
 val all_backends : backend list
 val backend_name : backend -> string
-
-(** {2 Initialisation of options} *)
-
-type config = {
-  file : Clerk_config.t;
-  fix_path : File.t -> File.t;
-  ninja_file : File.t option;
-  test_flags : string list;
-  include_objects : bool;
-}
-
-val init_term : ?allow_test_flags:bool -> unit -> config Term.t
-(** Reads the supplied command-line flags and configuration file and runs
-    globals initialisation routines *)
-
-val run_command_line :
-  ?setenv:(string * string) list ->
-  ?quiet:bool ->
-  ?forward_stderr:bool ->
-  string list ->
-  int * string list

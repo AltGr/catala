@@ -18,6 +18,14 @@
 open Cmdliner
 open Catala_utils
 
+type config = {
+  file : Clerk_config.t;
+  fix_path : File.t -> File.t;
+  ninja_file : File.t option;
+  test_flags : string list;
+  include_objects : bool;
+}
+
 (** {1 Command line interface} *)
 
 let catala_exe =
@@ -227,25 +235,19 @@ let ninja_output =
            $(i,<builddir>/clerk.ninja) in debug mode, and a temporary file \
            otherwise.")
 
-let files_or_folders =
-  Arg.(
-    value
-    & pos_all string []
-    & info [] ~docv:"FILE" ~doc:"File(s) or folder(s) to process")
-
 let files =
   Arg.(value & pos_all file [] & info [] ~docv:"FILE" ~doc:"File(s) to process")
 
 let targets =
   Arg.(
     value
-    & pos_all string []
-    & info [] ~docv:"TARGET" ~doc:"Clerk targets to build")
+    & pos_all filepath []
+    & info [] ~docv:"TARGET" ~doc:"Raw Ninja targets to build")
 
 let single_file =
   Arg.(
     required
-    & pos 0 (some string) None
+    & pos 0 (some file) None
     & info [] ~docv:"FILE" ~doc:"File to process")
 
 let reset_test_outputs =
@@ -279,7 +281,7 @@ let scope_input =
      large. *)
   let open Arg in
   value
-  & opt (some string) None
+  & opt (some filepath) None
   & info ["input"] ~docv:"FILE|JSON"
       ~doc:
         "Reads a JSON value from the given string or file ($(b,-) for stdin) \
@@ -287,19 +289,29 @@ let scope_input =
          also $(b,json-schema) command to generate the accepted JSON's schema \
          for a given scope."
 
-let clerk_targets_or_files =
+let generic_target config =
+  let target =
+    let completion =
+      Arg.Completion.make ~context:config @@ fun ctx ~token:_ ->
+      let clerk_targets = match ctx with
+        | Some config -> List.map (fun t -> t.Clerk_config.tname) config.file.targets
+        | None ->  ["MERDE"]
+      in
+      Ok (Arg.Completion.files ::
+          Arg.Completion.dirs ::
+          List.map Arg.Completion.string clerk_targets)
+    in
+    Cmdliner.Arg.Conv.make ()
+      ~completion
+      ~docv:"TARGET"
+      ~parser:Arg.(Conv.parser filepath)
+      ~pp:Arg.(Conv.pp filepath)
+  in
   Arg.(
     value
-    & pos_all string []
-    & info [] ~docv:"TARGET(S)"
-        ~doc:"Clerk target(s) or individual file(s) to process")
-
-let clerk_targets_or_files_or_folders =
-  Arg.(
-    value
-    & pos_all string []
-    & info [] ~docv:"TARGET(S)"
-        ~doc:"Clerk target(s), individual file(s) or folder(s) to process")
+    & pos_all target []
+    & info [] ~docv:"TARGET"
+        ~doc:"Clerk targets, individual files or folders to process")
 
 let report_verbosity =
   Arg.(
@@ -446,17 +458,43 @@ let info =
 
 (** {2 Initialisation of options} *)
 
-type config = {
-  file : Clerk_config.t;
-  fix_path : File.t -> File.t;
-  ninja_file : File.t option;
-  test_flags : string list;
-  include_objects : bool;
-}
+let project_info =
+  let term config_file =
+    let default_config_file = "clerk.toml" in
+    let from_dir = Sys.getcwd () in
+    match config_file with
+    | None -> (
+        match
+          File.(find_in_parents (fun dir -> exists (dir / default_config_file)))
+        with
+        | Some (root, rel) ->
+          ( root,
+            Catala_utils.File.reverse_path ~from_dir ~to_dir:rel,
+            Clerk_config.read File.(root / default_config_file))
+        | None -> (
+            match
+              File.(
+                find_in_parents (function dir ->
+                    exists (dir / "catala.opam") || exists (dir / ".git")))
+            with
+            | Some (root, rel) ->
+              ( root,
+                Catala_utils.File.reverse_path ~from_dir ~to_dir:rel,
+                Clerk_config.default_config )
+            | None ->
+              ( from_dir,
+                Catala_utils.File.make_relative_to ~dir:from_dir,
+                Clerk_config.default_config )))
+    | Some f ->
+      let root = Filename.dirname f in
+      let config = Clerk_config.read f in
+      root, (fun d -> Catala_utils.File.reverse_path ~from_dir ~to_dir:root d), config
+  in
+  Term.(const term $ config_file)
 
 let init
+    project_info
     test_flags
-    config_file
     ninja_file
     catala_exe
     catala_opts
@@ -471,46 +509,14 @@ let init
     include_objects =
   if debug then Printexc.record_backtrace true;
   let _options = Catala_utils.Global.enforce_options ~debug ~color () in
-  let default_config_file = "clerk.toml" in
-  let set_root_dir dir =
-    Message.debug "Entering directory %a" File.format dir;
-    Sys.chdir dir
-  in
   (* fix_path adjusts paths specified from the command-line relative to the user
      cwd to be instead relative to the project root *)
-  let fix_path, config =
-    let from_dir = Sys.getcwd () in
-    match config_file with
-    | None -> (
-      match
-        File.(find_in_parents (fun dir -> exists (dir / default_config_file)))
-      with
-      | Some (root, rel) ->
-        set_root_dir root;
-        ( Catala_utils.File.reverse_path ~from_dir ~to_dir:rel,
-          Clerk_config.read default_config_file )
-      | None -> (
-        match
-          File.(
-            find_in_parents (function dir ->
-                exists (dir / "catala.opam") || exists (dir / ".git")))
-        with
-        | Some (root, rel) ->
-          set_root_dir root;
-          ( Catala_utils.File.reverse_path ~from_dir ~to_dir:rel,
-            Clerk_config.default_config )
-        | None ->
-          ( Catala_utils.File.make_relative_to ~dir:from_dir,
-            Clerk_config.default_config )))
-    | Some f ->
-      let root = Filename.dirname f in
-      let config = Clerk_config.read f in
-      set_root_dir root;
-      (fun d -> Catala_utils.File.reverse_path ~from_dir ~to_dir:root d), config
-  in
+  let root, fix_path, config = project_info in
+  Message.debug "Entering directory %a" File.format root;
+  Sys.chdir root;
   let build_dir =
     let dir =
-      match build_dir with None -> config.global.build_dir | Some dir -> dir
+      match build_dir with None -> config.Clerk_config.global.build_dir | Some dir -> dir
     in
     let dir =
       match test_flags with
@@ -590,8 +596,8 @@ let init_term ?(allow_test_flags = false) () =
   let test_flags = if allow_test_flags then test_flags else Term.const [] in
   Term.(
     const init
+    $ project_info
     $ test_flags
-    $ config_file
     $ ninja_output
     $ catala_exe
     $ catala_opts
@@ -604,6 +610,10 @@ let init_term ?(allow_test_flags = false) () =
     $ whole_program
     $ Cli.Flags.output_format
     $ objects)
+
+let init_term_with_target ?allow_test_flags () =
+  let init = init_term ?allow_test_flags () in
+  Term.(const (fun conf targets -> targets, conf) $ generic_target init $ init)
 
 let run_command_line
     ?(setenv = [])
