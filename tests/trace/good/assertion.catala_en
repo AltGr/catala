@@ -21,13 +21,13 @@ scope S:
   definition sr equals i + ii + ic.s
 
 #[test]
-#[trace.assert = (res.S.ic.I.s, 5)]
-#[trace.assert = (res.S.ii, 10)]
 declaration scope T:
   output res scope S
 
 scope T:
   definition res.i equals 4
+  #[trace.assert = res.S.ic.I.s = 5.33]
+  #[trace.assert = res.S.ii : bla = 10]
   assertion (res.sr = 19)
 ```
 

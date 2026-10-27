@@ -170,6 +170,23 @@ let translate_attr ~context = function
             Message.warning ~pos
               "Attribute @{<magenta>#[trace.assert]@} is not well formed";
             None)
+        | Assertion ->
+          let open Surface in
+          (match v with
+           | Ast.Expression
+               (Binop ((Eq, _), (Ident (path, lident, state), _), expr), _)
+             ->
+             let path =
+               String.concat "."
+                 (List.map Mark.remove (path @ [lident]))
+               ^ match state with None -> "" | Some (st, _) ->
+                 "#" ^ st
+             in
+             Some (TraceAssert (path, Expr_value.value_of_expression expr))
+           | _ ->
+             Message.warning ~pos
+               "Attribute @{<magenta>#[trace.assert]@} is not well formed";
+             None)
         | _ ->
           Message.warning ~pos
             "Attribute @{<magenta>#[trace.assert]@} is not allowed in this \
