@@ -15,56 +15,27 @@
    the License. *)
 
 open Catala_utils
-module M = Map.Make (String)
 module Runtime = Catala_runtime
 
-type asserted_trace_variable = string
+module Var = struct
+  type t = string list
+  let compare = List.compare String.compare
+  let to_string = String.concat "."
+  let format = Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ".") Format.pp_print_string
+end
 
-let asserted_trace_variable_to_string = Fun.id
+type var = Var.t
+
+module M = Map.Make (Var)
 
 type value = Runtime.Value.t
 
-(* [Runtime.Value.format] lays compound values out over several lines, but a
-   failure is reported as a single GNU-formatted line: 'clerk runtest' would
-   drop the rest. Compound values are printed here on one line, in the syntax
-   of the #[trace.assert] attributes; leaves are delegated to
-   [Runtime.Value.format]. *)
-let rec format_value ppf (value : Runtime.Value.t) =
-  let open Runtime.Value in
-  let list ~sep ppf l =
-    Format.pp_print_list
-      ~pp_sep:(fun ppf () -> Format.pp_print_string ppf sep)
-      format_value ppf l
-  in
-  match value with
-  | V (Enum en, v) -> (
-    match en.constr v with
-    | _, name, None -> Format.pp_print_string ppf name
-    | _, name, Some payload ->
-      let content =
-        match Runtime.Print.get_lang () with
-        | `En -> "content"
-        | `Fr -> "contenu"
-        | `Pl -> "typu"
-      in
-      Format.fprintf ppf "%s %s %a" name content format_value payload)
-  | V (Struct st, v) ->
-    Format.fprintf ppf "%s {" st.name;
-    List.iter
-      (fun (field, v) -> Format.fprintf ppf " -- %s: %a" field format_value v)
-      (st.fields v);
-    Format.pp_print_string ppf " }"
-  | V (Array t, v) ->
-    Format.fprintf ppf "[%a]" (list ~sep:"; ") (Array.to_list (Array.map t v))
-  | V (Tuple destr, v) -> Format.fprintf ppf "(%a)" (list ~sep:", ") (destr v)
-  | _ -> Runtime.Value.format ppf value
-
-let value_to_string = Format.asprintf "%a" format_value
+let value_to_string v = Message.unformat (fun ppf -> Runtime.Value.format ppf v)
 
 type trace_assertions = value option M.t
 
 type failed_trace_assertions = {
-  name : asserted_trace_variable;
+  name : Var.t;
   expected : value;
   current_value : value option;
   pos : Runtime.code_location option;
@@ -72,7 +43,7 @@ type failed_trace_assertions = {
 }
 
 let empty = M.empty
-let add_asserted_trace_variable name value map = M.add name value map
+let add_var name value map = M.add name value map
 
 (* Alternative lookup, kept for reference: instead of following an explicit JSON
    path, it searches the trace by element name. Not wired into
@@ -196,7 +167,7 @@ let rec matches pos ~expected actual =
            | None -> Runtime.error_message err)))
 
 let check ~asserted_trace_variables ~tested_scope (trace : Runtime.trace) =
-  if M.is_empty asserted_trace_variables || List.length trace = 0 then (
+  if M.is_empty asserted_trace_variables then (
     Message.debug "No asserted trace variable to check for %s" tested_scope;
     [])
   else
@@ -204,7 +175,7 @@ let check ~asserted_trace_variables ~tested_scope (trace : Runtime.trace) =
        on a large file that would drown the test output. *)
     M.fold
       (fun path (v : value option) failures ->
-        let items = tested_scope :: String.split_on_char '.' path in
+        let items = tested_scope :: path in
         match v with
         | None ->
           (* No asserted value *)
@@ -259,7 +230,7 @@ let check ~asserted_trace_variables ~tested_scope (trace : Runtime.trace) =
 let trace_assertion_to_json (assertion : failed_trace_assertions) : Yojson.t =
   `Assoc
     ([
-       "variable", `String assertion.name;
+       "variable", `String (Var.to_string assertion.name);
        "expected", `String (value_to_string assertion.expected);
      ]
     @ Option.fold ~none:[]
@@ -271,8 +242,8 @@ let trace_assertion_to_json (assertion : failed_trace_assertions) : Yojson.t =
 let report_display ppf (assertion : failed_trace_assertions) =
   let f =
     Format.fprintf ppf
-      "@[<v 4>@{<red>■@} Variable %s:@,Expected: %s@,Actual: %s@]"
-      assertion.name
+      "@[<v 4>@{<red>■@} Variable %a:@,Expected: %s@,Actual: %s@]"
+      Var.format assertion.name
       (value_to_string assertion.expected)
   in
   (match assertion.current_value with
@@ -282,7 +253,7 @@ let report_display ppf (assertion : failed_trace_assertions) =
 
 let display ppf (assertion : failed_trace_assertions) =
   (* Just trying to understand what is wrong with enumeration verification *)
-  Format.fprintf ppf "Trace Assertion Failed: %s ≠ %s (%s)" assertion.name
+  Format.fprintf ppf "Trace Assertion Failed: %a ≠ %s (%s)" Var.format assertion.name
     (value_to_string assertion.expected)
     (Option.fold ~none:"Missing" ~some:value_to_string assertion.current_value);
   Option.iter (Format.fprintf ppf " [%s]") assertion.error

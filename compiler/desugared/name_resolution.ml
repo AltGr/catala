@@ -159,31 +159,26 @@ let translate_attr ~context = function
       match ps with
       | ["assert"] -> (
         match context with
-        | ScopeDecl -> (
-          let open Surface in
-          match v with
-          | Ast.Expression
-              (Tuple [((Ident _, _ | Dotted _, _) as ident); expr], _) ->
-            let path = Format.asprintf "%a" Print.format_expr ident in
-            Some (TraceAssert (path, Expr_value.value_of_expression expr))
-          | _ ->
-            Message.warning ~pos
-              "Attribute @{<magenta>#[trace.assert]@} is not well formed";
-            None)
-        | Assertion ->
-          let open Surface in
-          (match v with
-           | Ast.Expression
-               (Binop ((Eq, _), (Ident (path, lident, state), _), expr), _)
-             ->
-             let path =
-               String.concat "."
-                 (List.map Mark.remove (path @ [lident]))
-               ^ match state with None -> "" | Some (st, _) ->
-                 "#" ^ st
-             in
-             Some (TraceAssert (path, Expr_value.value_of_expression expr))
-           | _ ->
+          | ScopeDecl ->
+            let open Surface in
+            (match v with
+             | Ast.Expression
+                 (Binop ((Eq, _), path, expr), _)
+               ->
+               let rec get_path = function
+                 | Ast.Ident (path, (lident, _), state), _ ->
+                   List.map Mark.remove path @ [lident ^ (match state with None -> "" | Some (st, _) -> "#" ^ st)]
+                 | Dotted (e, ((path, lident), _)), _ ->
+                   get_path e @ List.map Mark.remove (path @ [lident])
+                 | Binop ((Div KPoly, _), e1, e2), _ ->
+                   (match List.rev (get_path e1), get_path e2 with
+                    | last :: p1, fst :: p2 -> List.rev_append p1 ((last ^"#"^ fst) :: p2)
+                    | _ -> assert false)
+                 | _, pos ->
+                   Message.error ~pos "Invalid syntax in attribute of @{<magenta>#[trace.assert]@}"
+               in
+               Some (TraceAssert (get_path path, Expr_value.value_of_expression expr))
+             | _ ->
              Message.warning ~pos
                "Attribute @{<magenta>#[trace.assert]@} is not well formed";
              None)
@@ -191,32 +186,6 @@ let translate_attr ~context = function
           Message.warning ~pos
             "Attribute @{<magenta>#[trace.assert]@} is not allowed in this \
              context";
-          None)
-      | ["assert_state"] -> (
-        match context with
-        | ScopeDecl -> (
-          let open Surface in
-          match v with
-          | Ast.Expression
-              ( Tuple
-                  [
-                    ((Ident _, _ | Dotted _, _) as ident);
-                    (Ident ([], (state, _), None), _);
-                    expr;
-                  ],
-                _ ) ->
-            (* In the trace, the states of a variable are named [var#state]
-               (see [Scopelang.From_desugared]) *)
-            let path = Format.asprintf "%a#%s" Print.format_expr ident state in
-            Some (TraceAssert (path, Expr_value.value_of_expression expr))
-          | _ ->
-            Message.warning ~pos
-              "Attribute @{<magenta>#[trace.assert_state]@} is not well formed";
-            None)
-        | _ ->
-          Message.warning ~pos
-            "Attribute @{<magenta>#[trace.assert_state]@} is not allowed in \
-             this context";
           None)
       | ps ->
         Message.warning ~pos:ppos ~suggestion:["assert"; "assert_state"]

@@ -1046,7 +1046,7 @@ let evaluate_expr_trace : type d r.
             let trace_assert =
               List.fold_left
                 (fun acc (path, value) ->
-                  Trace_assertion.add_asserted_trace_variable path value acc)
+                  Trace_assertion.add_var path value acc)
                 Trace_assertion.empty trace_assert
             in
             Trace_assertion.check ~asserted_trace_variables:trace_assert

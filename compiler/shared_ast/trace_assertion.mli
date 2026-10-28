@@ -17,9 +17,7 @@
 (** Checks the values declared by the [#[trace.assert]] attributes against the
     trace produced by the interpreter, and renders the mismatches. *)
 
-type asserted_trace_variable = string
-
-val asserted_trace_variable_to_string : asserted_trace_variable -> string
+type var = string list
 
 type value = Catala_runtime.Value.t
 
@@ -29,11 +27,11 @@ type trace_assertions
 
 val empty : trace_assertions
 
-val add_asserted_trace_variable :
-  string -> value option -> trace_assertions -> trace_assertions
+val add_var :
+  var -> value option -> trace_assertions -> trace_assertions
 
 type failed_trace_assertions = {
-  name : asserted_trace_variable;
+  name : var;
       (** The variable the attributes were attached to *)
   expected : value;
       (** Its expected value, normalised as the trace writes it *)
@@ -55,7 +53,7 @@ val check :
   tested_scope:string ->
   Catala_runtime.trace ->
   failed_trace_assertions list
-(** [check ~asserted_trace_variables ~tested_scope trace] returns one entry per
+(** [check ~vars ~tested_scope trace] returns one entry per
     variable whose value does not match [trace]. Variables without a path are
     reported in a single warning and left unchecked. *)
 
