@@ -152,6 +152,8 @@ let handle_extra_attributes context plugin path value pos =
         None
       | Some (_, _, _, callback) -> callback ~pos value))
 
+type Pos.attr += TraceAssert of string list * Surface.Ast.expression
+
 let translate_attr ~context = function
   | Src ((p1 :: ps, ppos), v, pos) -> (
     match p1 with
@@ -159,7 +161,7 @@ let translate_attr ~context = function
       match ps with
       | ["assert"] -> (
         match context with
-          | ScopeDecl ->
+          | Assertion ->
             let open Surface in
             (match v with
              | Ast.Expression
@@ -177,7 +179,7 @@ let translate_attr ~context = function
                  | _, pos ->
                    Message.error ~pos "Invalid syntax in attribute of @{<magenta>#[trace.assert]@}"
                in
-               Some (TraceAssert (get_path path, Expr_value.value_of_expression expr))
+               Some (TraceAssert (get_path path, expr))
              | _ ->
              Message.warning ~pos
                "Attribute @{<magenta>#[trace.assert]@} is not well formed";

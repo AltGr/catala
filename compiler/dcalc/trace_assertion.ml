@@ -15,6 +15,7 @@
    the License. *)
 
 open Catala_utils
+open Shared_ast
 module Runtime = Catala_runtime
 
 module Var = struct
@@ -32,7 +33,7 @@ type value = Runtime.Value.t
 
 let value_to_string v = Message.unformat (fun ppf -> Runtime.Value.format ppf v)
 
-type trace_assertions = value option M.t
+type trace_assertions = value M.t
 
 type failed_trace_assertions = {
   name : Var.t;
@@ -166,21 +167,18 @@ let rec matches pos ~expected actual =
            | Some note -> Runtime.error_message err ^ ": " ^ note
            | None -> Runtime.error_message err)))
 
-let check ~asserted_trace_variables ~tested_scope (trace : Runtime.trace) =
+let check_ asserted_trace_variables scope (trace : Runtime.trace) =
   if M.is_empty asserted_trace_variables then (
-    Message.debug "No asserted trace variable to check for %s" tested_scope;
+    Message.debug "No asserted trace variable to check for %a"
+      ScopeName.format scope;
     [])
   else
     (* The variables lacking a path are gathered rather than reported one by one:
        on a large file that would drown the test output. *)
     M.fold
-      (fun path (v : value option) failures ->
-        let items = tested_scope :: path in
-        match v with
-        | None ->
-          (* No asserted value *)
-          failures
-        | Some expected -> (
+      (fun path (expected : value) failures ->
+        let items = ScopeName.original_base scope :: path in
+        (
           let rec inspect_trace trace path =
             match path with
             | [] -> None
@@ -257,3 +255,47 @@ let display ppf (assertion : failed_trace_assertions) =
     (value_to_string assertion.expected)
     (Option.fold ~none:"Missing" ~some:value_to_string assertion.current_value);
   Option.iter (Format.fprintf ppf " [%s]") assertion.error
+
+
+(* Trace assertion failures are reported with the [AssertFailure] kind, as
+   failed assertions are, so that the language server absorbs both alike. *)
+let report_trace_assertion_failures s failures =
+  List.iter
+    (fun (failed_trace : failed_trace_assertions) ->
+      (* Without a position, the GNU-formatted message is not recognised by
+         'clerk runtest' and gets dropped *)
+      let pos =
+        match failed_trace.pos with
+        | Some pos -> Expr.runtime_to_pos pos
+        | None -> snd (ScopeName.get_info s)
+      in
+      Message.delayed_error ~kind:AssertFailure () ~pos "%a"
+        display failed_trace)
+    failures
+
+
+open Shared_ast
+
+let check program scope trace =
+  if not Global.options.check_trace_assertion then () else
+  let assertions, _ =
+    let s = Program.find_scope scope program.code_items in
+    let _, body = Bindlib.unbind s.scope_body_expr in
+    BoundList.fold_left ~init:M.empty
+      ~f:(fun acc sclet _ ->
+          match sclet.scope_let_kind with
+          | Assertion ->
+            let a =
+              Pos.get_attrs
+                (Expr.mark_pos (Mark.get sclet.scope_let_expr))
+                (function
+                  | Desugared.Ast.TraceAssert (path, e) ->
+                    Some (path, Expr.embed_value program.decl_ctx e)
+                  | _ -> None)
+            in
+            M.add_seq (List.to_seq a) acc
+          | _ -> acc)
+      body
+  in
+  check_ assertions scope trace
+  |> report_trace_assertion_failures scope

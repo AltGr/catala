@@ -14,6 +14,8 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
+open Shared_ast
+
 (** Checks the values declared by the [#[trace.assert]] attributes against the
     trace produced by the interpreter, and renders the mismatches. *)
 
@@ -28,7 +30,7 @@ type trace_assertions
 val empty : trace_assertions
 
 val add_var :
-  var -> value option -> trace_assertions -> trace_assertions
+  var -> value -> trace_assertions -> trace_assertions
 
 type failed_trace_assertions = {
   name : var;
@@ -48,9 +50,9 @@ type failed_trace_assertions = {
           aborting the interpretation *)
 }
 
-val check :
-  asserted_trace_variables:trace_assertions ->
-  tested_scope:string ->
+val check_ :
+  trace_assertions ->
+  ScopeName.t ->
   Catala_runtime.trace ->
   failed_trace_assertions list
 (** [check ~vars ~tested_scope trace] returns one entry per
@@ -60,3 +62,6 @@ val check :
 val trace_assertion_to_json : failed_trace_assertions -> Yojson.t
 val display : Format.formatter -> failed_trace_assertions -> unit
 val report_display : Format.formatter -> failed_trace_assertions -> unit
+
+
+val check : 'a program -> ScopeName.t -> Catala_runtime.trace -> unit
