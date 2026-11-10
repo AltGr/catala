@@ -17,7 +17,11 @@
 open Catala_utils
 open Definitions
 
-type 'e down_acc = { decl_ctx : decl_ctx }
+type 'e down_acc = {
+  decl_ctx : decl_ctx;
+  bound_vars : ('e, 'e) Var.Map.t;
+  (* Only the candidates for inlining: pure and with a size threshold *)
+}
 
 type 'e up_acc = {
   free_vars : ('e, int) Var.Map.t; (* counts occurences *)
@@ -50,7 +54,69 @@ let literal_bool = function
 
 (* beta reduction when variables not used, and for variable aliases and
    literals *)
-let rec simplified_apply dacc f args tys m =
+let rec simplified_binder_apply_aux _dacc ubinder tys pos uargs m =
+  let aux ubinder (uacc_args, args) =
+    (* See [optimize_binder] *)
+    let binder = Bindlib.mbinder_compose ubinder snd in
+    let vars, (uacc_body, _body) = Bindlib.unmbind ubinder in
+    let uacc_f =
+      {
+        is_pure = true;
+        size = uacc_body.size + 1;
+        free_vars =
+          Array.fold_left
+            (fun vars v -> Var.Map.remove v vars)
+            uacc_body.free_vars vars;
+      }
+    in
+    let f = EAbs { binder; tys; pos }, m in (* FIXME type in m *)
+    let uacc = uacc_merge uacc_f uacc_args in
+    match args, uacc_args.is_pure with
+    | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _
+    (* Never inline lifted closures *)
+    | _, false (* Do not inline impure expressions *) ->
+      uacc, (EApp { f; args; tys }, m)
+    | _
+      when List.for_all2
+          (fun v arg ->
+             (match arg with
+              | (EVar _ | ELit _), _ -> true
+              | _ -> false)
+             || uacc_occur uacc_body v <= 1
+             (* we could also inline pure args with multiple occurences, under
+                some size threshold *))
+          (Array.to_list vars) args ->
+      (* Inline all function arguments *)
+      let uacc =
+        {
+          uacc with
+          is_pure = uacc_args.is_pure && uacc_body.is_pure;
+          size =
+            uacc_body.size
+            + uacc_args.size
+            - Array.fold_left
+              (fun n v -> n + uacc_occur uacc_body v)
+              0 vars;
+        }
+      in
+      ( uacc,
+        Bindlib.msubst binder
+          (Array.of_list (List.map Mark.remove args)) )
+    (* We might want to run another optimisation round here ? *)
+    | _ ->
+      uacc, (EApp { f; args; tys }, m)
+  in
+  Bindlib.box_apply2 aux ubinder uargs
+
+(* beta reduction when variables not used, and for variable aliases and
+   literals *)
+let rec simplified_binder_apply dacc binder tys pos uargs m =
+  let vars, body = Bindlib.unmbind binder in
+  let ubody, _m = optimize_expr dacc body in
+  let ubinder = Bindlib.bind_mvar vars ubody in
+  simplified_binder_apply_aux dacc ubinder tys pos uargs m
+
+and simplified_apply dacc f args tys m =
   let uargs =
     args
     |> List.map (fun e ->
@@ -63,73 +129,16 @@ let rec simplified_apply dacc f args tys m =
         uacc_args, args)
   in
   match f with
-  | EAbs { binder; tys; pos }, _ ->
+  | EAbs { binder; tys; pos }, m1 ->
     (* This only applies to literal lambdas (before optimisations) at the
        moment. A real optimisation pass would handle inlining of named functions
        with some heuristics. *)
-    let vars, body = Bindlib.unmbind binder in
-    let ubody, _body_m = optimize_expr dacc body in
-    let ubinder = Bindlib.bind_mvar vars ubody in
-    (* see [optimize_binder] *)
-    ( Bindlib.box_apply2
-        (fun ubinder (uacc_args, args) ->
-          let vars, (uacc_body, _body) = Bindlib.unmbind ubinder in
-          let uacc_f =
-            {
-              is_pure = true;
-              size = uacc_body.size + 1;
-              free_vars =
-                Array.fold_left
-                  (fun vars v -> Var.Map.remove v vars)
-                  uacc_body.free_vars vars;
-            }
-          in
-          let uacc = uacc_merge uacc_f uacc_args in
-          match args, uacc_args.is_pure with
-          | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _
-          (* Never inline lifted closures *)
-          | _, false (* Do not inline impure expressions *) ->
-            let binder = Bindlib.mbinder_compose ubinder snd in
-            let f = EAbs { binder; tys; pos }, m in
-            uacc, (EApp { f; args; tys }, m)
-          | _
-            when List.for_all2
-                   (fun v arg ->
-                     (match arg with
-                       | (EVar _ | ELit _), _ -> true
-                       | _ -> false)
-                     || uacc_occur uacc_body v <= 1
-                     (* we could also inline pure args with multiple occurences, under some size
-                   threshold *))
-                   (Array.to_list vars) args ->
-            (* Inline all function arguments *)
-            let uacc =
-              {
-                uacc with
-                is_pure = uacc_args.is_pure && uacc_body.is_pure;
-                size =
-                  uacc_body.size
-                  + uacc_args.size
-                  - Array.fold_left
-                      (fun n v -> n + uacc_occur uacc_body v)
-                      0 vars;
-              }
-            in
-            ( uacc,
-              Bindlib.msubst binder
-                (Array.of_seq (Seq.map Mark.remove (List.to_seq args))) )
-            (* We might want to run another optimisation round here ? *)
-          | _ ->
-            let binder = Bindlib.mbinder_compose ubinder snd in
-            let f = EAbs { binder; tys; pos }, m in
-            uacc, (EApp { f; args; tys }, m))
-        ubinder uargs,
-      m )
+    simplified_binder_apply dacc binder tys pos uargs m1, m
   | _ ->
     let uf, _ = optimize_expr dacc f in
     ( Bindlib.box_apply2
         (fun (uacc_f, f) (uacc_args, args) ->
-          uacc_merge uacc_f uacc_args, (EApp { f; args; tys }, m))
+           uacc_merge uacc_f uacc_args, (EApp { f; args; tys }, m))
         uf uargs,
       m )
 
@@ -172,7 +181,7 @@ and simplified_match dacc enum_name match_arg cases mark =
   let uarg, _ = optimize_expr dacc match_arg in
   let ucases =
     cases
-    |> EnumConstructor.Map.map (fun a -> fst (optimize_expr dacc a))
+    |> EnumConstructor.Map.map (optimize_expr dacc)
     |> EnumConstructor.Map.bindings
     |> List.map (fun (c, e) -> Bindlib.box_apply (fun e -> c, e) e)
     |> Bindlib.box_list
@@ -190,7 +199,7 @@ and simplified_match dacc enum_name match_arg cases mark =
         else EnumConstructor.Set.add cons seen_constrs
       in
       let uacc_case, case = EnumConstructor.Map.find cons ucases in
-      let app = simplified_apply dacc case [e] [Expr.maybe_ty (Mark.get e)] in
+      let app = simplified_apply dacc case [e] [Expr.maybe_ty (Mark.get e)] m in
       (* TODO: define a version of [simplified_apply] that takes already optimised terms, to avoid re-optimising here *)
       seen_constrs, (uacc_case, app)
     (* TODO
