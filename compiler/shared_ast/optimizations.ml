@@ -21,13 +21,16 @@ type 'e down_acc = {
   decl_ctx : decl_ctx;
   bound_vars : ('e, 'e) Var.Map.t;
   (* Only the candidates for inlining: pure and with a size threshold *)
-}
+} constraint 'e = ((_, _) dcalc_lcalc, 'm) gexpr
 
 type 'e up_acc = {
   free_vars : ('e, int) Var.Map.t; (* counts occurences *)
   size : int;
   is_pure : bool;
-}
+} constraint 'e = (('a, 'b) dcalc_lcalc, 'm) gexpr
+
+type 'e upwards = ('e up_acc * 'e) Bindlib.box * 'm mark
+  constraint 'e = (_, 'm) gexpr
 
 let uacc_empty = { free_vars = Var.Map.empty; size = 0; is_pure = true }
 
@@ -46,6 +49,13 @@ let uacc_occur uacc v =
 
 let box uacc (e, m) = Bindlib.box_apply (fun e -> uacc, (e, m)) e, m
 
+(*
+   Conventions:
+   - recursive calls pass down [dacc]
+   - they return a boxed pair of [(uacc, marked expr)], along with the mark (duplicated)
+   - we name [ufoo] the return of optimising [foo], on which we typically call a [Bindlib.box_apply*] where it is decomposed into [(uacc_foo, foo)]
+ *)
+
 let literal_bool = function
   | ELit (LBool b), _
   | EAppOp { op = Tag _, _; args = [(ELit (LBool b), _)]; _ }, _ ->
@@ -54,69 +64,112 @@ let literal_bool = function
 
 (* beta reduction when variables not used, and for variable aliases and
    literals *)
-let rec simplified_binder_apply_aux _dacc ubinder tys pos uargs m =
-  let aux ubinder (uacc_args, args) =
-    (* See [optimize_binder] *)
-    let binder = Bindlib.mbinder_compose ubinder snd in
-    let vars, (uacc_body, _body) = Bindlib.unmbind ubinder in
-    let uacc_f =
+let rec simplified_binder_apply_aux:
+ type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  typ list -> Pos.t list -> 'm mark -> 'm mark -> ('e, 'e up_acc * 'e) mbinder -> 'e up_acc * 'e list ->
+  'e up_acc * 'e =
+  fun _dacc tys pos abs_m app_m ubinder (uacc_args, args) ->
+  (* See [optimize_binder] *)
+  let binder = Bindlib.mbinder_compose ubinder snd in
+  let vars, (uacc_body, _body) = Bindlib.unmbind ubinder in
+  let uacc_f =
+    {
+      is_pure = true;
+      size = uacc_body.size + 1;
+      free_vars =
+        Array.fold_left
+          (fun vars v -> Var.Map.remove v vars)
+          uacc_body.free_vars vars;
+    }
+  in
+  let f = EAbs { binder; tys; pos }, abs_m in
+  let uacc = uacc_merge uacc_f uacc_args in
+  match args, uacc_args.is_pure with
+  | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _
+  (* Never inline lifted closures *)
+  | _, false (* Do not inline impure expressions *) ->
+    uacc, (EApp { f; args; tys }, app_m)
+  | _
+    when List.for_all2
+        (fun v arg ->
+           (match arg with
+            | (EVar _ | ELit _), _ -> true
+            | _ -> false)
+           || uacc_occur uacc_body v <= 1
+           (* we could also inline pure args with multiple occurences, under
+              some size threshold *))
+        (Array.to_list vars) args ->
+    (* Inline all function arguments *)
+    let uacc =
       {
-        is_pure = true;
-        size = uacc_body.size + 1;
-        free_vars =
-          Array.fold_left
-            (fun vars v -> Var.Map.remove v vars)
-            uacc_body.free_vars vars;
+        uacc with
+        is_pure = uacc_args.is_pure && uacc_body.is_pure;
+        size =
+          uacc_body.size
+          + uacc_args.size
+          - Array.fold_left
+            (fun n v -> n + uacc_occur uacc_body v)
+            0 vars;
       }
     in
-    let f = EAbs { binder; tys; pos }, m in (* FIXME type in m *)
-    let uacc = uacc_merge uacc_f uacc_args in
-    match args, uacc_args.is_pure with
-    | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _
-    (* Never inline lifted closures *)
-    | _, false (* Do not inline impure expressions *) ->
-      uacc, (EApp { f; args; tys }, m)
-    | _
-      when List.for_all2
-          (fun v arg ->
-             (match arg with
-              | (EVar _ | ELit _), _ -> true
-              | _ -> false)
-             || uacc_occur uacc_body v <= 1
-             (* we could also inline pure args with multiple occurences, under
-                some size threshold *))
-          (Array.to_list vars) args ->
-      (* Inline all function arguments *)
-      let uacc =
-        {
-          uacc with
-          is_pure = uacc_args.is_pure && uacc_body.is_pure;
-          size =
-            uacc_body.size
-            + uacc_args.size
-            - Array.fold_left
-              (fun n v -> n + uacc_occur uacc_body v)
-              0 vars;
-        }
-      in
-      ( uacc,
-        Bindlib.msubst binder
-          (Array.of_list (List.map Mark.remove args)) )
-    (* We might want to run another optimisation round here ? *)
-    | _ ->
-      uacc, (EApp { f; args; tys }, m)
-  in
-  Bindlib.box_apply2 aux ubinder uargs
+    ( uacc,
+      Bindlib.msubst binder
+        (Array.of_list (List.map Mark.remove args)) )
+  (* We might want to run another optimisation round here ? *)
+  | _ ->
+    uacc, (EApp { f; args; tys }, app_m)
 
-(* beta reduction when variables not used, and for variable aliases and
-   literals *)
-let rec simplified_binder_apply dacc binder tys pos uargs m =
+
+let rec optimize_binder:
+  type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  ('e, 'e) mbinder ->
+  ('e up_acc * ('e, 'e) mbinder) Bindlib.box =
+  fun dacc binder ->
   let vars, body = Bindlib.unmbind binder in
   let ubody, _m = optimize_expr dacc body in
   let ubinder = Bindlib.bind_mvar vars ubody in
-  simplified_binder_apply_aux dacc ubinder tys pos uargs m
+  Bindlib.box_apply
+    (fun ubinder ->
+      (* Here we recover the body without the upwards accumulator using
+         [mbinder_compose], and need in parallel to unmbind right away to
+         retrieve the upwards acc, from which we strip the local variables. This
+         is the least wasteful way to proceed that I could figure. *)
+      let binder = Bindlib.mbinder_compose ubinder snd in
+      let vars, (uacc_body, _) = Bindlib.unmbind ubinder in
+      let uacc =
+        {
+          free_vars =
+            Array.fold_left
+              (fun vars v -> Var.Map.remove v vars)
+              uacc_body.free_vars vars;
+          size = uacc_body.size + 1;
+          is_pure = true;
+        }
+      in
+      uacc, binder)
+    ubinder
 
-and simplified_apply dacc f args tys m =
+(* beta reduction when variables not used, and for variable aliases and
+   literals *)
+and simplified_binder_apply : type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  ('e, 'e) mbinder -> typ list -> Pos.t list -> ('e up_acc * 'e list) Bindlib.box -> 'm mark -> 'm mark ->
+  'e upwards =
+    fun dacc binder tys pos uargs abs_m app_m ->
+  let vars, body = Bindlib.unmbind binder in
+  let ubody, _m = optimize_expr dacc body in
+  let ubinder = Bindlib.bind_mvar vars ubody in
+  Bindlib.box_apply2 (simplified_binder_apply_aux dacc tys pos abs_m app_m) ubinder uargs,
+  app_m
+
+and simplified_apply :
+  type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  'e -> 'e list -> typ list -> 'm mark ->
+  'e upwards =
+    fun dacc f args tys app_m ->
   let uargs =
     args
     |> List.map (fun e ->
@@ -129,18 +182,18 @@ and simplified_apply dacc f args tys m =
         uacc_args, args)
   in
   match f with
-  | EAbs { binder; tys; pos }, m1 ->
+  | EAbs { binder; tys; pos }, abs_m ->
     (* This only applies to literal lambdas (before optimisations) at the
        moment. A real optimisation pass would handle inlining of named functions
        with some heuristics. *)
-    simplified_binder_apply dacc binder tys pos uargs m1, m
+    simplified_binder_apply dacc binder tys pos uargs abs_m app_m
   | _ ->
     let uf, _ = optimize_expr dacc f in
     ( Bindlib.box_apply2
         (fun (uacc_f, f) (uacc_args, args) ->
-           uacc_merge uacc_f uacc_args, (EApp { f; args; tys }, m))
+           uacc_merge uacc_f uacc_args, (EApp { f; args; tys }, app_m))
         uf uargs,
-      m )
+      app_m)
 
 and simplified_ifthenelse dacc cond etrue efalse m =
   let ucond, _ = optimize_expr dacc cond in
@@ -172,129 +225,117 @@ and simplified_ifthenelse dacc cond etrue efalse m =
       ucond uetrue uefalse,
     m )
 
-(* builds a [EMatch] term, flattening nested matches/if-then-else: the matching
-   arg branching are explored, and if they all lead to enum constructor
-   literals, the surrounding match cases are inlined. Code duplication is
-   detected and aborts the inlining. *)
-and simplified_match dacc enum_name match_arg cases mark =
+(* builds a [EMatch] term, flattening nested matches/if-then-else (ie match (match
+   foo with ...) with ...): the matching arg branches are explored, and if they
+   all lead to enum constructor literals, the surrounding match cases are
+   inlined. Code duplication is detected and aborts the inlining. *)
+and simplified_match :
+  type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  EnumName.t -> 'e ->
+  'e EnumConstructor.Map.t -> 'm mark ->
+  'e upwards =
+  fun dacc enum_name match_arg cases mark ->
   let max_duplicate_inlining_size = 3 in
   let uarg, _ = optimize_expr dacc match_arg in
   let ucases =
     cases
-    |> EnumConstructor.Map.map (optimize_expr dacc)
+    |> EnumConstructor.Map.map (function
+        | EAbs { binder; pos; tys }, m -> optimize_binder dacc binder, pos, tys, m
+        | _ -> assert false)
     |> EnumConstructor.Map.bindings
-    |> List.map (fun (c, e) -> Bindlib.box_apply (fun e -> c, e) e)
+    |> List.map (fun (c, (e, pos, tys, m)) -> Bindlib.box_apply (fun e -> c, (e, pos, tys, m)) e)
     |> Bindlib.box_list
   in
   let ret_ty = Expr.maybe_ty mark in
-  let rec aux allow_duplicate_inlining_cases seen_constrs ucases (uacc_arg, arg)
-      =
-    match arg with
-    | EInj { cons; e; _ }, _ ->
-      if EnumConstructor.Set.mem cons seen_constrs then raise Exit;
-      (* Abort inlining to avoid code duplication *)
-      let seen_constrs =
-        if EnumConstructor.Set.mem cons allow_duplicate_inlining_cases then
-          seen_constrs
-        else EnumConstructor.Set.add cons seen_constrs
-      in
-      let uacc_case, case = EnumConstructor.Map.find cons ucases in
-      let app = simplified_apply dacc case [e] [Expr.maybe_ty (Mark.get e)] m in
-      (* TODO: define a version of [simplified_apply] that takes already optimised terms, to avoid re-optimising here *)
-      seen_constrs, (uacc_case, app)
-    (* TODO
-    | EMatch ({ cases; _ } as ematch), m ->
-      let seen_constrs, cases =
-        EnumConstructor.Map.fold
-          (fun cons case (seen_constrs, acc) ->
-            match case with
-            | EAbs ({ binder; _ } as eabs), m ->
-              let vars, body = Bindlib.unmbind binder in
-              let seen_constrs, body = aux seen_constrs body in
-              let binder = Bindlib.unbox (Expr.bind vars (Expr.rebox body)) in
-              let m =
-                Expr.map_ty
-                  (function
-                    | TArrow (args, _), pos -> TArrow (args, ret_ty), pos
-                    | (TVar _, _) as t -> t
-                    | _ -> assert false)
-                  m
-              in
-              ( seen_constrs,
-                EnumConstructor.Map.add cons (EAbs { eabs with binder }, m) acc
-              )
-            | _ -> assert false)
-          cases
-          (seen_constrs, EnumConstructor.Map.empty)
-      in
-      seen_constrs, (EMatch { ematch with cases }, Expr.with_ty m ret_ty)
-    | EIfThenElse { cond; etrue; efalse }, m ->
-      let seen_constrs, etrue = aux allow_duplicate_inlining_cases seen_constrs ucases etrue in
-      let seen_constrs, efalse = aux seen_constrs efalse in
-      let mark = Expr.with_ty m ret_ty in
-      seen_constrs, (simplified_ifthenelse cond etrue efalse mark, mark)
-*)
-    | _ -> raise Exit
-  in
+(*   let rec aux allow_duplicate_inlining_cases seen_constrs ucases (uacc_arg, arg)
+ *       =
+ *     match arg with
+ *     | EInj { cons; e; _ }, _ ->
+ *       if EnumConstructor.Set.mem cons seen_constrs then raise Exit;
+ *       (\* Abort inlining to avoid code duplication *\)
+ *       let seen_constrs =
+ *         if EnumConstructor.Set.mem cons allow_duplicate_inlining_cases then
+ *           seen_constrs
+ *         else EnumConstructor.Set.add cons seen_constrs
+ *       in
+ *       let ubinder, pos, tys, abs_m = EnumConstructor.Map.find cons ucases in
+ *       let uacc_case = Bindlib.mbinder_compose ubinder fst in
+ *       let app = simplified_binder_apply_aux dacc tys pos abs_m mark ubinder (uacc_arg, [arg]) in
+ *       (\* TODO: define a version of [simplified_apply] that takes already optimised terms, to avoid re-optimising here *\)
+ *       seen_constrs, (uacc_case, app)
+ *     (\* TODO
+ *     | EMatch ({ cases; _ } as ematch), m ->
+ *       let seen_constrs, cases =
+ *         EnumConstructor.Map.fold
+ *           (fun cons case (seen_constrs, acc) ->
+ *             match case with
+ *             | EAbs ({ binder; _ } as eabs), m ->
+ *               let vars, body = Bindlib.unmbind binder in
+ *               let seen_constrs, body = aux seen_constrs body in
+ *               let binder = Bindlib.unbox (Expr.bind vars (Expr.rebox body)) in
+ *               let m =
+ *                 Expr.map_ty
+ *                   (function
+ *                     | TArrow (args, _), pos -> TArrow (args, ret_ty), pos
+ *                     | (TVar _, _) as t -> t
+ *                     | _ -> assert false)
+ *                   m
+ *               in
+ *               ( seen_constrs,
+ *                 EnumConstructor.Map.add cons (EAbs { eabs with binder }, m) acc
+ *               )
+ *             | _ -> assert false)
+ *           cases
+ *           (seen_constrs, EnumConstructor.Map.empty)
+ *       in
+ *       seen_constrs, (EMatch { ematch with cases }, Expr.with_ty m ret_ty)
+ *     | EIfThenElse { cond; etrue; efalse }, m ->
+ *       let seen_constrs, etrue = aux allow_duplicate_inlining_cases seen_constrs ucases etrue in
+ *       let seen_constrs, efalse = aux seen_constrs efalse in
+ *       let mark = Expr.with_ty m ret_ty in
+ *       seen_constrs, (simplified_ifthenelse cond etrue efalse mark, mark)
+ * *\)
+ *     | _ -> raise Exit
+ *   in *)
   ( Bindlib.box_apply2
       (fun (uacc_arg, arg) ucases ->
         let ucases = EnumConstructor.Map.of_list ucases in
-        try
-          let allow_duplicate_inlining_cases =
-            EnumConstructor.Map.fold
-              (fun cons (uacc_a, _) acc ->
-                if uacc_a.size <= max_duplicate_inlining_size then
-                  EnumConstructor.Set.add cons acc
-                else acc)
-              ucases EnumConstructor.Set.empty
-          in
-          let _seen_constrs, e =
-            aux allow_duplicate_inlining_cases EnumConstructor.Set.empty ucases
-              arg
-          in
-          e
-        with Exit ->
-          (* Optimisation was aborted due a non-terminal or code duplication *)
+        (* try
+         *   let allow_duplicate_inlining_cases =
+         *     EnumConstructor.Map.fold
+         *       (fun cons ((uacc_a, _), _, _, _) acc ->
+         *         if uacc_a.size <= max_duplicate_inlining_size then
+         *           EnumConstructor.Set.add cons acc
+         *         else acc)
+         *       ucases EnumConstructor.Set.empty
+         *   in
+         *   let _seen_constrs, e =
+         *     aux allow_duplicate_inlining_cases EnumConstructor.Set.empty ucases
+         *       arg
+         *   in
+         *   e
+         * with Exit -> *)
+          (* Optimisation was aborted due to a non-terminal or code duplication *)
           let uacc =
             EnumConstructor.Map.fold
-              (fun _ (uacc_case, _) uacc -> uacc_merge uacc uacc_case)
+              (fun _ ((uacc_case, _), _, _, _) uacc -> uacc_merge uacc uacc_case)
               ucases uacc_arg
           in
-          let cases = EnumConstructor.Map.map snd ucases in
+          let cases = EnumConstructor.Map.map
+              (fun ((_, binder), pos, tys, m) ->
+                 EAbs { binder; pos; tys }, m)
+              ucases
+          in
           ( { uacc with size = uacc.size + 1 },
-            (EMatch { e = match_arg; cases; name = enum_name }, m) ))
+            (EMatch { e = match_arg; cases; name = enum_name }, mark) ))
       uarg ucases,
-    m )
-
-and optimize_binder dacc binder =
-  let vars, body = Bindlib.unmbind binder in
-  let ubody, _m = optimize_expr dacc body in
-  let ubinder = Bindlib.bind_mvar vars ubody in
-  Bindlib.box_apply
-    (fun ubinder ->
-      (* Here we recover the body without the upwards accumulator using
-         [mbinder_compose], and need in parallel to unmbind right away to
-         retrieve the upwards acc, from which we strip the local variables. This
-         is the least wasteful way to proceed that I could figure. *)
-      let binder = Bindlib.mbinder_compose ubinder snd in
-      let vars, (uacc_body, _) = Bindlib.unmbind ubinder in
-      let uacc =
-        {
-          free_vars =
-            Array.fold_left
-              (fun vars v -> Var.Map.remove v vars)
-              uacc_body.free_vars vars;
-          size = uacc_body.size + 1;
-          is_pure = true;
-        }
-      in
-      uacc, binder)
-    ubinder
+  mark)
 
 and optimize_expr : type a b.
     'e down_acc ->
     (((a, b) dcalc_lcalc, 'm) gexpr as 'e) ->
-    ('e up_acc * ((a, b) dcalc_lcalc, 'm) gexpr) Bindlib.box * 'm mark =
+    'e upwards =
  fun dacc (e, m) ->
   match e with
   | EAppOp { op = Not, _; args = [(ELit (LBool b), _)]; _ } ->
@@ -332,12 +373,12 @@ and optimize_expr : type a b.
               uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
         u1 u2,
       m )
-  | EMatch { name; e; cases } -> simplified_match dacc uacc name e cases mark
-  | EApp { f; args; tys } -> simplified_apply vars f args tys
+  | EMatch { name; e; cases } -> simplified_match dacc name e cases m
+  | EApp { f; args; tys } -> simplified_apply dacc f args tys m
   | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ }
     when StructName.equal name name1 ->
-    vars, Mark.remove (StructField.Map.find field fields)
-  | EErrorOnEmpty (EPureDefault (e, _), _) -> e
+    box { uacc_empty with size = 1 } (Expr.box (StructField.Map.find field fields))
+  | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e
   | EDefault { excepts; just; cons } -> (
     (* TODO: mechanically prove each of these optimizations correct *)
     let excepts =
