@@ -848,7 +848,7 @@ and typecheck_expr_top_down : type a m.
       | Some t -> Type.unquantify t
       | None ->
         Message.delayed_error (TError, Pos.void) ~pos:pos_e
-          "Variable %s not found in the current context" (Bindlib.name_of v)
+          "Variable %a not found in the current context" Print.var v
     in
     Expr.evar (Var.translate v) (mark_with_tau_and_unify tau')
   | EExternal { name } ->

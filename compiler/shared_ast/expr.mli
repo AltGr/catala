@@ -372,6 +372,16 @@ val map_gather :
 
     See [Lcalc.closure_conversion] for a real-world example. *)
 
+val map_gather2 :
+  acc:'acc ->
+  join:('acc -> 'acc -> 'acc) ->
+  f:(('a, 'm1) gexpr -> ('acc * ('a, 'm2) gexpr) Bindlib.box * 'm2 mark) ->
+  (('a, 'm1) naked_gexpr, 'm2) marked ->
+  ('acc * ('a, 'm2) gexpr) Bindlib.box * 'm2 mark
+(** Similar to [map_gather], but for use when the upwards accumulator might contain
+    bound variables: for that purpose it needs to be boxed together with the
+    returned expression *)
+
 (** {2 Expression building helpers} *)
 
 val make_var : ('a, 'm) gexpr Var.t -> 'm mark -> ('a, 'm) boxed_gexpr
