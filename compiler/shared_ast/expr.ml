@@ -544,6 +544,199 @@ let map_gather
   | ECustom { obj; targs; tret } -> acc, ecustom obj targs tret m
   | EBad -> acc, ebad m
 
+(* Similar to map_gather, but for when the accumulator is boxed together with
+   the expression (required when it may contain bound variables!) *)
+let map_gather2
+    (type a acc)
+    ~(acc : acc)
+    ~(join : acc -> acc -> acc)
+    ~(f : (a, 'm1) gexpr -> (acc * (a, 'm2) gexpr) Bindlib.box * 'm2 mark)
+    ((e, m) : ((a, 'm1) naked_gexpr, 'm2) marked) : (acc * (a, 'm2) gexpr) Bindlib.box * 'm2 mark =
+  let box acc e = Box.app1 e (fun e -> acc, e) (Mark.get e) in
+  let lfoldmap es =
+    Bindlib.box_apply
+      (fun acc_es ->
+        let accl, es = List.split acc_es in
+        (match accl with
+         | [] -> acc, es
+         | acc0::accn -> List.fold_left join acc0 accn, es))
+      (Bindlib.box_list (List.map (fun e -> Mark.remove (f e)) es))
+  in
+  match e with
+  | ELit l -> box acc (elit l m)
+  | EApp { f = e1; args; tys } ->
+    Bindlib.box_apply2
+      (fun (acc_f, f) (acc_args, args) ->
+         join acc_f acc_args, (EApp { f; args; tys }, m))
+      (Mark.remove (f e1))
+      (lfoldmap args), m
+  | EAppOp { op; args; tys } ->
+    Bindlib.box_apply
+      (fun (acc_args, args) ->
+         acc_args, (EAppOp { op; args; tys }, m))
+      (lfoldmap args), m
+  | EArray args ->
+    Bindlib.box_apply
+      (fun (acc_args, args) ->
+         acc_args, (EArray args, m))
+      (lfoldmap args), m
+  | EVar v ->
+    box acc (evar (Var.translate v) m)
+  | EExternal { name } ->
+    box acc (eexternal ~name m)
+  | EAbs { binder; pos; tys } ->
+    (* Note: it would make little sense not to override this in the calling function,
+       since variables contained in the accumulator could be rebound here and
+       lose their meaning. The implementation is given as an example. *)
+    let () = assert false in
+    let vars, body = Bindlib.unmbind binder in
+    let acc_body, _m_body = f body in
+    let ubinder =
+      Bindlib.bind_mvar (Array.map Var.translate vars) acc_body
+    in
+    Bindlib.box_apply (fun ubinder ->
+        let binder = Bindlib.mbinder_compose ubinder snd in
+        (* We do an extra unbind of the binder that was just created; this is
+           required for the consistency of variables in [acc] and is the least
+           wasteful way to proceed that I could figure. *)
+        let _vars, (acc, _) = Bindlib.unmbind ubinder in
+        (* Here you would be supposed to extract the bound variables from
+           [acc]. *)
+        acc, (EAbs { binder; pos; tys }, m))
+      ubinder, m
+  | EIfThenElse { cond; etrue; efalse } ->
+    Bindlib.box_apply3 (fun (acc_cond, cond) (acc_etrue, etrue) (acc_efalse, efalse) ->
+        join (join acc_cond acc_etrue) acc_efalse,
+        (EIfThenElse { cond; etrue; efalse }, m))
+      (Mark.remove (f cond))
+      (Mark.remove (f etrue))
+      (Mark.remove (f efalse)),
+    m
+  | ETuple args ->
+    Bindlib.box_apply
+      (fun (acc_args, args) ->
+         acc_args, (ETuple args, m))
+      (lfoldmap args), m
+  | ETupleAccess { e; index; size } ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (ETupleAccess { e; index; size }, m))
+      (Mark.remove (f e)),
+    m
+  | EInj { name; cons; e } ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EInj { name; cons; e }, m))
+      (Mark.remove (f e)),
+    m
+  | EAssert e ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EAssert e, m))
+      (Mark.remove (f e)),
+    m
+  | EFatalError e ->
+    box acc (efatalerror e m)
+  | EFatalError_pos { error; pos_expr } ->
+    Bindlib.box_apply (fun (acc, pos_expr) ->
+        acc, (EFatalError_pos { error; pos_expr }, m))
+      (Mark.remove (f pos_expr)),
+    m
+  | EPos p -> box acc (epos p m)
+  | EDefault { excepts; just; cons } ->
+    Bindlib.box_apply3
+      (fun (acc_excepts, excepts) (acc_just, just) (acc_cons, cons) ->
+         join (join acc_excepts acc_just) acc_cons, (EDefault { excepts; just; cons }, m))
+      (lfoldmap excepts)
+      (Mark.remove (f just))
+      (Mark.remove (f cons)),
+    m
+  | EPureDefault e ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EPureDefault e, m))
+      (Mark.remove (f e)),
+    m
+  | EEmpty -> box acc (eempty m)
+  | EErrorOnEmpty e ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EErrorOnEmpty e, m))
+      (Mark.remove (f e)),
+    m
+  | ELocation loc -> box acc (elocation loc m)
+  | EStruct { name; fields } ->
+    let acc_fields =
+      StructField.Map.fold
+        (fun cons e acc_fields ->
+           Bindlib.box_apply2
+             (fun (acc_e, e) (acc, fields) ->
+                join acc acc_e, StructField.Map.add cons e fields)
+             (Mark.remove (f e)) acc_fields)
+        fields
+        (Bindlib.box (acc, StructField.Map.empty))
+    in
+    Bindlib.box_apply (fun (acc, fields) ->
+        acc, (EStruct { name; fields }, m))
+      acc_fields,
+    m
+  | EDStructAmend { name_opt; e; fields } ->
+    let acc_fields =
+      MarkedIdent.Map.fold
+        (fun cons e acc_fields ->
+           Bindlib.box_apply2
+             (fun (acc_e, e) (acc, fields) ->
+                join acc acc_e, MarkedIdent.Map.add cons e fields)
+             (Mark.remove (f e)) acc_fields)
+        fields
+        (Bindlib.box (acc, MarkedIdent.Map.empty))
+    in
+    Bindlib.box_apply2 (fun (acc_e, e) (acc_fields, fields) ->
+        join acc_e acc_fields, (EDStructAmend { name_opt; e; fields }, m))
+      (Mark.remove (f e))
+      acc_fields,
+    m
+  | EDStructAccess { name_opt; field; e } ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EDStructAccess { name_opt; field; e }, m))
+      (Mark.remove (f e)),
+    m
+  | EStructAccess { name; field; e } ->
+    Bindlib.box_apply (fun (acc, e) ->
+        acc, (EStructAccess { name; field; e }, m))
+      (Mark.remove (f e)),
+    m
+  | EMatch { name; e; cases } ->
+    let acc_cases =
+      EnumConstructor.Map.fold
+        (fun cons e acc_cases ->
+           Bindlib.box_apply2
+             (fun (acc_e, e) (acc, cases) ->
+                join acc acc_e, EnumConstructor.Map.add cons e cases)
+             (Mark.remove (f e))
+             acc_cases)
+        cases
+        (Bindlib.box (acc, EnumConstructor.Map.empty))
+    in
+    Bindlib.box_apply2 (fun (acc_e, e) (acc_cases, cases) ->
+        join acc_e acc_cases, (EMatch { name; e; cases }, m))
+      (Mark.remove (f e))
+      acc_cases,
+    m
+  | EScopeCall { scope; args } ->
+    let acc_args =
+      ScopeVar.Map.fold
+        (fun v (pos, e) acc_fields ->
+           Bindlib.box_apply2
+             (fun (acc_e, e) (acc, fields) ->
+                join acc acc_e, ScopeVar.Map.add v (pos, e) fields)
+             (Mark.remove (f e)) acc_fields)
+        args
+        (Bindlib.box (acc, ScopeVar.Map.empty))
+    in
+    Bindlib.box_apply (fun (acc, args) ->
+        acc, (EScopeCall { scope; args }, m))
+      acc_args,
+    m
+  | ECustom { obj; targs; tret } ->
+    box acc (ecustom obj targs tret m)
+  | EBad -> box acc (ebad m)
+
 (* - *)
 
 (** See [Bindlib.box_term] documentation for why we are doing that. *)

@@ -17,6 +17,10 @@
 open Catala_utils
 open Definitions
 
+module Params = struct
+  let unfold_max = 10
+end
+
 type 'e down_acc = {
   decl_ctx : decl_ctx;
   bound_vars : ('e, 'e) Var.Map.t;
@@ -34,13 +38,13 @@ type 'e upwards = ('e up_acc * 'e) Bindlib.box * 'm mark
 
 let uacc_empty = { free_vars = Var.Map.empty; size = 0; is_pure = true }
 
-let uacc_merge uacc1 uacc2 =
+let uacc_merge ?(add_size=0) uacc1 uacc2 =
   {
     free_vars =
       Var.Map.union
         (fun _ n1 n2 -> Some (n1 + n2))
         uacc1.free_vars uacc2.free_vars;
-    size = uacc1.size + uacc2.size;
+    size = uacc1.size + uacc2.size + add_size;
     is_pure = uacc1.is_pure && uacc2.is_pure;
   }
 
@@ -171,11 +175,7 @@ and simplified_apply :
   'e upwards =
     fun dacc f args tys app_m ->
   let uargs =
-    args
-    |> List.map (fun e ->
-        let arg, _ = optimize_expr dacc e in
-        arg)
-    |> Bindlib.box_list
+    optimize_expr_list dacc args
     |> Bindlib.box_apply (fun uargs ->
         let uacc_args, args = List.split uargs in
         let uacc_args = List.fold_left uacc_merge uacc_empty uacc_args in
@@ -195,46 +195,63 @@ and simplified_apply :
         uf uargs,
       app_m)
 
-and simplified_ifthenelse dacc cond etrue efalse m =
+and simplified_ifthenelse_aux:
+  type a b.
+  'm mark ->
+  ((((a, b) dcalc_lcalc, 'm) gexpr as 'e) up_acc * 'e) ->
+  ('e up_acc * 'e) ->
+  ('e up_acc * 'e) ->
+  'e up_acc * 'e
+  =
+  fun m (uacc_cond, cond) (uacc_true, etrue) (uacc_false, efalse) ->
+  match etrue, efalse with
+  | (ELit (LBool true), _), (ELit (LBool false), _) -> uacc_cond, cond
+  | (ELit (LBool false), _), (ELit (LBool true), _) ->
+    ( { uacc_cond with size = uacc_cond.size + 1 },
+      ( EAppOp
+          {
+            op = Not, Expr.mark_pos m;
+            tys = [TLit TBool, Expr.mark_pos m];
+            args = [cond];
+          },
+        m ) )
+  | _ -> (
+      match cond with
+      | ELit (LBool true), _ -> uacc_true, etrue
+      | ELit (LBool false), _ -> uacc_false, efalse
+      | _ ->
+        if uacc_cond.is_pure && Expr.equal etrue efalse then
+          uacc_true, etrue
+        else
+          ( uacc_merge uacc_cond (uacc_merge uacc_true uacc_false),
+            (EIfThenElse { cond; etrue; efalse }, m) ))
+
+and simplified_ifthenelse:
+  type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
+  'e -> 'e -> 'e -> 'm mark ->
+  'e upwards =
+  fun dacc cond etrue efalse m ->
   let ucond, _ = optimize_expr dacc cond in
   let uetrue, _ = optimize_expr dacc etrue in
   let uefalse, _ = optimize_expr dacc efalse in
-  ( Bindlib.box_apply3
-      (fun (uacc_cond, cond) (uacc_true, etrue) (uacc_false, efalse) ->
-        match etrue, efalse with
-        | (ELit (LBool true), _), (ELit (LBool false), _) -> uacc_cond, cond
-        | (ELit (LBool false), _), (ELit (LBool true), _) ->
-          ( { uacc_cond with size = uacc_cond.size + 1 },
-            ( EAppOp
-                {
-                  op = Not, Expr.mark_pos m;
-                  tys = [TLit TBool, Expr.mark_pos m];
-                  args = [cond];
-                },
-              m ) )
-        | _ -> (
-          match cond with
-          | ELit (LBool true), _ -> uacc_true, etrue
-          | ELit (LBool false), _ -> uacc_false, efalse
-          | _ ->
-            if uacc_cond.is_pure && Expr.equal etrue efalse then
-              uacc_true, etrue
-            else
-              ( uacc_merge uacc_cond (uacc_merge uacc_true uacc_false),
-                (EIfThenElse { cond; etrue; efalse }, m) )))
-      ucond uetrue uefalse,
+  ( Bindlib.box_apply3 (simplified_ifthenelse_aux m) ucond uetrue uefalse,
     m )
 
 (* builds a [EMatch] term, flattening nested matches/if-then-else (ie match (match
    foo with ...) with ...): the matching arg branches are explored, and if they
    all lead to enum constructor literals, the surrounding match cases are
    inlined. Code duplication is detected and aborts the inlining. *)
-and simplified_match :
+and _simplified_match : (* XX disabled below *)
   type a b.
   (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
   EnumName.t -> 'e ->
   'e EnumConstructor.Map.t -> 'm mark ->
   'e upwards =
+  (* LG261113: new approach -> wrap the surrounding match in a function, let-define
+     it and pass it downwards as continuation (e |-> Eapp (cont, e)) . Then let
+     the inlining do the rest of the job. *)
+
   fun dacc enum_name match_arg cases mark ->
   let max_duplicate_inlining_size = 3 in
   let uarg, _ = optimize_expr dacc match_arg in
@@ -338,6 +355,12 @@ and optimize_expr : type a b.
     'e upwards =
  fun dacc (e, m) ->
   match e with
+  | EAbs { binder; pos; tys } ->
+    let ubinder = optimize_binder dacc binder in
+    Bindlib.box_apply (fun (uacc_binder, binder) ->
+        uacc_binder, (EAbs { binder; pos; tys }, m))
+      ubinder,
+    m
   | EAppOp { op = Not, _; args = [(ELit (LBool b), _)]; _ } ->
     (* reduction of logical not *)
     box { uacc_empty with size = 1 } (Expr.elit (LBool (not b)) m)
@@ -373,53 +396,54 @@ and optimize_expr : type a b.
               uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
         u1 u2,
       m )
-  | EMatch { name; e; cases } -> simplified_match dacc name e cases m
+  (* | EMatch { name; e; cases } -> simplified_match dacc name e cases m -- Broken and disabled *)
   | EApp { f; args; tys } -> simplified_apply dacc f args tys m
   | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ }
     when StructName.equal name name1 ->
     box { uacc_empty with size = 1 } (Expr.box (StructField.Map.find field fields))
   | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e
-  | EDefault { excepts; just; cons } -> (
-    (* TODO: mechanically prove each of these optimizations correct *)
-    let excepts =
-      List.filter (fun except -> Mark.remove except <> EEmpty) excepts
-      (* we can discard the exceptions that are always empty error *)
-    in
-    let value_except_count =
-      List.fold_left
-        (fun nb except -> if Expr.is_value except then nb + 1 else nb)
-        0 excepts
-    in
-    if value_except_count > 1 then
-      (* at this point we know a conflict error will be triggered so we just
-          feed the expression to the interpreter that will print the beautiful
-          right error message *)
-      let (_ : _ gexpr) =
-        Interpreter.evaluate_expr ctx.decl_ctx `En
-          (* Default language to English, no errors should be raised normally
-              so we don't care *)
-          e
-      in
-      assert false
-    else
-      match excepts, just with
-      | [(EDefault { excepts = []; just = ELit (LBool true), _; cons }, _)], _
-        ->
-        (* No exceptions with condition [true] *)
-        vars, Mark.remove cons
-      | [], cond -> simplified_ifthenelse cond cons (EEmpty, mark) mark
-      | ( [except],
-          ( ( ELit (LBool false)
-            | EAppOp { op = Tag _, _; args = [(ELit (LBool false), _)]; _ } ),
-            _ ) ) ->
-        (* Single exception and condition false *)
-        Mark.remove except
-      | excepts, just -> EDefault { excepts; just; cons })
+  | EDefault { excepts; just; cons } ->
+    Bindlib.box_apply3 (fun uexcepts (uacc_just, just) (uacc_cons, cons) ->
+        let uexcepts =
+          List.filter (fun (_, except) -> Mark.remove except <> EEmpty) uexcepts
+          (* we can discard the exceptions that are always empty error *)
+        in
+        let value_except_count =
+          List.fold_left
+            (fun nb (_, except) -> if Expr.is_value except then nb + 1 else nb)
+            0 uexcepts
+        in
+        if value_except_count > 1 then
+          (* at this point we know a conflict error will be triggered so we just
+             feed the expression to the interpreter that will print the beautiful
+             right error message *)
+          let (_ : _ gexpr) =
+            Interpreter.evaluate_expr dacc.decl_ctx `En
+              (* Default language to English, no errors should be raised normally
+                 so we don't care *)
+              (e, m)
+          in
+          assert false
+        else
+        match uexcepts, just with
+        | [], _ ->
+          simplified_ifthenelse_aux m (uacc_just, just) (uacc_cons, cons)
+            ({uacc_empty with size = 1}, (EEmpty, m))
+        | [uexcept], ( ELit (LBool false), _ ) ->
+          uexcept
+        | excepts, just ->
+          let uacc_excepts, excepts = List.split excepts in
+          List.fold_left uacc_merge (uacc_merge uacc_just uacc_cons) uacc_excepts,
+          (EDefault { excepts; just; cons }, m))
+      (optimize_expr_list dacc excepts)
+      (Mark.remove (optimize_expr dacc just))
+      (Mark.remove (optimize_expr dacc cons)),
+    m
   | EIfThenElse { cond; etrue; efalse } ->
-    simplified_ifthenelse cond etrue efalse mark
+    simplified_ifthenelse dacc cond etrue efalse m
   | EAppOp { op = Op.Fold, _; args = [_f; init; (EArray [], _)]; _ } ->
-    (*reduces a fold with an empty list *)
-    Mark.remove init
+    (* reduces a fold with an empty list *)
+    optimize_expr dacc init
   | EAppOp
       {
         op = (Map, _) as op;
@@ -441,8 +465,8 @@ and optimize_expr : type a b.
       let v =
         Var.make
           (match f2 with
-          | EAbs { binder; _ }, _ -> (Bindlib.mbinder_names binder).(0)
-          | _ -> "x")
+           | EAbs { binder; _ }, _ -> (Bindlib.mbinder_names binder).(0)
+           | _ -> "x")
       in
       let mty m =
         Expr.map_ty (function TArray ty, _ -> ty | _, pos -> Type.any pos) m
@@ -451,17 +475,16 @@ and optimize_expr : type a b.
       Expr.make_ghost_abs [v]
         (Expr.eapp ~f:(Expr.box f1)
            ~args:[Expr.eapp ~f:(Expr.box f2) ~args:[x] ~tys:[xty] (mty m2)]
-           ~tys:[yty] (mty mark))
-        [xty] (Expr.pos e)
+           ~tys:[yty] (mty m))
+        [xty] (Expr.mark_pos m)
     in
-    let fg = optimize_expr ctx (Expr.unbox fg) in
     let mapl =
       Expr.eappop ~op
         ~args:[fg; Expr.box ls]
         ~tys:[Expr.maybe_ty (Mark.get fg); lsty]
-        mark
+        m
     in
-    Mark.remove (Expr.unbox mapl)
+    optimize_expr dacc (Expr.unbox mapl)
   | EAppOp
       {
         op = Map, _;
@@ -502,25 +525,30 @@ and optimize_expr : type a b.
                Expr.eapp ~f:(Expr.box f2) ~args:[x1; x2] ~tys:[x1ty; x2ty]
                  (mty m2);
              ]
-           ~tys:[yty] (mty mark))
-        [x1ty; x2ty] (Expr.pos e)
+           ~tys:[yty] (mty m))
+        [x1ty; x2ty] (Expr.mark_pos m)
     in
-    let fg = optimize_expr ctx (Expr.unbox fg) in
     let mapl =
       Expr.eappop ~op
         ~args:[fg; Expr.box ls1; Expr.box ls2]
         ~tys:[Expr.maybe_ty (Mark.get fg); ls1ty; ls2ty]
-        mark
+        m
     in
-    Mark.remove (Expr.unbox mapl)
+    optimize_expr dacc (Expr.unbox mapl)
   | EAppOp
       {
         op = Op.Fold, _;
-        args = [f; init; (EArray [e'], _)];
+        args = [f; init; (EArray elts, _)];
         tys = [_; tinit; (TArray tx, _)];
-      } ->
-    (* reduces a fold with one element *)
-    EApp { f; args = [init; e']; tys = [tinit; tx] }
+      } when List.length elts <= Params.unfold_max ->
+    (* unfolds folds on constant lists *)
+    let eflat =
+      let f = Expr.box f in
+      List.fold_left (fun e elt ->
+          Expr.make_app f [e; Expr.box elt] [tinit; tx] (Expr.mark_pos m))
+        (Expr.box init) elts
+    in
+    optimize_expr dacc (Expr.unbox eflat)
   | ETuple ((ETupleAccess { e; index = 0; _ }, _) :: el)
     when List.for_all Fun.id
            (List.mapi
@@ -530,8 +558,21 @@ and optimize_expr : type a b.
                 | _ -> false)
               el) ->
     (* identity tuple reconstruction *)
-    Mark.remove e
-  | e -> e
+    optimize_expr dacc e
+
+  | e ->
+    Expr.map_gather2 (e, m)
+        ~acc:{uacc_empty with size = 1}
+        ~join:(uacc_merge ~add_size:1)
+        ~f:(optimize_expr dacc)
+
+and optimize_expr_list:
+  type a b.
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc -> 'e list -> ('e up_acc * 'e) list Bindlib.box
+ = fun dacc es ->
+  List.map (optimize_expr dacc) es |> List.map fst |>
+  Bindlib.box_list
+
 
 let optimize_expr :
     'm.
@@ -539,7 +580,8 @@ let optimize_expr :
     (('a, 'b) dcalc_lcalc, 'm) gexpr ->
     (('a, 'b) dcalc_lcalc, 'm) boxed_gexpr =
  fun (decl_ctx : decl_ctx) (e : (('a, 'b) dcalc_lcalc, 'm) gexpr) ->
-  optimize_expr { decl_ctx } e
+  let acc_e, m = optimize_expr { decl_ctx; bound_vars = Var.Map.empty } e in
+  Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
 
 let optimize_program (p : 'm program) : 'm program =
   Program.map_exprs ~f:(optimize_expr p.decl_ctx) ~varf:(fun v -> v) p
