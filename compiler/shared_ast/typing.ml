@@ -964,6 +964,7 @@ and typecheck_expr_top_down : type a m.
     let tau_args_all, t_ret =
       match Type.unquantify func_ty with
       | TArrow (tau_args, t_ret), _ -> tau_args, t_ret
+      | TError, _ as terr -> List.map (fun _ -> terr) tys, terr
       | _ ->
         Message.error ~pos:(Expr.pos e1)
           "This is not a function and can't be applied.@ It has type %a"
