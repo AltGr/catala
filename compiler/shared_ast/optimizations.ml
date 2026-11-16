@@ -25,6 +25,7 @@ type 'e down_acc = {
   decl_ctx : decl_ctx;
   bound_vars : ('e, 'e) Var.Map.t;
   (* Only the candidates for inlining: pure and with a size threshold *)
+  (* functions : var map with expr, size, occurences of vars in body ? *)
 } constraint 'e = ((_, _) dcalc_lcalc, 'm) gexpr
 
 type 'e up_acc = {
@@ -124,6 +125,17 @@ let rec simplified_binder_apply_aux:
   | _ ->
     uacc, (EApp { f; args; tys }, app_m)
 
+(* wip: use this for inlining inside a continuation *)
+(* let add_continuation e1 cont ty =
+ *   let f =
+ *     let v = Var.make "continuation_argument" in
+ *     Expr.eabs
+ *       (Expr.bind [|v|] (cont (Expr.evar v (Mark.get e1))))
+ *       [Expr.pos e1]
+ *       [ty]
+ *       (Expr.with_ty ty (Mark.get e1))
+ *   in
+ *   EApp { f; args = [e1]; tys = [ty] } *)
 
 let rec optimize_binder:
   type a b.
@@ -250,9 +262,14 @@ and _simplified_match : (* XX disabled below *)
   'e upwards =
   (* LG261113: new approach -> wrap the surrounding match in a function, let-define
      it and pass it downwards as continuation (e |-> Eapp (cont, e)) . Then let
-     the inlining do the rest of the job. *)
+     the inlining do the rest of the job.
+ *)
 
   fun dacc enum_name match_arg cases mark ->
+
+  (* add_continuation match_arg (fun e -> ematch e cases) (TEnum enum_name) mark |> optimize_expr *)
+
+
   let max_duplicate_inlining_size = 3 in
   let uarg, _ = optimize_expr dacc match_arg in
   let ucases =
@@ -398,10 +415,42 @@ and optimize_expr : type a b.
       m )
   (* | EMatch { name; e; cases } -> simplified_match dacc name e cases m -- Broken and disabled *)
   | EApp { f; args; tys } -> simplified_apply dacc f args tys m
-  | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ }
-    when StructName.equal name name1 ->
-    box { uacc_empty with size = 1 } (Expr.box (StructField.Map.find field fields))
-  | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e
+  | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ } ->
+    assert (StructName.equal name name1);
+    optimize_expr dacc (StructField.Map.find field fields)
+  | EStructAccess { name; field; e } ->
+    let ue, _ = optimize_expr dacc e in
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | EStruct { name = name1; fields }, _ ->
+          assert (StructName.equal name name1);
+          uacc (* fixme: should be restricted to uacc of el.(index) *),
+          StructField.Map.find field fields
+        | e ->
+          uacc, (EStructAccess { name; field; e }, m))
+      ue,
+    m
+  | ETupleAccess { e = ETuple t, _; index; _ } ->
+    optimize_expr dacc (List.nth t index)
+  | ETupleAccess { e; index; size } ->
+    let ue, _ = optimize_expr dacc e in
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | ETuple el, _ ->
+          uacc (* fixme: should be restricted to uacc of el.(index) *), List.nth el index
+        | e ->
+          uacc, (ETupleAccess { e; index; size }, m))
+      ue,
+    m
+  | EErrorOnEmpty e ->
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | EPureDefault e, _ -> uacc, e
+        | _ -> uacc, (EErrorOnEmpty e, m)
+      )
+      (Mark.remove (optimize_expr dacc e)),
+    m
+  (* | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e *)
   | EDefault { excepts; just; cons } ->
     Bindlib.box_apply3 (fun uexcepts (uacc_just, just) (uacc_cons, cons) ->
         let uexcepts =
@@ -559,7 +608,6 @@ and optimize_expr : type a b.
               el) ->
     (* identity tuple reconstruction *)
     optimize_expr dacc e
-
   | e ->
     Expr.map_gather2 (e, m)
         ~acc:{uacc_empty with size = 1}

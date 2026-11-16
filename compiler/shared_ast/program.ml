@@ -38,8 +38,11 @@ let map_scopes ~f prg =
             (fun e -> Topdef (name, ty, vis, e))
             (Expr.Box.lift (Expr.rebox expr)) )
     in
-    BoundList.map ~f ~last:(Scope.map_exports Expr.rebox) prg.code_items
-    |> Bindlib.unbox
+    let blist =
+      BoundList.map ~f ~last:(Scope.map_exports Expr.rebox) prg.code_items
+    in
+    Expr.Box.assert_closed blist;
+    Bindlib.unbox blist
   in
   { prg with code_items }
 
@@ -98,6 +101,9 @@ let map_exprs ?typ ~f ~varf { code_items; decl_ctx; lang; module_name } =
         { code_items; decl_ctx; lang; module_name })
       (Scope.map_exprs ?typ ~f ~varf code_items)
   in
+  (try Expr.Box.assert_closed boxed_prg
+   with ex ->
+     Message.debug ">> %a" (Print.program ~debug:true) (Bindlib.unbox boxed_prg); raise ex);
   Expr.Box.assert_closed boxed_prg;
   Bindlib.unbox boxed_prg
 

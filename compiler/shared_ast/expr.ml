@@ -632,8 +632,8 @@ let map_gather2
         acc, (EAssert e, m))
       (Mark.remove (f e)),
     m
-  | EFatalError e ->
-    box acc (efatalerror e m)
+  | EFatalError err ->
+    box acc (efatalerror err m)
   | EFatalError_pos { error; pos_expr } ->
     Bindlib.box_apply (fun (acc, pos_expr) ->
         acc, (EFatalError_pos { error; pos_expr }, m))
@@ -746,7 +746,8 @@ let box e = Mark.map Bindlib.box e
 let unbox (e, m) = Bindlib.unbox e, m
 
 let unbox_closed e =
-  Box.assert_closed (fst e);
+  (try Box.assert_closed (fst e) with ex ->
+     Message.debug ">> %a" (Print.expr ~debug:true ()) (unbox e); raise ex);
   unbox e
 
 let untype e = map_marks ~f:(fun m -> Untyped { pos = mark_pos m }) e
