@@ -25,7 +25,7 @@ type 'e down_acc = {
   decl_ctx : decl_ctx;
   bound_vars : ('e, 'e) Var.Map.t;
   (* Only the candidates for inlining: pure and with a size threshold *)
-  (* functions : var map with expr, size, occurences of vars in body ? *)
+  (* functions : ('e, 'e upwards) Var.Map.t *)
 } constraint 'e = ((_, _) dcalc_lcalc, 'm) gexpr
 
 type 'e up_acc = {
@@ -203,7 +203,9 @@ and simplified_apply :
     let uf, _ = optimize_expr dacc f in
     ( Bindlib.box_apply2
         (fun (uacc_f, f) (uacc_args, args) ->
-           uacc_merge uacc_f uacc_args, (EApp { f; args; tys }, app_m))
+           let uacc = uacc_merge uacc_f uacc_args in
+           { uacc with is_pure = false }, (* todo: finer triaging to detect application of pure functions *)
+           (EApp { f; args; tys }, app_m))
         uf uargs,
       app_m)
 
@@ -372,6 +374,8 @@ and optimize_expr : type a b.
     'e upwards =
  fun dacc (e, m) ->
   match e with
+  (* - Upwards optims (optimise subterms then reduce on them) *)
+  (* - Downwards optims (rewrite of the term before going deeper) *)
   | EAbs { binder; pos; tys } ->
     let ubinder = optimize_binder dacc binder in
     Bindlib.box_apply (fun (uacc_binder, binder) ->
@@ -422,7 +426,7 @@ and optimize_expr : type a b.
     let ue, _ = optimize_expr dacc e in
     Bindlib.box_apply (fun (uacc, e) ->
         match e with
-        | EStruct { name = name1; fields }, _ ->
+        | EStruct { name = name1; fields }, _ when uacc.is_pure ->
           assert (StructName.equal name name1);
           uacc (* fixme: should be restricted to uacc of el.(index) *),
           StructField.Map.find field fields
@@ -436,7 +440,7 @@ and optimize_expr : type a b.
     let ue, _ = optimize_expr dacc e in
     Bindlib.box_apply (fun (uacc, e) ->
         match e with
-        | ETuple el, _ ->
+        | ETuple el, _ when uacc.is_pure (* should be uacc of el(<>index).is_pure *) ->
           uacc (* fixme: should be restricted to uacc of el.(index) *), List.nth el index
         | e ->
           uacc, (ETupleAccess { e; index; size }, m))
@@ -609,9 +613,15 @@ and optimize_expr : type a b.
     (* identity tuple reconstruction *)
     optimize_expr dacc e
   | e ->
+    let is_pure = match e with
+      | EAssert _ | EFatalError _ | EErrorOnEmpty _ -> false
+      | EAppOp { op; _ } -> Operator.is_pure (Mark.remove op)
+      | EApp _ -> false (* todo: improve this *)
+      | _ -> true
+    in
     Expr.map_gather2 (e, m)
-        ~acc:{uacc_empty with size = 1}
-        ~join:(uacc_merge ~add_size:1)
+        ~acc:{ uacc_empty with is_pure; size = 1 }
+        ~join:uacc_merge
         ~f:(optimize_expr dacc)
 
 and optimize_expr_list:

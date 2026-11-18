@@ -380,7 +380,9 @@ val map_gather2 :
   ('acc * ('a, 'm2) gexpr) Bindlib.box * 'm2 mark
 (** Similar to [map_gather], but for use when the upwards accumulator might contain
     bound variables: for that purpose it needs to be boxed together with the
-    returned expression *)
+    returned expression. Another difference is that [acc] is always joined with
+    the accumulators from sub-expressions, i.e. it's used on all nodes and not
+    only terminal nodes. *)
 
 (** {2 Expression building helpers} *)
 

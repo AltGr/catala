@@ -552,18 +552,17 @@ let map_gather2
     ~(join : acc -> acc -> acc)
     ~(f : (a, 'm1) gexpr -> (acc * (a, 'm2) gexpr) Bindlib.box * 'm2 mark)
     ((e, m) : ((a, 'm1) naked_gexpr, 'm2) marked) : (acc * (a, 'm2) gexpr) Bindlib.box * 'm2 mark =
-  let box acc e = Box.app1 e (fun e -> acc, e) (Mark.get e) in
+  let (++) = join in
+  let box e = Box.app1 e (fun e -> acc, e) (Mark.get e) in
   let lfoldmap es =
     Bindlib.box_apply
       (fun acc_es ->
         let accl, es = List.split acc_es in
-        (match accl with
-         | [] -> acc, es
-         | acc0::accn -> List.fold_left join acc0 accn, es))
+        List.fold_left join acc accl, es)
       (Bindlib.box_list (List.map (fun e -> Mark.remove (f e)) es))
   in
   match e with
-  | ELit l -> box acc (elit l m)
+  | ELit l -> box (elit l m)
   | EApp { f = e1; args; tys } ->
     Bindlib.box_apply2
       (fun (acc_f, f) (acc_args, args) ->
@@ -581,9 +580,9 @@ let map_gather2
          acc_args, (EArray args, m))
       (lfoldmap args), m
   | EVar v ->
-    box acc (evar (Var.translate v) m)
+    box (evar (Var.translate v) m)
   | EExternal { name } ->
-    box acc (eexternal ~name m)
+    box (eexternal ~name m)
   | EAbs { binder; pos; tys } ->
     (* Note: it would make little sense not to override this in the calling function,
        since variables contained in the accumulator could be rebound here and
@@ -599,14 +598,14 @@ let map_gather2
         (* We do an extra unbind of the binder that was just created; this is
            required for the consistency of variables in [acc] and is the least
            wasteful way to proceed that I could figure. *)
-        let _vars, (acc, _) = Bindlib.unmbind ubinder in
+        let _vars, (acc1, _) = Bindlib.unmbind ubinder in
         (* Here you would be supposed to extract the bound variables from
            [acc]. *)
-        acc, (EAbs { binder; pos; tys }, m))
+        acc ++ acc1, (EAbs { binder; pos; tys }, m))
       ubinder, m
   | EIfThenElse { cond; etrue; efalse } ->
     Bindlib.box_apply3 (fun (acc_cond, cond) (acc_etrue, etrue) (acc_efalse, efalse) ->
-        join (join acc_cond acc_etrue) acc_efalse,
+        acc ++ acc_cond ++ acc_etrue ++ acc_efalse,
         (EIfThenElse { cond; etrue; efalse }, m))
       (Mark.remove (f cond))
       (Mark.remove (f etrue))
@@ -618,48 +617,48 @@ let map_gather2
          acc_args, (ETuple args, m))
       (lfoldmap args), m
   | ETupleAccess { e; index; size } ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (ETupleAccess { e; index; size }, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (ETupleAccess { e; index; size }, m))
       (Mark.remove (f e)),
     m
   | EInj { name; cons; e } ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EInj { name; cons; e }, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EInj { name; cons; e }, m))
       (Mark.remove (f e)),
     m
   | EAssert e ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EAssert e, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EAssert e, m))
       (Mark.remove (f e)),
     m
   | EFatalError err ->
-    box acc (efatalerror err m)
+    box (efatalerror err m)
   | EFatalError_pos { error; pos_expr } ->
-    Bindlib.box_apply (fun (acc, pos_expr) ->
-        acc, (EFatalError_pos { error; pos_expr }, m))
+    Bindlib.box_apply (fun (acc1, pos_expr) ->
+        acc ++ acc1, (EFatalError_pos { error; pos_expr }, m))
       (Mark.remove (f pos_expr)),
     m
-  | EPos p -> box acc (epos p m)
+  | EPos p -> box (epos p m)
   | EDefault { excepts; just; cons } ->
     Bindlib.box_apply3
       (fun (acc_excepts, excepts) (acc_just, just) (acc_cons, cons) ->
-         join (join acc_excepts acc_just) acc_cons, (EDefault { excepts; just; cons }, m))
+         acc_excepts ++ acc_just ++ acc_cons, (EDefault { excepts; just; cons }, m))
       (lfoldmap excepts)
       (Mark.remove (f just))
       (Mark.remove (f cons)),
     m
   | EPureDefault e ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EPureDefault e, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EPureDefault e, m))
       (Mark.remove (f e)),
     m
-  | EEmpty -> box acc (eempty m)
+  | EEmpty -> box (eempty m)
   | EErrorOnEmpty e ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EErrorOnEmpty e, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EErrorOnEmpty e, m))
       (Mark.remove (f e)),
     m
-  | ELocation loc -> box acc (elocation loc m)
+  | ELocation loc -> box (elocation loc m)
   | EStruct { name; fields } ->
     let acc_fields =
       StructField.Map.fold
@@ -692,13 +691,13 @@ let map_gather2
       acc_fields,
     m
   | EDStructAccess { name_opt; field; e } ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EDStructAccess { name_opt; field; e }, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EDStructAccess { name_opt; field; e }, m))
       (Mark.remove (f e)),
     m
   | EStructAccess { name; field; e } ->
-    Bindlib.box_apply (fun (acc, e) ->
-        acc, (EStructAccess { name; field; e }, m))
+    Bindlib.box_apply (fun (acc1, e) ->
+        acc ++ acc1, (EStructAccess { name; field; e }, m))
       (Mark.remove (f e)),
     m
   | EMatch { name; e; cases } ->
@@ -734,8 +733,8 @@ let map_gather2
       acc_args,
     m
   | ECustom { obj; targs; tret } ->
-    box acc (ecustom obj targs tret m)
-  | EBad -> box acc (ebad m)
+    box (ecustom obj targs tret m)
+  | EBad -> box (ebad m)
 
 (* - *)
 
