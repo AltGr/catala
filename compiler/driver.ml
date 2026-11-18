@@ -174,12 +174,12 @@ module Passes = struct
         let prg =
           Lcalc.Closure_conversion.closure_conversion ~keep_special_ops prg
         in
-        let prg =
-          if optimize then (
-            Message.debug "Optimizing lambda calculus...";
-            Optimizations.optimize_program prg)
-          else prg
-        in
+        (* let prg =
+         *   if optimize then (
+         *     Message.debug "Optimizing lambda calculus...";
+         *     Optimizations.optimize_program prg)
+         *   else prg
+         * in *)
         Message.debug "Retyping lambda calculus...";
         Typing.program ~internal_check:true ~assume_op_types:true prg)
     in
