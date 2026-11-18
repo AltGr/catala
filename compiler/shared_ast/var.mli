@@ -73,6 +73,7 @@ module Map : sig
   val find_opt : 'e var -> ('e, 'x) t -> 'x option
   val bindings : ('e, 'x) t -> ('e var * 'x) list
   val mem : 'e var -> ('e, 'x) t -> bool
+  val is_empty : ('e, 'x) t -> bool
   val cardinal : ('e, 'x) t -> int
 
   val union :

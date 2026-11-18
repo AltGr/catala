@@ -21,13 +21,6 @@ module Params = struct
   let unfold_max = 10
 end
 
-type 'e down_acc = {
-  decl_ctx : decl_ctx;
-  bound_vars : ('e, 'e) Var.Map.t;
-  (* Only the candidates for inlining: pure and with a size threshold *)
-  (* functions : ('e, 'e upwards) Var.Map.t *)
-} constraint 'e = ((_, _) dcalc_lcalc, 'm) gexpr
-
 type 'e up_acc = {
   free_vars : ('e, int) Var.Map.t; (* counts occurences *)
   size : int;
@@ -36,6 +29,14 @@ type 'e up_acc = {
 
 type 'e upwards = ('e up_acc * 'e) Bindlib.box * 'm mark
   constraint 'e = (_, 'm) gexpr
+
+type 'e down_acc = {
+  decl_ctx : decl_ctx;
+  bound_vars : ('e, 'e) Var.Map.t;
+  (* Only the candidates for inlining: pure and with a size threshold *)
+  functions : ('e, 'e upwards) Var.Map.t;
+} constraint 'e = ((_, _) dcalc_lcalc, 'm) gexpr
+
 
 let uacc_empty = { free_vars = Var.Map.empty; size = 0; is_pure = true }
 
@@ -69,7 +70,7 @@ let literal_bool = function
 
 (* beta reduction when variables not used, and for variable aliases and
    literals *)
-let rec simplified_binder_apply_aux:
+let simplified_binder_apply_aux:
  type a b.
   (((a, b) dcalc_lcalc, 'm) gexpr as 'e) down_acc ->
   typ list -> Pos.t list -> 'm mark -> 'm mark -> ('e, 'e up_acc * 'e) mbinder -> 'e up_acc * 'e list ->
@@ -252,6 +253,7 @@ and simplified_ifthenelse:
   ( Bindlib.box_apply3 (simplified_ifthenelse_aux m) ucond uetrue uefalse,
     m )
 
+(*
 (* builds a [EMatch] term, flattening nested matches/if-then-else (ie match (match
    foo with ...) with ...): the matching arg branches are explored, and if they
    all lead to enum constructor literals, the surrounding match cases are
@@ -367,6 +369,48 @@ and _simplified_match : (* XX disabled below *)
             (EMatch { e = match_arg; cases; name = enum_name }, mark) ))
       uarg ucases,
   mark)
+*)
+
+and optimize_op: type a b.
+  ((a, b) dcalc_lcalc Operator.t, _) Mark.ed ->
+  ((((a, b) dcalc_lcalc, 'm) gexpr as 'e) up_acc * 'e) list ->
+  typ list -> 'm mark ->
+  (((a, b) dcalc_lcalc, 'm) gexpr as 'e) up_acc * 'e
+  =
+  fun op uargs tys m ->
+  match Mark.remove op, uargs with
+  | Not, [uacc, (EAppOp { op = (Not, _); args = [e]; _ }, _)] ->
+    { uacc with size = uacc.size - 1 }, e
+  | Not, [_, (ELit (LBool b), _)] ->
+    (* reduction of logical not *)
+    { uacc_empty with size = 1 }, (ELit (LBool (not b)), m)
+  | Or, [uacc1, e1; uacc2, e2] ->
+    (match e1 with
+     | ELit (LBool false), _ -> uacc2, e2
+     | ELit (LBool true), _ when uacc2.is_pure -> uacc1, e1
+     | e1 -> (
+         match e2 with
+         | ELit (LBool false), _ -> uacc1, e1
+         | ELit (LBool true), _ when uacc1.is_pure -> uacc2, e2
+         | e2 ->
+           uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
+  | And, [uacc1, e1; uacc2, e2] ->
+    (match e1 with
+     | ELit (LBool true), _ -> uacc2, e2
+     | ELit (LBool false), _ when uacc2.is_pure -> uacc1, e1
+     | e1 -> (
+         match e2 with
+         | ELit (LBool true), _ -> uacc1, e1
+         | ELit (LBool false), _ when uacc1.is_pure -> uacc2, e2
+         | e2 ->
+           uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
+  | Fold, [_f; init; _, (EArray [], _)] ->
+    (* reduces a fold with an empty list *)
+    init
+  | op1, _ ->
+    let uacc, args = List.split uargs in
+    List.fold_left uacc_merge { uacc_empty with is_pure = Operator.is_pure op1 } uacc,
+    (EAppOp { op; args; tys }, m)
 
 and optimize_expr : type a b.
     'e down_acc ->
@@ -374,129 +418,7 @@ and optimize_expr : type a b.
     'e upwards =
  fun dacc (e, m) ->
   match e with
-  (* - Upwards optims (optimise subterms then reduce on them) *)
   (* - Downwards optims (rewrite of the term before going deeper) *)
-  | EAbs { binder; pos; tys } ->
-    let ubinder = optimize_binder dacc binder in
-    Bindlib.box_apply (fun (uacc_binder, binder) ->
-        uacc_binder, (EAbs { binder; pos; tys }, m))
-      ubinder,
-    m
-  | EAppOp { op = Not, _; args = [(ELit (LBool b), _)]; _ } ->
-    (* reduction of logical not *)
-    box { uacc_empty with size = 1 } (Expr.elit (LBool (not b)) m)
-  | EAppOp { op = (Or, _) as op; args = [e1; e2]; tys } ->
-    let u1, _ = optimize_expr dacc e1 in
-    let u2, _ = optimize_expr dacc e2 in
-    ( Bindlib.box_apply2
-        (fun (uacc1, e1) (uacc2, e2) ->
-          match e1 with
-          | ELit (LBool false), _ -> uacc2, e2
-          | ELit (LBool true), _ when uacc2.is_pure -> uacc1, e1
-          | e1 -> (
-            match e2 with
-            | ELit (LBool false), _ -> uacc1, e1
-            | ELit (LBool true), _ when uacc1.is_pure -> uacc2, e2
-            | e2 ->
-              uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
-        u1 u2,
-      m )
-  | EAppOp { op = (And, _) as op; args = [e1; e2]; tys } ->
-    let u1, _ = optimize_expr dacc e1 in
-    let u2, _ = optimize_expr dacc e2 in
-    ( Bindlib.box_apply2
-        (fun (uacc1, e1) (uacc2, e2) ->
-          match e1 with
-          | ELit (LBool true), _ -> uacc2, e2
-          | ELit (LBool false), _ when uacc2.is_pure -> uacc1, e1
-          | e1 -> (
-            match e2 with
-            | ELit (LBool true), _ -> uacc1, e1
-            | ELit (LBool false), _ when uacc1.is_pure -> uacc2, e2
-            | e2 ->
-              uacc_merge uacc1 uacc2, (EAppOp { op; args = [e1; e2]; tys }, m)))
-        u1 u2,
-      m )
-  (* | EMatch { name; e; cases } -> simplified_match dacc name e cases m -- Broken and disabled *)
-  | EApp { f; args; tys } -> simplified_apply dacc f args tys m
-  | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ } ->
-    assert (StructName.equal name name1);
-    optimize_expr dacc (StructField.Map.find field fields)
-  | EStructAccess { name; field; e } ->
-    let ue, _ = optimize_expr dacc e in
-    Bindlib.box_apply (fun (uacc, e) ->
-        match e with
-        | EStruct { name = name1; fields }, _ when uacc.is_pure ->
-          assert (StructName.equal name name1);
-          uacc (* fixme: should be restricted to uacc of el.(index) *),
-          StructField.Map.find field fields
-        | e ->
-          uacc, (EStructAccess { name; field; e }, m))
-      ue,
-    m
-  | ETupleAccess { e = ETuple t, _; index; _ } ->
-    optimize_expr dacc (List.nth t index)
-  | ETupleAccess { e; index; size } ->
-    let ue, _ = optimize_expr dacc e in
-    Bindlib.box_apply (fun (uacc, e) ->
-        match e with
-        | ETuple el, _ when uacc.is_pure (* should be uacc of el(<>index).is_pure *) ->
-          uacc (* fixme: should be restricted to uacc of el.(index) *), List.nth el index
-        | e ->
-          uacc, (ETupleAccess { e; index; size }, m))
-      ue,
-    m
-  | EErrorOnEmpty e ->
-    Bindlib.box_apply (fun (uacc, e) ->
-        match e with
-        | EPureDefault e, _ -> uacc, e
-        | _ -> uacc, (EErrorOnEmpty e, m)
-      )
-      (Mark.remove (optimize_expr dacc e)),
-    m
-  (* | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e *)
-  | EDefault { excepts; just; cons } ->
-    Bindlib.box_apply3 (fun uexcepts (uacc_just, just) (uacc_cons, cons) ->
-        let uexcepts =
-          List.filter (fun (_, except) -> Mark.remove except <> EEmpty) uexcepts
-          (* we can discard the exceptions that are always empty error *)
-        in
-        let value_except_count =
-          List.fold_left
-            (fun nb (_, except) -> if Expr.is_value except then nb + 1 else nb)
-            0 uexcepts
-        in
-        if value_except_count > 1 then
-          (* at this point we know a conflict error will be triggered so we just
-             feed the expression to the interpreter that will print the beautiful
-             right error message *)
-          let (_ : _ gexpr) =
-            Interpreter.evaluate_expr dacc.decl_ctx `En
-              (* Default language to English, no errors should be raised normally
-                 so we don't care *)
-              (e, m)
-          in
-          assert false
-        else
-        match uexcepts, just with
-        | [], _ ->
-          simplified_ifthenelse_aux m (uacc_just, just) (uacc_cons, cons)
-            ({uacc_empty with size = 1}, (EEmpty, m))
-        | [uexcept], ( ELit (LBool false), _ ) ->
-          uexcept
-        | excepts, just ->
-          let uacc_excepts, excepts = List.split excepts in
-          List.fold_left uacc_merge (uacc_merge uacc_just uacc_cons) uacc_excepts,
-          (EDefault { excepts; just; cons }, m))
-      (optimize_expr_list dacc excepts)
-      (Mark.remove (optimize_expr dacc just))
-      (Mark.remove (optimize_expr dacc cons)),
-    m
-  | EIfThenElse { cond; etrue; efalse } ->
-    simplified_ifthenelse dacc cond etrue efalse m
-  | EAppOp { op = Op.Fold, _; args = [_f; init; (EArray [], _)]; _ } ->
-    (* reduces a fold with an empty list *)
-    optimize_expr dacc init
   | EAppOp
       {
         op = (Map, _) as op;
@@ -588,20 +510,119 @@ and optimize_expr : type a b.
         m
     in
     optimize_expr dacc (Expr.unbox mapl)
-  | EAppOp
-      {
-        op = Op.Fold, _;
-        args = [f; init; (EArray elts, _)];
-        tys = [_; tinit; (TArray tx, _)];
-      } when List.length elts <= Params.unfold_max ->
-    (* unfolds folds on constant lists *)
-    let eflat =
-      let f = Expr.box f in
-      List.fold_left (fun e elt ->
-          Expr.make_app f [e; Expr.box elt] [tinit; tx] (Expr.mark_pos m))
-        (Expr.box init) elts
-    in
-    optimize_expr dacc (Expr.unbox eflat)
+
+  | EVar v ->
+    Bindlib.box_apply (function (EVar v) ->
+        {uacc_empty with free_vars = Var.Map.singleton v 1},
+        (EVar v, m)
+| _ -> assert false)
+      (Bindlib.box_var v),
+    m
+
+  (* - Upwards optims (optimise subterms then reduce on them) *)
+  | EAppOp { op; args; tys } when Operator.is_pure (Mark.remove op) ->
+    (* Constant reduction *)
+    let uargs = optimize_expr_list dacc args in
+    Bindlib.box_apply (fun uargs ->
+        let uacc, args = List.split uargs in
+        if
+          List.for_all
+            (fun u -> u.is_pure && Var.Map.is_empty u.free_vars)
+            uacc
+        then
+          let e =
+            Interpreter.evaluate_expr dacc.decl_ctx `En
+              (EAppOp {op; args; tys}, m) |>
+            Interpreter.delcustom
+          in
+          { size = Expr.size e; free_vars = Var.Map.empty; is_pure = true }, e
+        else
+          optimize_op op uargs tys m
+      )
+      uargs, m
+  | EAbs { binder; pos; tys } ->
+    let ubinder = optimize_binder dacc binder in
+    Bindlib.box_apply (fun (uacc_binder, binder) ->
+        uacc_binder, (EAbs { binder; pos; tys }, m))
+      ubinder,
+    m
+  (* | EMatch { name; e; cases } -> simplified_match dacc name e cases m -- Broken and disabled *)
+  | EApp { f; args; tys } -> simplified_apply dacc f args tys m
+  | EStructAccess { name; field; e = EStruct { name = name1; fields }, _ } ->
+    assert (StructName.equal name name1);
+    optimize_expr dacc (StructField.Map.find field fields)
+  | EStructAccess { name; field; e } ->
+    let ue, _ = optimize_expr dacc e in
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | EStruct { name = name1; fields }, _ when uacc.is_pure ->
+          assert (StructName.equal name name1);
+          uacc (* fixme: should be restricted to uacc of el.(index) *),
+          StructField.Map.find field fields
+        | e ->
+          uacc, (EStructAccess { name; field; e }, m))
+      ue,
+    m
+  | ETupleAccess { e = ETuple t, _; index; _ } ->
+    optimize_expr dacc (List.nth t index)
+  | ETupleAccess { e; index; size } ->
+    let ue, _ = optimize_expr dacc e in
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | ETuple el, _ when uacc.is_pure (* should be uacc of el(<>index).is_pure *) ->
+          uacc (* fixme: should be restricted to uacc of el.(index) *), List.nth el index
+        | e ->
+          uacc, (ETupleAccess { e; index; size }, m))
+      ue,
+    m
+  | EErrorOnEmpty e ->
+    Bindlib.box_apply (fun (uacc, e) ->
+        match e with
+        | EPureDefault e, _ -> uacc, e
+        | _ -> uacc, (EErrorOnEmpty e, m)
+      )
+      (Mark.remove (optimize_expr dacc e)),
+    m
+  (* | EErrorOnEmpty (EPureDefault e, _) -> optimize_expr dacc e *)
+  | EDefault { excepts; just; cons } ->
+    Bindlib.box_apply3 (fun uexcepts (uacc_just, just) (uacc_cons, cons) ->
+        let uexcepts =
+          List.filter (fun (_, except) -> Mark.remove except <> EEmpty) uexcepts
+          (* we can discard the exceptions that are always empty error *)
+        in
+        let value_except_count =
+          List.fold_left
+            (fun nb (_, except) -> if Expr.is_value except then nb + 1 else nb)
+            0 uexcepts
+        in
+        if value_except_count > 1 then
+          (* at this point we know a conflict error will be triggered so we just
+             feed the expression to the interpreter that will print the beautiful
+             right error message *)
+          let (_ : _ gexpr) =
+            Interpreter.evaluate_expr dacc.decl_ctx `En
+              (* Default language to English, no errors should be raised normally
+                 so we don't care *)
+              (e, m)
+          in
+          assert false
+        else
+        match uexcepts, just with
+        | [], _ ->
+          simplified_ifthenelse_aux m (uacc_just, just) (uacc_cons, cons)
+            ({uacc_empty with size = 1}, (EEmpty, m))
+        | [uexcept], ( ELit (LBool false), _ ) ->
+          uexcept
+        | excepts, just ->
+          let uacc_excepts, excepts = List.split excepts in
+          List.fold_left uacc_merge (uacc_merge uacc_just uacc_cons) uacc_excepts,
+          (EDefault { excepts; just; cons }, m))
+      (optimize_expr_list dacc excepts)
+      (Mark.remove (optimize_expr dacc just))
+      (Mark.remove (optimize_expr dacc cons)),
+    m
+  | EIfThenElse { cond; etrue; efalse } ->
+    simplified_ifthenelse dacc cond etrue efalse m
   | ETuple ((ETupleAccess { e; index = 0; _ }, _) :: el)
     when List.for_all Fun.id
            (List.mapi
@@ -638,7 +659,7 @@ let optimize_expr :
     (('a, 'b) dcalc_lcalc, 'm) gexpr ->
     (('a, 'b) dcalc_lcalc, 'm) boxed_gexpr =
  fun (decl_ctx : decl_ctx) (e : (('a, 'b) dcalc_lcalc, 'm) gexpr) ->
-  let acc_e, m = optimize_expr { decl_ctx; bound_vars = Var.Map.empty } e in
+  let acc_e, m = optimize_expr { decl_ctx; bound_vars = Var.Map.empty; functions = Var.Map.empty } e in
   Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
 
 let optimize_program (p : 'm program) : 'm program =
