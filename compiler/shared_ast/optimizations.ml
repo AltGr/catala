@@ -24,7 +24,7 @@ end
 type 'e up_acc = {
   free_vars : ('e, int) Var.Map.t; (* counts occurences *)
   size : int;
-  is_pure : bool;
+  is_pure : bool; (* For functions, this documents if their *body* is pure *)
 } constraint 'e = (('a, 'b) dcalc_lcalc, 'm) gexpr
 
 type 'e upwards = ('e up_acc * 'e) Bindlib.box * 'm mark
@@ -81,7 +81,7 @@ let simplified_binder_apply_aux:
   let vars, (uacc_body, _body) = Bindlib.unmbind ubinder in
   let uacc_f =
     {
-      is_pure = true;
+      is_pure = uacc_body.is_pure;
       size = uacc_body.size + 1;
       free_vars =
         Array.fold_left
@@ -162,7 +162,7 @@ let rec optimize_binder:
               (fun vars v -> Var.Map.remove v vars)
               uacc_body.free_vars vars;
           size = uacc_body.size + 1;
-          is_pure = true;
+          is_pure = uacc_body.is_pure;
         }
       in
       uacc, binder)
@@ -205,7 +205,7 @@ and simplified_apply :
     ( Bindlib.box_apply2
         (fun (uacc_f, f) (uacc_args, args) ->
            let uacc = uacc_merge uacc_f uacc_args in
-           { uacc with is_pure = false }, (* todo: finer triaging to detect application of pure functions *)
+           uacc,
            (EApp { f; args; tys }, app_m))
         uf uargs,
       app_m)
@@ -511,8 +511,11 @@ and optimize_expr : type a b.
     in
     optimize_expr dacc (Expr.unbox mapl)
 
+  | EExternal _ ->
+    box {uacc_empty with size = 1; is_pure = false } (Expr.box (e,m))
   | EVar v ->
     let e = Bindlib.box_var v in
+    Message.debug ">> %a <<" Print.var_debug v;
     Bindlib.box_apply (function
         | EVar v as e ->
           {uacc_empty with free_vars = Var.Map.singleton v 1},
@@ -523,7 +526,7 @@ and optimize_expr : type a b.
       e,
     m
   (* - Upwards optims (optimise subterms then reduce on them) *)
-  | EAppOp { op; args; tys } when Operator.is_pure (Mark.remove op) ->
+  | EAppOp { op; args; tys } when (match Mark.remove op with DebugPrint _ | Tag _ -> false | _ -> true) ->
     (* Constant reduction *)
     let uargs = optimize_expr_list dacc args in
     Bindlib.box_apply (fun uargs ->
@@ -534,9 +537,21 @@ and optimize_expr : type a b.
             uacc
         then
           let e =
-            Interpreter.evaluate_expr dacc.decl_ctx `En
-              (EAppOp {op; args; tys}, m) |>
-            Interpreter.delcustom
+            try
+              Message.debug "Running interp for constant reduction: %a"
+                Expr.format (e,m);
+              Interpreter.evaluate_expr_raw dacc.decl_ctx
+                (EAppOp {op; args; tys}, m)
+            with
+            | Catala_runtime.Error _ as e ->
+              Message.debug "@[<v>Unavoidable exceptions during evaluation:@,@[<hov>%a@]@]"
+                Format.pp_print_text (Printexc.to_string e);
+              EAppOp {op; args; tys}, m
+              (* Keep to the original expr rather than hardcode the error: it
+                 would be hard to keep the error message consistent otherwise. *)
+            | Message.CompilerError msg ->
+              Message.debug "Exception during constant propagation: %t" (fun ppf -> Message.Content.emit ~ppf msg Debug);
+              EAppOp {op; args; tys}, m
           in
           { size = Expr.size e; free_vars = Var.Map.empty; is_pure = true }, e
         else

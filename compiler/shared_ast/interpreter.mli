@@ -40,6 +40,13 @@ val evaluate_expr :
 (** Evaluates an expression according to the semantics of the default calculus.
 *)
 
+val evaluate_expr_raw :
+  decl_ctx ->
+  (('a, 'b, _) interpr_kind, 'm) gexpr ->
+  (('a, 'b, no) interpr_kind, 'm) gexpr
+(** Lower-level version of [evaluate_expr], without the wrapper for trace or
+    exceptions *)
+
 val interpret_program_dcalc :
   ?input:Yojson.Safe.t ->
   (dcalc, 'm) gexpr program ->

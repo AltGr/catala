@@ -1140,6 +1140,9 @@ let delcustom e =
      nodes. *)
   Expr.unbox (f e)
 
+let evaluate_expr_raw decl_ctx e =
+  evaluate_expr decl_ctx `En (addcustom e) |> delcustom
+
 let convert_json_input ctx scope_ty json =
   let encoding = Encoding.make_encoding ctx scope_ty in
   Encoding.parse_json encoding json
