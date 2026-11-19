@@ -512,13 +512,16 @@ and optimize_expr : type a b.
     optimize_expr dacc (Expr.unbox mapl)
 
   | EVar v ->
-    Bindlib.box_apply (function (EVar v) ->
-        {uacc_empty with free_vars = Var.Map.singleton v 1},
-        (EVar v, m)
-| _ -> assert false)
-      (Bindlib.box_var v),
+    let e = Bindlib.box_var v in
+    Bindlib.box_apply (function
+        | EVar v as e ->
+          {uacc_empty with free_vars = Var.Map.singleton v 1},
+          (e, m)
+        | e ->
+          (* Not sure I understand what happens here... *)
+          Bindlib.unbox (Mark.remove (optimize_expr dacc (e,m))))
+      e,
     m
-
   (* - Upwards optims (optimise subterms then reduce on them) *)
   | EAppOp { op; args; tys } when Operator.is_pure (Mark.remove op) ->
     (* Constant reduction *)
