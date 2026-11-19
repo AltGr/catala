@@ -37,10 +37,14 @@ open Cmdliner
 
 let when_opt = Arg.enum ["auto", Auto; "always", Always; "never", Never]
 
-let raw_file =
-  Arg.conv ~docv:"FILE"
-    ( (fun f -> Result.map raw_file (Arg.conv_parser Arg.string f)),
-      fun ppf f -> Format.pp_print_string ppf (f :> string) )
+let make_raw_file (conv: string Arg.Conv.t) =
+  Arg.Conv.make ()
+    ~docv:"FILE"
+    ~parser:(fun f -> Arg.Conv.parser conv f |> Result.map raw_file)
+    ~pp:(fun ppf f -> (f :> string) |> Arg.Conv.pp conv ppf)
+
+let raw_file = make_raw_file Arg.filepath
+let raw_dir = make_raw_file Arg.dirpath
 
 (* Some helpers for catala sources *)
 
@@ -290,7 +294,7 @@ module Flags = struct
 
     let bin_dir =
       value
-      & opt (some raw_file) None
+      & opt (some raw_dir) None
       & info ["bin"] ~docv:"DIR"
           ~doc:
             "Directory containing compiled artifacts. This is used to load \
@@ -433,7 +437,7 @@ module Flags = struct
     let stdlib =
       Arg.(
         value
-        & opt raw_file File.(G.raw_file ("_build" / "libcatala"))
+        & opt raw_dir File.(G.raw_file ("_build" / "libcatala"))
         & info ["stdlib"] ~docv:"DIR"
             ~env:(Cmd.Env.info "CATALA_STDLIB")
             ~doc:
@@ -449,7 +453,7 @@ module Flags = struct
     let arg =
       Arg.(
         value
-        & opt_all (list ~sep:':' raw_file) []
+        & opt_all (list ~sep:':' raw_dir) []
         & info ["I"; "include"] ~docv:"DIR"
             ~env:(Cmd.Env.info "CATALA_INCLUDE")
             ~doc:

@@ -103,7 +103,7 @@ let include_dirs =
   let arg =
     Arg.(
       value
-      & opt_all (list ~sep:':' string) []
+      & opt_all (list ~sep:':' dirpath) []
       & info ["I"; "include"] ~docv:"DIR"
           ~env:(Cmd.Env.info "CATALA_INCLUDE")
           ~doc:
