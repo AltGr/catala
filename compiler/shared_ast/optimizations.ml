@@ -32,6 +32,8 @@ type 'e upwards = ('e up_acc * 'e) Bindlib.box * 'm mark
 
 type 'e down_acc = {
   decl_ctx : decl_ctx;
+  topdefs : ('e up_acc * 'e) TopdefName.Map.t;
+  (* scopes : 'e upwards ScopeName.Map.t; *)
   bound_vars : ('e, 'e) Var.Map.t;
   (* Only the candidates for inlining: pure and with a size threshold *)
   functions : ('e, 'e upwards) Var.Map.t;
@@ -62,11 +64,6 @@ let box uacc (e, m) = Bindlib.box_apply (fun e -> uacc, (e, m)) e, m
    - we name [ufoo] the return of optimising [foo], on which we typically call a [Bindlib.box_apply*] where it is decomposed into [(uacc_foo, foo)]
  *)
 
-let literal_bool = function
-  | ELit (LBool b), _
-  | EAppOp { op = Tag _, _; args = [(ELit (LBool b), _)]; _ }, _ ->
-    Some b
-  | _ -> None
 
 (* beta reduction when variables not used, and for variable aliases and
    literals *)
@@ -194,13 +191,7 @@ and simplified_apply :
         let uacc_args = List.fold_left uacc_merge uacc_empty uacc_args in
         uacc_args, args)
   in
-  match f with
-  | EAbs { binder; tys; pos }, abs_m ->
-    (* This only applies to literal lambdas (before optimisations) at the
-       moment. A real optimisation pass would handle inlining of named functions
-       with some heuristics. *)
-    simplified_binder_apply dacc binder tys pos uargs abs_m app_m
-  | _ ->
+  let normal_apply () =
     let uf, _ = optimize_expr dacc f in
     ( Bindlib.box_apply2
         (fun (uacc_f, f) (uacc_args, args) ->
@@ -209,6 +200,25 @@ and simplified_apply :
            (EApp { f; args; tys }, app_m))
         uf uargs,
       app_m)
+  in
+  match f with
+  | EAbs { binder; tys; pos }, abs_m ->
+    (* This only applies to literal lambdas (before optimisations) at the
+       moment. A real optimisation pass would handle inlining of named functions
+       with some heuristics. *)
+    simplified_binder_apply dacc binder tys pos uargs abs_m app_m
+  | EExternal { name = External_value topdef, _ }, top_m ->
+    (match TopdefName.Map.find_opt topdef dacc.topdefs with
+     | Some (_uacc_topdef, (EAbs { binder; tys; pos }, _)) ->
+       let uapp, m = simplified_binder_apply dacc binder tys pos uargs top_m app_m in
+       Bindlib.box_apply (fun (uacc_app, app) ->
+           (* todo: some conditions on inlining ... *)
+           uacc_app, app
+         )
+         uapp, m
+     | _ -> normal_apply ()
+    )
+  | _ -> normal_apply ()
 
 and simplified_ifthenelse_aux:
   type a b.
@@ -417,6 +427,19 @@ and optimize_expr : type a b.
     (((a, b) dcalc_lcalc, 'm) gexpr as 'e) ->
     'e upwards =
  fun dacc (e, m) ->
+  let recurse_on_subterms: type a b.
+    'e down_acc -> (((a,b) dcalc_lcalc, 'm) gexpr as 'e) -> 'e upwards
+    = fun dacc e ->
+    let is_pure = match Mark.remove e with
+      | EAssert _ | EFatalError _ | EErrorOnEmpty _ -> false
+      | EAppOp { op; _ } -> Operator.is_pure (Mark.remove op)
+      | _ -> true
+    in
+    Expr.map_gather2 e
+      ~acc:{ uacc_empty with is_pure; size = 1 }
+      ~join:uacc_merge
+      ~f:(optimize_expr dacc)
+  in
   match e with
   (* - Downwards optims (rewrite of the term before going deeper) *)
   | EAppOp
@@ -510,9 +533,9 @@ and optimize_expr : type a b.
         m
     in
     optimize_expr dacc (Expr.unbox mapl)
-
-  | EExternal _ ->
-    box {uacc_empty with size = 1; is_pure = false } (Expr.box (e,m))
+  (* | EExternal { name } ->
+   *   
+   *   box {uacc_empty with size = 1; is_pure = false } (Expr.box (e,m)) *)
   | EVar v ->
     let e = Bindlib.box_var v in
     Message.debug ">> %a <<" Print.var_debug v;
@@ -526,7 +549,9 @@ and optimize_expr : type a b.
       e,
     m
   (* - Upwards optims (optimise subterms then reduce on them) *)
-  | EAppOp { op; args; tys } when (match Mark.remove op with DebugPrint _ | Tag _ -> false | _ -> true) ->
+  | EAppOp { op = (DebugPrint _ | Tag _ | ValueFromJson _), _; _ } ->
+    recurse_on_subterms dacc (e, m)
+  | EAppOp { op; args; tys } ->
     (* Constant reduction *)
     let uargs = optimize_expr_list dacc args in
     Bindlib.box_apply (fun uargs ->
@@ -651,17 +676,22 @@ and optimize_expr : type a b.
               el) ->
     (* identity tuple reconstruction *)
     optimize_expr dacc e
-  | e ->
-    let is_pure = match e with
-      | EAssert _ | EFatalError _ | EErrorOnEmpty _ -> false
-      | EAppOp { op; _ } -> Operator.is_pure (Mark.remove op)
-      | EApp _ -> false (* todo: improve this *)
-      | _ -> true
-    in
-    Expr.map_gather2 (e, m)
-        ~acc:{ uacc_empty with is_pure; size = 1 }
-        ~join:uacc_merge
-        ~f:(optimize_expr dacc)
+  | EAssert (EAppOp ({ op = Not, _; args = [e1, m1]; _ } as op), _) ->
+    let uappop, _ = recurse_on_subterms dacc (e1, m1) in
+    Bindlib.box_apply (fun (uacc_app, app) ->
+        { uacc_app with size = uacc_app.size + 1 },
+        (EAssert (EAppOp { op with args = [app]}, m1), m))
+      uappop,
+    m
+  | EAssert (EAppOp _ as e1, m1) ->
+    (* Skip optim of the outermost operator to keep the reason for assertion failure
+       visible *)
+    let uappop, _ = recurse_on_subterms dacc (e1, m1) in
+    Bindlib.box_apply (fun (uacc_app, app) ->
+        { uacc_app with size = uacc_app.size + 1 }, (EAssert app, m))
+      uappop,
+    m
+  | e -> recurse_on_subterms dacc (e, m)
 
 and optimize_expr_list:
   type a b.
@@ -670,6 +700,7 @@ and optimize_expr_list:
   List.map (optimize_expr dacc) es |> List.map fst |>
   Bindlib.box_list
 
+let optimize_expr0 = optimize_expr
 
 let optimize_expr :
     'm.
@@ -677,11 +708,53 @@ let optimize_expr :
     (('a, 'b) dcalc_lcalc, 'm) gexpr ->
     (('a, 'b) dcalc_lcalc, 'm) boxed_gexpr =
  fun (decl_ctx : decl_ctx) (e : (('a, 'b) dcalc_lcalc, 'm) gexpr) ->
-  let acc_e, m = optimize_expr { decl_ctx; bound_vars = Var.Map.empty; functions = Var.Map.empty } e in
+  let acc_e, m = optimize_expr { decl_ctx; bound_vars = Var.Map.empty; functions = Var.Map.empty; topdefs = TopdefName.Map.empty } e in
   Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
 
 let optimize_program (p : 'm program) : 'm program =
+  let varf = Fun.id in
+  let typ = Fun.id in
+  let f dacc e = optimize_expr0 dacc e |> fun (acc_e, m) -> Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
+  in
+  (* Variant of Scope.map_exprs *)
+  let code_item dacc v = function
+    | ScopeDef (name, body) ->
+      let scope_input_var, scope_lets = Bindlib.unbind body.scope_body_expr in
+      let new_body_expr =
+        BoundList.fold_map
+        Scope.map_exprs_in_lets ~typ ~f:(f dacc) ~varf scope_lets
+      in
+      let new_body_expr =
+        Bindlib.bind_var scope_input_var new_body_expr
+      in
+      ( v,
+        Bindlib.box_apply
+          (fun scope_body_expr ->
+            ScopeDef (name, { body with scope_body_expr }))
+          new_body_expr )
+    | Topdef (name, ty, vis, expr) ->
+      ( varf v,
+        Bindlib.box_apply
+          (fun e -> Topdef (name, typ ty, vis, e))
+          (Expr.Box.lift (f expr)) )
+    | 
+    
   Program.map_exprs ~f:(optimize_expr p.decl_ctx) ~varf:(fun v -> v) p
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(* // *)
 
 let test_iota_reduction_1 () =
   let x = Var.make "x" in

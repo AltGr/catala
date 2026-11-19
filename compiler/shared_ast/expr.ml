@@ -1439,5 +1439,7 @@ let rec distribute_negation pos e =
           args = [distribute_negation pos e1; distribute_negation pos e2];
         },
       m )
+  | EAppOp { op = Not, _; args = [e1, m1]; _ }, m ->
+    e1, with_pos (Pos.join (mark_pos m) (mark_pos m1)) m
   | (_, m) as e ->
     EAppOp { op = Op.Not, pos; tys = [TLit TBool, mark_pos m]; args = [e] }, m
