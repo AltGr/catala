@@ -89,12 +89,30 @@ let simplified_binder_apply_aux:
   let f = EAbs { binder; tys; pos }, abs_m in
   let uacc = uacc_merge uacc_f uacc_args in
   match args, uacc_args.is_pure with
-  | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _
-  (* Never inline lifted closures *)
-  | _, false (* Do not inline impure expressions *) ->
+  | [(EAbs { tys = (TClosureEnv, _) :: _; _ }, _)], _ ->
+    (* Never inline lifted closures *)
     uacc, (EApp { f; args; tys }, app_m)
+  | _, false ->
+    (* Do not inline impure expressions *)
+    uacc, (EApp { f; args; tys }, app_m)
+  | [EMatch { name; e; cases }, _], _ ->
+    (* Branching -> push the function application into the branches *)
+    let cases = EnumConstructor.Map.map (function
+        | EAbs { binder; pos; tys = tys1}, m ->
+          (* Compose the match-case function with the applied function *)
+          let vars, body = Bindlib.unmbind binder in
+          let binder =
+            Expr.bind vars
+              (Expr.eapp ~f:(Expr.rebox f) ~args:[Expr.rebox body] ~tys (Mark.get body))
+          in
+          let m = Expr.map_ty (function TArrow (targs, _), pos -> TArrow (targs, Expr.maybe_ty app_m), pos | _, pos -> Type.fresh_var pos) m in
+          Expr.unbox @@ Expr.eabs binder pos tys1 m
+        | _ -> assert false)
+        cases
+    in
+    uacc, (EMatch { name; e; cases }, app_m)
   | _
-    when List.for_all2
+    when true || List.for_all2
         (fun v arg ->
            (match arg with
             | (EVar _ | ELit _), _ -> true
@@ -538,7 +556,6 @@ and optimize_expr : type a b.
    *   box {uacc_empty with size = 1; is_pure = false } (Expr.box (e,m)) *)
   | EVar v ->
     let e = Bindlib.box_var v in
-    Message.debug ">> %a <<" Print.var_debug v;
     Bindlib.box_apply (function
         | EVar v as e ->
           {uacc_empty with free_vars = Var.Map.singleton v 1},
@@ -548,7 +565,48 @@ and optimize_expr : type a b.
           Bindlib.unbox (Mark.remove (optimize_expr dacc (e,m))))
       e,
     m
+  | EMatch { name; e; cases } when Sys.getenv_opt "TEST" <> None ->
+    let em = Mark.get e in
+    let _uacc_e, e = Bindlib.unbox (Mark.remove (optimize_expr dacc e)) in
+    (match Mark.remove e with
+     | EMatch _ | EIfThenElse _ ->
+       (* Switch to CPS to allow inlining into branches *)
+       let x = Var.make "continuation_argument" in
+       let cont_body =
+         Expr.ematch ~name ~cases:(EnumConstructor.Map.map Expr.box cases)
+           ~e:(Expr.evar x em)
+           m
+       in
+       let cont_bnd = Bindlib.unbox @@ Expr.bind [|x|] cont_body in
+       let args =
+         optimize_expr_list dacc [e]
+         |> Bindlib.box_apply (fun uel ->
+             let uaccs, el = List.split uel in
+             List.fold_left uacc_merge uacc_empty uaccs, el)
+       in
+       let ue, _ =
+         simplified_binder_apply dacc cont_bnd [Expr.maybe_ty em] [Expr.mark_pos em]
+           args em m
+       in
+       (* Re-run an optimisation round. Normally this should be done by the simplified_binder_apply fun above, with heuristics to decide if the inlining was worth it or not *)
+       optimize_expr dacc (snd (Bindlib.unbox ue))
+     | EInj { name; cons; e } ->
+       optimize_expr dacc
+         (EApp {
+             f = EnumConstructor.Map.find cons cases;
+             args = [e];
+             tys =
+               [EnumConstructor.Map.find cons
+                  (EnumName.Map.find name dacc.decl_ctx.ctx_enums)]
+           }, m)
+     | _ -> recurse_on_subterms dacc e (* fixme: re-optimises e *)
+    )
   (* - Upwards optims (optimise subterms then reduce on them) *)
+  (* | EMatch { name; e; cases } ->
+   *   let ue = optimize_expr e in
+   *   Bindlib.box_apply (fun (uacc,e) ->
+   *     )
+   *     ue *)
   | EAppOp { op = (DebugPrint _ | Tag _ | ValueFromJson _), _; _ } ->
     recurse_on_subterms dacc (e, m)
   | EAppOp { op; args; tys } ->
@@ -568,8 +626,9 @@ and optimize_expr : type a b.
               Interpreter.evaluate_expr_raw dacc.decl_ctx
                 (EAppOp {op; args; tys}, m)
             with
-            | Catala_runtime.Error _ as e ->
-              Message.debug "@[<v>Unavoidable exceptions during evaluation:@,@[<hov>%a@]@]"
+            | Catala_runtime.Error (_,_,message) as e ->
+              Message.warning "@[<v>This computation will always fail%s:@,@[<hov>%a@]@]"
+                (match message with None -> "" | Some m -> " ("^m^")")
                 Format.pp_print_text (Printexc.to_string e);
               EAppOp {op; args; tys}, m
               (* Keep to the original expr rather than hardcode the error: it
@@ -712,32 +771,32 @@ let optimize_expr :
   Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
 
 let optimize_program (p : 'm program) : 'm program =
-  let varf = Fun.id in
-  let typ = Fun.id in
-  let f dacc e = optimize_expr0 dacc e |> fun (acc_e, m) -> Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
-  in
-  (* Variant of Scope.map_exprs *)
-  let code_item dacc v = function
-    | ScopeDef (name, body) ->
-      let scope_input_var, scope_lets = Bindlib.unbind body.scope_body_expr in
-      let new_body_expr =
-        BoundList.fold_map
-        Scope.map_exprs_in_lets ~typ ~f:(f dacc) ~varf scope_lets
-      in
-      let new_body_expr =
-        Bindlib.bind_var scope_input_var new_body_expr
-      in
-      ( v,
-        Bindlib.box_apply
-          (fun scope_body_expr ->
-            ScopeDef (name, { body with scope_body_expr }))
-          new_body_expr )
-    | Topdef (name, ty, vis, expr) ->
-      ( varf v,
-        Bindlib.box_apply
-          (fun e -> Topdef (name, typ ty, vis, e))
-          (Expr.Box.lift (f expr)) )
-    | 
+  (* let varf = Fun.id in
+   * let typ = Fun.id in
+   * let f dacc e = optimize_expr0 dacc e |> fun (acc_e, m) -> Bindlib.box_apply (fun (_acc, (e, _m)) -> e) acc_e, m
+   * in
+   * (\* Variant of Scope.map_exprs *\)
+   * let code_item dacc v = function
+   *   | ScopeDef (name, body) ->
+   *     let scope_input_var, scope_lets = Bindlib.unbind body.scope_body_expr in
+   *     let new_body_expr =
+   *       BoundList.fold_map
+   *       Scope.map_exprs_in_lets ~typ ~f:(f dacc) ~varf scope_lets
+   *     in
+   *     let new_body_expr =
+   *       Bindlib.bind_var scope_input_var new_body_expr
+   *     in
+   *     ( v,
+   *       Bindlib.box_apply
+   *         (fun scope_body_expr ->
+   *           ScopeDef (name, { body with scope_body_expr }))
+   *         new_body_expr )
+   *   | Topdef (name, ty, vis, expr) ->
+   *     ( varf v,
+   *       Bindlib.box_apply
+   *         (fun e -> Topdef (name, typ ty, vis, e))
+   *         (Expr.Box.lift (f expr)) )
+   *   |  *)
     
   Program.map_exprs ~f:(optimize_expr p.decl_ctx) ~varf:(fun v -> v) p
 

@@ -166,7 +166,9 @@ module Passes = struct
     let prg =
       if not closure_conversion then (
         Message.debug "Retyping lambda calculus...";
-        Typing.program ~internal_check:true prg)
+        (* Print.program (Message.std_ppf ()) prg;
+         * Format.pp_print_flush (Message.std_ppf ()) (); *)
+        Typing.program ~internal_check:true (Program.untype prg))
       else (
         Message.debug "XX Retyping lambda calculus...";
         let prg = Typing.program ~internal_check:true ~assume_op_types:true prg in

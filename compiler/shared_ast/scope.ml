@@ -56,6 +56,8 @@ let map_exprs ?(typ = Fun.id) ~f ~varf scopes =
       in
       ( varf v,
         Bindlib.box_apply
+
+
           (fun scope_body_expr ->
             ScopeDef (name, { body with scope_body_expr }))
           new_body_expr )
