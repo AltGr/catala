@@ -71,35 +71,11 @@ module Box = struct
   module LiftScopeVars = Bindlib.Lift (ScopeVar.Map)
 
   let lift_scope_vars = LiftScopeVars.lift_box
-
-  let assert_closed b =
-    if not (Bindlib.is_closed b) then
-      (* This is a bit convoluted, but we just want to extract the free
-         variables names for debug *)
-      let module Ctx = Bindlib.Ctxt (struct
-        type ctxt = String.Set.t
-
-        let skip_constant_binders = true
-        let reset_context_for_closed_terms = true
-        let constant_binder_name = None
-        let empty_ctxt = String.Set.empty
-        let reserve_name n s = String.Set.add n s
-        let new_name n s = n, String.Set.add n s
-      end) in
-      Message.error ~internal:true
-        "The boxed term is not closed, these variables are free in it:@ \
-         @[<hov>%a@]"
-        (Format.pp_print_list ~pp_sep:Format.pp_print_space
-           Format.pp_print_string)
-        (String.Set.elements (Ctx.free_vars b))
 end
 
 let bind vars e = Bindlib.bind_mvar vars (Box.lift e)
 
-let subst binder vars =
-  Bindlib.msubst binder (Array.of_list (List.map Mark.remove vars))
-
-let evar v mark = Mark.add mark (Bindlib.box_var v)
+let evar v mark = Mark.add mark (EVar v)
 let eexternal ~name mark = Mark.add mark (Bindlib.box (EExternal { name }))
 let etuple args = Box.appn args @@ fun args -> ETuple args
 
@@ -552,10 +528,6 @@ let rec rebox (e : ('a any, 't) gexpr) = map ~f:rebox ~op:Fun.id e
 let box e = Mark.map Bindlib.box e
 let unbox (e, m) = Bindlib.unbox e, m
 
-let unbox_closed e =
-  Box.assert_closed (fst e);
-  unbox e
-
 let untype e = map_marks ~f:(fun m -> Untyped { pos = mark_pos m }) e
 
 (* Tests *)
@@ -862,7 +834,7 @@ let rec compare : type a. (a, _) gexpr -> (a, _) gexpr -> int =
   | EBad, _ -> -1 | _, EBad -> 1
   | EErrorOnEmpty _, _ -> . | _, EErrorOnEmpty _ -> .
 
-let rec free_vars : ('a, 't) gexpr -> ('a, 't) gexpr Var.Set.t = function
+let rec free_vars : ('a, 't) gexpr -> Var.Set.t = function
   | EVar v, _ -> Var.Set.singleton v
   | EAbs { binder; _ }, _ ->
     let vs, body = Bindlib.unmbind binder in
@@ -871,7 +843,21 @@ let rec free_vars : ('a, 't) gexpr -> ('a, 't) gexpr Var.Set.t = function
 (* Could also be done with [rebox] followed by [Bindlib.free_vars], if that
    returned more than a context *)
 
-let rec free_vars_marked : ('a, 'm) gexpr -> (('a, 'm) gexpr, 'm mark) Var.Map.t
+let assert_closed b =
+  let free = free_vars b in
+  if not (Var.Set.is_empty free) then
+    Message.error ~internal:true
+      "The boxed term is not closed, these variables are free in it:@ \
+       @[<hov>%a@]"
+      (Format.pp_print_list ~pp_sep:Format.pp_print_space
+         Var.format)
+      (Var.Set.elements free)
+
+let unbox_closed e =
+  assert_closed e;
+  unbox e
+
+let rec free_vars_marked : ('a, 'm) gexpr -> 'm mark Var.Map.t
     = function
   | EVar v, m -> Var.Map.singleton v m
   | EAbs { binder; _ }, _ ->
@@ -881,6 +867,12 @@ let rec free_vars_marked : ('a, 'm) gexpr -> (('a, 'm) gexpr, 'm mark) Var.Map.t
     shallow_fold
       (fun e -> Var.Map.union (fun _ l _ -> Some l) (free_vars_marked e))
       e Var.Map.empty
+
+let rec subst_vars vmap = function
+  | EVar v, m -> (match Var.Map.find_opt v vmap with
+      | Some e -> e
+      | None -> EVar v, m)
+  | e -> map ~f:(subst_vars vmap) e
 
 (* This function is first defined in [Print], only for dependency reasons *)
 let skip_wrappers : type a. (a, 'm) gexpr -> (a, 'm) gexpr = Print.skip_wrappers
@@ -1025,8 +1017,8 @@ let make_erroronempty e =
   eerroronempty e mark
 
 let thunk_term term =
-  let silent = Var.make "_" in
-  let pos = mark_pos (Mark.get term) in
+  let pos = pos term in
+  let silent = Var.fresh ~pos () in
   make_abs [silent, Pos.void] term [TLit TUnit, pos] pos
 
 let empty_thunked_term mark = thunk_term (Bindlib.box EEmpty, mark)
@@ -1047,9 +1039,10 @@ let rec make_seq = function
   | [] -> invalid_arg "Expr.make_seq"
   | [e] -> e
   | e1 :: es ->
-    let v = Var.make "_", pos e1 in
+    let pos1 = pos e1 in
+    let v = Var.fresh ~pos:pos1 (), pos1 in
     let e2 = make_seq es in
-    make_let_in v (TLit TUnit, pos e1) e1 e2 (pos e2)
+    make_let_in v (TLit TUnit, pos1) e1 e2 (pos e2)
 
 let rec seq_last_element = function
   | ( EApp
@@ -1097,7 +1090,7 @@ let etag_nobox
   else e
 
 let fun_id ?(var_name : string = "x") mark : ('a any, 'm) boxed_gexpr =
-  let x = Var.make var_name in
+  let x = Var.make var_name ~pos:(mark_pos mark) in
   make_abs
     [x, Pos.void]
     (evar x mark)
@@ -1116,12 +1109,8 @@ let rec is_pure : type a. (a, 'm) gexpr -> bool =
   | EAppOp { op; args; _ } ->
     Operator.is_pure (Mark.remove op)
     && List.fold_left (fun acc e -> acc && is_pure e) true args
-  | EApp { f = EAbs { binder; _ }, _; args; _ } ->
-    List.for_all is_pure args
-    && is_pure
-         (Bindlib.msubst binder (Array.of_list (List.map Mark.remove args)))
-  (* note: if this is too costly, we might over-approximate with [is_pure (snd
-     (Bindlib.unmbind binder))] instead *)
+  | EApp { f = EAbs { binder = _, body; _ }, _; args; _ } ->
+    List.for_all is_pure args && is_pure body
   | EAbs _ -> true
   | EApp _ | EScopeCall _ | EAssert _ | EFatalError _ | EErrorOnEmpty _ -> false
   | _ -> shallow_fold (fun e acc -> acc && is_pure e) e true
@@ -1142,11 +1131,11 @@ let detuplify_application args tys mkapp =
             etupleaccess ~e:arg ~size ~index (Mark.get arg))
       in
       mkapp args
-    | _ ->
+    | _, m ->
       (* Anything else is put in an intermediate variable and treated like the
          case above *)
       let size = List.length tys in
-      let v = Var.make "args" in
+      let v = Var.make "args" ~pos:(mark_pos m) in
       let args =
         let e = evar v (Mark.get arg) in
         List.init size (fun index ->

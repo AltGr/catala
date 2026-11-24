@@ -54,12 +54,12 @@ val fold_left :
   ('e, 'elt, 'last) t ->
   'acc * 'last
 
-val fold_left2 :
-  f:('acc -> 'elt1 -> 'elt2 -> 'e Var.t -> 'acc) ->
-  init:'acc ->
-  ('e, 'elt1, 'last1) t ->
-  ('e, 'elt2, 'last2) t ->
-  'acc * ('last1 * 'last2)
+(* val fold_left2 :
+ *   f:('acc -> 'elt1 -> 'elt2 -> 'e Var.t -> 'acc) ->
+ *   init:'acc ->
+ *   ('e, 'elt1, 'last1) t ->
+ *   ('e, 'elt2, 'last2) t ->
+ *   'acc * ('last1 * 'last2) *)
 
 val fold_right :
   f:('elt -> 'e Var.t -> 'acc -> 'acc) ->

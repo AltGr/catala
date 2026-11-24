@@ -186,12 +186,9 @@ let rec typ_gen :
     typ_gen () fmt t1;
     punctuation fmt "⟫"
   | TVar tv -> tvar fmt tv
-  | TForAll tb ->
-    let tvs, ty, bctx = Bindlib.unmbind_in bctx tb in
+  | TForAll (tv, ty) ->
     if Global.options.debug then
-      Format.fprintf fmt "∀ %a .@ "
-        (Format.pp_print_seq ~pp_sep:Format.pp_print_space tvar)
-        (Array.to_seq tvs);
+      Format.fprintf fmt "∀ %a .@ " tvar tv;
     typ_gen ~bctx () fmt ty
   | TClosureEnv -> base_type fmt "closure_env"
   | TError -> base_type fmt "error"

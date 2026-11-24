@@ -1,7 +1,7 @@
 (library
  (name lcalc)
  (public_name catala.lcalc)
- (libraries bindlib ubase dcalc scopelang catala.runtime_ocaml))
+ (libraries ubase dcalc scopelang catala.runtime_ocaml))
 
 (documentation
  (package catala)

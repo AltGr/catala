@@ -2,7 +2,6 @@
  (name dcalc)
  (public_name catala.dcalc)
  (libraries
-  bindlib
   catala_utils
   re
   ubase

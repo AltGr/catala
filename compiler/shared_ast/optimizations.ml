@@ -25,8 +25,8 @@ let binder_vars_used_at_most_once
         (('a, 'b) dcalc_lcalc, 'm) gexpr )
       Bindlib.mbinder) : bool =
   (* fast path: variables not used at all *)
-  (not (Array.exists Fun.id (Bindlib.mbinder_occurs binder)))
-  ||
+  (* (not (Array.exists Fun.id (Bindlib.mbinder_occurs binder)))
+   * || *)
   let vars, body = Bindlib.unmbind binder in
   let credit = ref 14 in
   (* Raises [Exit] on either var used twice, or credit exhausted *)
@@ -58,12 +58,18 @@ let simplified_apply f args tys =
   | _, args when List.exists (fun e -> not (Expr.is_pure e)) args ->
     (* Do not inline unpure expressions *)
     EApp { f; args; tys }
-  | (EAbs { binder; _ }, _), _
+  | (EAbs { binder = (vars, body); _ }, _), _
     when List.for_all
            (function (EVar _ | ELit _), _ -> true | _ -> false)
            args
          || binder_vars_used_at_most_once binder ->
-    Mark.remove (Bindlib.msubst binder (List.map fst args |> Array.of_list))
+    let vmap =
+      Seq.fold_left2
+        (fun m v a -> Var.Map.add v a m) Var.Map.empty
+        (Array.to_seq vars)
+        (List.to_seq args)
+    in
+    Mark.remove (Expr.subst_vars vmap body)
   | _ -> EApp { f; args; tys }
 
 let literal_bool = function

@@ -102,7 +102,7 @@ val empty_input_struct_lcalc :
 
 (** {2 Analysis and tests} *)
 
-val free_vars_body_expr : 'e scope_body_expr -> 'e Var.Set.t
-val free_vars_item : 'e code_item -> 'e Var.Set.t
-val free_vars : 'e code_item_list -> 'e Var.Set.t
+val free_vars_body_expr : 'e scope_body_expr -> Var.Set.t
+val free_vars_item : 'e code_item -> Var.Set.t
+val free_vars : 'e code_item_list -> Var.Set.t
 val get_mark_witness : (_, 'm) gexpr scope_body -> 'm mark option

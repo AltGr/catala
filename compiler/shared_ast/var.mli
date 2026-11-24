@@ -14,78 +14,44 @@
    License for the specific language governing permissions and limitations under
    the License. *)
 
-open Definitions
+open Catala_utils
 
-(** {1 Variables and their collections} *)
-
-(** This module provides types and helpers for Bindlib variables on the [gexpr]
-    type *)
-
-type 'e t = ('a, 't) naked_gexpr Bindlib.var constraint 'e = ('a, 't) gexpr
-type 'e vars = ('a, 't) naked_gexpr Bindlib.mvar constraint 'e = ('a, 't) gexpr
-
-val make : string -> 'e t
-val compare : 'e t -> 'e t -> int
-val equal : 'e t -> 'e t -> bool
-val hash : 'e t -> int
-
-val translate : 'e1 t -> 'e2 t
-(** Needed when converting from one AST type to another. See the note of caution
-    on [Bindlib.copy_var]. *)
-
-type 'e var = 'e t
-(** Alias to allow referring to the type in the submodules *)
-
-(** Wrapper over [Set.S] but with a type variable for the AST type parameters.
-    Extend as needed *)
-module Set : sig
-  type 'e t
-
-  val empty : 'e t
-  val singleton : 'e var -> 'e t
-  val add : 'e var -> 'e t -> 'e t
-  val remove : 'e var -> 'e t -> 'e t
-  val union : 'e t -> 'e t -> 'e t
-  val mem : 'e var -> 'e t -> bool
-  val of_list : 'e var list -> 'e t
-  val elements : 'e t -> 'e var list
-  val cardinal : 'e t -> int
-  val diff : 'e t -> 'e t -> 'e t
-  val iter : ('e var -> unit) -> 'e t -> unit
-  val is_empty : 'e t -> bool
-  val disjoint : 'e t -> 'e t -> bool
+module type Arg = sig
+  val style: Ocolor_types.style
 end
 
-(** Wrapper over [Map.S] but with a type variable for the AST type parameters.
-    Extend as needed *)
-module Map : sig
-  type ('e, 'x) t
-  type k0
+(** {1 Variables and their collections} *)
+module Make(Arg: Arg) (): sig
 
-  exception Not_found of k0
+  type t
 
-  val empty : ('e, 'x) t
-  val singleton : 'e var -> 'x -> ('e, 'x) t
-  val add : 'e var -> 'x -> ('e, 'x) t -> ('e, 'x) t
-  val remove : 'e var -> ('e, 'x) t -> ('e, 'x) t
-  val update : 'e var -> ('x option -> 'x option) -> ('e, 'x) t -> ('e, 'x) t
-  val find : 'e var -> ('e, 'x) t -> 'x
-  val find_opt : 'e var -> ('e, 'x) t -> 'x option
-  val bindings : ('e, 'x) t -> ('e var * 'x) list
-  val mem : 'e var -> ('e, 'x) t -> bool
-  val cardinal : ('e, 'x) t -> int
+  val make : pos:Pos.t -> string -> t
+  (** The position is expected to be the declaration or the first appearance of the variable *)
 
-  val union :
-    ('e var -> 'x -> 'x -> 'x option) -> ('e, 'x) t -> ('e, 'x) t -> ('e, 'x) t
+  val compare : t -> t -> int
+  val equal : t -> t -> bool
+  val hash : t -> int
 
-  val fold : ('e var -> 'x -> 'acc -> 'acc) -> ('e, 'x) t -> 'acc -> 'acc
-  val filter : ('e var -> 'x -> bool) -> ('e, 'x) t -> ('e, 'x) t
-  val keys : ('e, 'x) t -> 'e var list
-  val values : ('e, 'x) t -> 'x list
+  val name : t -> string
+  val id : t -> int
+  val pos : t -> Pos.t
+  val format : Format.formatter -> t -> unit
+  val fresh : ?name:string -> ?pos:Pos.t -> unit -> t
+  val refresh : t -> t
+  val rename : t -> string -> t
 
-  val format_keys :
-    ?pp_sep:(Format.formatter -> unit -> unit) ->
-    Format.formatter ->
-    ('e, 'x) t ->
-    unit
+  module Set: Set.S with type elt = t
+  module Map: Map.S with type key = t
+
+  type var = t
+  module Subst: sig
+    type t
+
+    val empty : t
+    val single : var -> var -> t
+    val add : t -> var -> var -> t
+    val merge : t -> t -> t
+    val apply : t -> var -> var
+    val check_capture : t -> Set.t -> unit
+  end
 end

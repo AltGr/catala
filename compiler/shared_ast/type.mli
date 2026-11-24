@@ -17,7 +17,7 @@
 open Catala_utils
 
 type t = Definitions.typ
-type var = Definitions.naked_typ Bindlib.var
+type var = Definitions.tvar
 
 val format : Format.formatter -> t -> unit
 
@@ -59,7 +59,7 @@ module Var : sig
   module Set : Set.S with type elt = t
   module Hashtbl : Hashtbl.S with type key = t
 
-  val fresh : unit -> t
+  val fresh : ?pos:Pos.t -> unit -> t
   val equal : t -> t -> bool
   val hash : t -> int
 end
@@ -107,3 +107,5 @@ val lookup_external_handling :
 (** Retrieves the runtime module defining the handling functions for the given
     external type. This assumes that the module defining it has been dynloaded
     -- normally, this happens just before interpretation. *)
+
+val subst : Definitions.TVar.Subst.t -> t -> t

@@ -108,13 +108,13 @@ let rec fold_map ~f ~last ~init:ctx = function
         (fun item next_bind -> Cons (item, next_bind))
         item next_bind )
 
-let rec fold_left2 ~f ~init a b =
-  match a, b with
-  | Last l1, Last l2 -> init, (l1, l2)
-  | Cons (item1, next_bind1), Cons (item2, next_bind2) ->
-    let var, next1, next2 = Bindlib.unbind2 next_bind1 next_bind2 in
-    fold_left2 ~f ~init:(f init item1 item2 var) next1 next2
-  | _ -> invalid_arg "fold_left2"
+(* let rec fold_left2 ~f ~init a b =
+ *   match a, b with
+ *   | Last l1, Last l2 -> init, (l1, l2)
+ *   | Cons (item1, next_bind1), Cons (item2, next_bind2) ->
+ *     let var, next1, next2 = Bindlib.unbind2 next_bind1 next_bind2 in
+ *     fold_left2 ~f ~init:(f init item1 item2 var) next1 next2
+ *   | _ -> invalid_arg "fold_left2" *)
 
 let rec equal ~f ~last a b =
   match a, b with

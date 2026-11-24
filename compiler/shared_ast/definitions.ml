@@ -243,6 +243,14 @@ type ('d, 'r, 'c) interpr_kind =
 
 type typ_lit = TUnit | TBool | TInt | TMoney | TRat | TDate | TDuration | TPos
 
+module TVar =
+  Var.Make (struct
+    let style = Ocolor_types.(Fg (C4 cyan))
+  end)
+    ()
+
+type tvar = TVar.t
+
 type typ = naked_typ Mark.pos
 
 and naked_typ =
@@ -256,9 +264,8 @@ and naked_typ =
   | TOption of typ
   | TArray of typ
   | TDefault of typ
-  | TVar of naked_typ Bindlib.var
-  | TForAll of (naked_typ, typ) Bindlib.mbinder
-      (** Universal quantification of type variables *)
+  | TVar of TVar.t
+  | TForAll of TVar.t * typ (** Universal quantification of type variables *)
   | TClosureEnv  (** Hides an existential type needed for closure conversion *)
 
 module TypeIdent : sig
@@ -529,6 +536,92 @@ type 'a glocation =
       is_external : bool;
     }
       -> < explicitScopes : yes ; .. > glocation
+
+module Var0 = Var.Make (struct
+    let style = Ocolor_types.Bold
+  end)
+    ()
+
+(* Temporary compat place-holder *)
+module Var = struct
+  include Var0
+  type nonrec 'a var = t
+  type nonrec 'a t = t
+  let translate v = v
+end
+(* type 'a var = 'a Var.t *)
+
+(* Temporary compat place-holder *)
+module Bindlib = struct
+  type nonrec 'a var = 'a Var.t
+
+  type ctxt = unit
+
+  type 'a mvar = 'a var array
+
+  type ('a,'b) binder = 'a var * 'b
+
+  type ('a,'b) mbinder = 'a var array * 'b
+
+  type 'a box = 'a
+
+  let name_of = Var.name
+  let uid_of = Var.id
+
+  let box x = x
+  let unbox x = x
+  let apply_box : ('a -> 'b) box -> 'a box -> 'b box
+    = fun f x -> f x
+
+  (** [box_apply f ba] applies the function [f] to a boxed argument [ba].  It is
+      equiletent to [apply_box (box f) ba], but is more efficient. *)
+  let box_apply : ('a -> 'b) -> 'a box -> 'b box
+    = fun f x -> f x
+
+  (** [box_apply2 f ba bb] applies the function [f] to two boxed arguments: [ba]
+      and [bb]. It is equiletent to [apply_box (apply_box (box f) ba) bb] but it
+      is more efficient. *)
+  let box_apply2 : ('a -> 'b -> 'c) -> 'a box -> 'b box -> 'c box
+    = fun f x y -> f x y
+  let box_apply3 = fun f x y z -> f x y z
+
+  let box_list l = l
+
+  (** [bind_var x b] binds the variable [x] in [b], producing a boxed binder. *)
+  let bind_var : 'a var -> 'b box -> ('a, 'b) binder box
+    = fun v x -> v, x
+
+  (** [bind_mvar xs b] binds the variables of [xs] in [b] to get a boxed binder.
+      It is the equiletent of [bind_var] to build a multiple binder. *)
+  let bind_mvar : 'a mvar -> 'b box -> ('a, 'b) mbinder box
+    = fun mv x -> mv, x
+
+  let mbinder_arity (vs, _) = Array.length vs
+
+  let eq_vars = Var.equal
+
+  let unbind (v, x) = v, x
+  let unmbind (arr, x) = arr, x
+
+  let unbind2 (v1, x1) (v2, x2) =
+    assert (Var.equal v1 v2); (v1, x1, x2)
+
+  let unmbind2 (arr1, x1) (arr2, x2) =
+    assert (Array.for_all2 Var.equal arr1 arr2); (arr1, x1, x2)
+
+  let compare_vars = Var.compare
+
+  let eq_mbinder eq (v1, x1) (v2, x2) =
+    v1 = v2 && eq x1 x2 (* TODO: up to alpha-conversion *)
+
+  module Lift (S: sig
+      type 'a t
+      val map : ('a -> 'b) -> 'a t -> 'b t
+    end
+  ) = struct
+    let lift_box x = ignore S.map; x
+  end
+end
 
 type ('a, 'm) gexpr = (('a, 'm) naked_gexpr, 'm) marked
 

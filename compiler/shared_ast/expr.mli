@@ -28,7 +28,7 @@ val box : ('a, 'm) gexpr -> ('a, 'm) boxed_gexpr
 val unbox : ('a, 'm) boxed_gexpr -> ('a, 'm) gexpr
 (** For closed expressions, similar to [Bindlib.unbox] *)
 
-val unbox_closed : ('a, 'm) boxed_gexpr -> ('a, 'm) gexpr
+val unbox_closed : ('a any, 'm) boxed_gexpr -> ('a, 'm) gexpr
 (** Similar to [unbox], but with an added assertion check on the expression
     being closed *)
 
@@ -47,11 +47,6 @@ val bind :
   ('a, 'm) gexpr Var.t array ->
   ('a, 'm) boxed_gexpr ->
   (('a, 'm) naked_gexpr, ('a, 'm) gexpr) Bindlib.mbinder Bindlib.box
-
-val subst :
-  (('a, 'm) naked_gexpr, ('a, 'm) gexpr) Bindlib.mbinder ->
-  ('a, 'm) gexpr list ->
-  ('a, 'm) gexpr
 
 val etuple : ('a, 'm) boxed_gexpr list -> 'm mark -> ('a any, 'm) boxed_gexpr
 
@@ -372,6 +367,8 @@ val map_gather :
 
     See [Lcalc.closure_conversion] for a real-world example. *)
 
+val subst_vars: ('a, 'm) gexpr Var.Map.t -> ('a, 'm) gexpr -> ('a, 'm) gexpr
+
 (** {2 Expression building helpers} *)
 
 val make_var : ('a, 'm) gexpr Var.t -> 'm mark -> ('a, 'm) boxed_gexpr
@@ -496,9 +493,9 @@ val compare : ('a, 'm) gexpr -> ('a, 'm) gexpr -> int
     information *)
 
 val is_value : ('a any, 'm) gexpr -> bool
-val free_vars : ('a any, 'm) gexpr -> ('a, 'm) gexpr Var.Set.t
+val free_vars : ('a any, 'm) gexpr -> Var.Set.t
 
-val free_vars_marked : ('a any, 'm) gexpr -> (('a, 'm) gexpr, 'm mark) Var.Map.t
+val free_vars_marked : ('a any, 'm) gexpr -> 'm mark Var.Map.t
 (** Returns the free variables of the given expression with their marked
     expression. Note that only it only returns the first occurence of duplicate
     variables. *)
@@ -578,11 +575,12 @@ module Box : sig
     'm mark ->
     ('a, 'm) boxed_gexpr
 
-  val assert_closed : 'b Bindlib.box -> unit
-  (** [assert_closed b] check there is no free variables in then [b] boxed term.
-      It raises an internal error if it not the case, printing all free
-      variables. *)
 end
+
+val assert_closed : ('a any, 'm) gexpr Bindlib.box -> unit
+(** [assert_closed b] check there is no free variables in then [b] boxed term.
+    It raises an internal error if it not the case, printing all free
+    variables. *)
 
 val embed_value : decl_ctx -> ('a, 'm) gexpr -> Catala_runtime.Value.t
 (** Create a runtime-compatible typed value embedding from an expression that
